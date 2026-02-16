@@ -99,6 +99,9 @@
     <string name="local_export_failed">Failed to export local data</string>
     
     <!-- Widget strings -->
+    <string name="memos_widget_title">Memos</string>
+    <string name="memory_widget_title">Memory</string>
+    <string name="memory_widget_description">Shows a random memo from your timeline.</string>
     <string name="loading">Loading…</string>
     <string name="error_unknown">Unknown error</string>
     <string name="no_memos">No memos found</string>
