@@ -80,6 +80,7 @@ fun MemoInputPage(
 
         memo?.let {
             viewModel.editMemo(memo.identifier, text.text, currentVisibility, tags.toList()).suspendOnSuccess {
+                memosViewModel.refreshLocalSnapshot()
                 navController.popBackStack()
             }.suspendOnErrorMessage { message ->
                 snackbarState.showSnackbar(message)
@@ -90,6 +91,7 @@ fun MemoInputPage(
         viewModel.createMemo(text.text, currentVisibility, tags.toList()).suspendOnSuccess {
             text = TextFieldValue("")
             viewModel.updateDraft("")
+            memosViewModel.refreshLocalSnapshot()
             navController.popBackStack()
         }.suspendOnErrorMessage { message ->
             snackbarState.showSnackbar(message)

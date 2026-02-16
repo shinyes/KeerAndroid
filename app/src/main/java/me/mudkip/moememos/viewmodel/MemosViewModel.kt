@@ -98,6 +98,10 @@ class MemosViewModel @Inject constructor(
         }
     }
 
+    suspend fun refreshLocalSnapshot() = withContext(viewModelScope.coroutineContext) {
+        loadMemosSnapshot()
+    }
+
     private fun applyMemos(latestMemos: List<MemoEntity>) {
         memos.clear()
         memos.addAll(latestMemos)

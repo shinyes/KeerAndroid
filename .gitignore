@@ -61,6 +61,7 @@ captures/
 .idea/studiobot.xml
 .idea/markdown.xml
 .idea/deviceManager.xml
+.idea/gradle.xml
 
 # Keystore files
 # Uncomment the following lines if you do not want to check your keystore files in.
