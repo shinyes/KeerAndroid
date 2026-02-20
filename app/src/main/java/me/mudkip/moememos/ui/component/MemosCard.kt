@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.text.format.DateUtils
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,6 +52,7 @@ import kotlinx.coroutines.launch
 import me.mudkip.moememos.R
 import me.mudkip.moememos.data.local.entity.MemoEntity
 import me.mudkip.moememos.data.model.Account
+import me.mudkip.moememos.data.model.MemoEditGesture
 import me.mudkip.moememos.ext.icon
 import me.mudkip.moememos.ext.string
 import me.mudkip.moememos.ext.titleResource
@@ -63,18 +65,44 @@ import me.mudkip.moememos.viewmodel.LocalUserState
 fun MemosCard(
     memo: MemoEntity,
     onClick: (MemoEntity) -> Unit,
+    editGesture: MemoEditGesture = MemoEditGesture.NONE,
     previewMode: Boolean = false,
     showSyncStatus: Boolean = false,
     onTagClick: ((String) -> Unit)? = null
 ) {
     val memosViewModel = LocalMemos.current
+    val rootNavController = LocalRootNavController.current
     val scope = rememberCoroutineScope()
 
+    val cardModifier = Modifier
+        .padding(horizontal = 15.dp, vertical = 10.dp)
+        .fillMaxWidth()
+        .combinedClickable(
+            onClick = {
+                if (editGesture == MemoEditGesture.SINGLE) {
+                    rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
+                } else {
+                    onClick(memo)
+                }
+            },
+            onLongClick = if (editGesture == MemoEditGesture.LONG) {
+                {
+                    rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
+                }
+            } else {
+                null
+            },
+            onDoubleClick = if (editGesture == MemoEditGesture.DOUBLE) {
+                {
+                    rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
+                }
+            } else {
+                null
+            }
+        )
+
     Card(
-        onClick = { onClick(memo) },
-        modifier = Modifier
-            .padding(horizontal = 15.dp, vertical = 10.dp)
-            .fillMaxWidth(),
+        modifier = cardModifier,
         border = if (memo.pinned) {
             BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
         } else {
