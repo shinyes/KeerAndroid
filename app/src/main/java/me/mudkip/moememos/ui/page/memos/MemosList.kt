@@ -24,9 +24,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
 import me.mudkip.moememos.R
 import me.mudkip.moememos.data.model.Account
+import me.mudkip.moememos.data.model.MemoEditGesture
+import me.mudkip.moememos.data.model.Settings
+import me.mudkip.moememos.ext.settingsDataStore
 import me.mudkip.moememos.ext.string
 import me.mudkip.moememos.ui.component.MemosCard
 import me.mudkip.moememos.ui.page.common.LocalRootNavController
@@ -46,10 +50,16 @@ fun MemosList(
     onRefresh: (suspend () -> Unit)? = null,
     onTagClick: ((String) -> Unit)? = null,
 ) {
+    val context = LocalContext.current
     val navController = LocalRootNavController.current
     val viewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
+    val editGesture = settings.usersList
+        .firstOrNull { it.accountKey == settings.currentUser }
+        ?.settings
+        ?.editGesture
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
     var isRefreshing by remember { mutableStateOf(false) }
@@ -119,6 +129,7 @@ fun MemosList(
                             "${RouteName.MEMO_DETAIL}?memoId=${Uri.encode(selectedMemo.identifier)}"
                         )
                     },
+                    editGesture = editGesture ?: MemoEditGesture.NONE,
                     previewMode = true,
                     showSyncStatus = currentAccount !is Account.Local,
                     onTagClick = onTagClick
