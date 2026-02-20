@@ -160,8 +160,13 @@ class MemosV0Repository (
     ): ApiResponse<Pair<List<Memo>, String?>> {
         return memosApi.listAllMemo(limit = pageSize, offset = pageToken?.toIntOrNull()).mapSuccess {
             val memos = this.map { convertMemo(it) }
-            val nextPageToken = (pageToken?.toIntOrNull() ?: 0) + pageSize
-            memos to nextPageToken.toString()
+            val currentOffset = pageToken?.toIntOrNull() ?: 0
+            val nextPageToken = if (memos.size < pageSize) {
+                null
+            } else {
+                (currentOffset + pageSize).toString()
+            }
+            memos to nextPageToken
         }
     }
 

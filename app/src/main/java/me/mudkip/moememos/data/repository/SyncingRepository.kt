@@ -46,10 +46,16 @@ class SyncingRepository(
     private val account: Account,
     private val onUserSynced: suspend (User) -> Unit = {},
 ) : AbstractMemoRepository() {
+    private data class UploadedResourcesResult(
+        val remoteResourceIds: List<String>,
+        val failedUploads: Int
+    )
+
     private val accountKey = account.accountKey()
     private var currentUser: User = account.toUser()
     private val operationMutex = Mutex()
     private val operationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var pendingDetailedSyncError: String? = null
     private val _syncStatus = MutableStateFlow(SyncStatus())
     override val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
 
@@ -384,6 +390,7 @@ class SyncingRepository(
     override suspend fun sync(): ApiResponse<Unit> {
         return operationMutex.withLock {
             setSyncing(true)
+            pendingDetailedSyncError = null
             try {
                 val result = syncInternal()
                 if (result is ApiResponse.Success) {
@@ -424,6 +431,13 @@ class SyncingRepository(
         val remoteById = remoteMemos.associateBy { remoteMemoId(it) }
 
         var hadErrors = false
+        var firstErrorMessage: String? = null
+        fun recordFailure() {
+            hadErrors = true
+            if (firstErrorMessage == null) {
+                firstErrorMessage = consumeDetailedSyncError()
+            }
+        }
         val localMemos = memoDao.getAllMemosForSync(accountKey)
         val localByRemoteId = localMemos.mapNotNull { memo ->
             memo.remoteId?.let { it to memo }
@@ -453,7 +467,7 @@ class SyncingRepository(
                     if (deleted is ApiResponse.Success) {
                         permanentlyDeleteMemo(local.identifier)
                     } else {
-                        hadErrors = true
+                        recordFailure()
                     }
                 }
                 continue
@@ -472,12 +486,12 @@ class SyncingRepository(
                 !localChanged -> applyRemoteMemo(remoteMemo, local.identifier)
                 !remoteChanged -> {
                     if (!pushLocalMemo(local.identifier)) {
-                        hadErrors = true
+                        recordFailure()
                     }
                 }
                 else -> {
                     if (!duplicateConflict(local, remoteMemo)) {
-                        hadErrors = true
+                        recordFailure()
                     }
                 }
             }
@@ -494,7 +508,7 @@ class SyncingRepository(
                     permanentlyDeleteMemo(local.identifier)
                 } else if (local.needsSync) {
                     if (!pushLocalMemo(local.identifier, forceCreate = true)) {
-                        hadErrors = true
+                        recordFailure()
                     }
                 } else {
                     permanentlyDeleteMemo(local.identifier)
@@ -507,14 +521,16 @@ class SyncingRepository(
                     permanentlyDeleteMemo(local.identifier)
                 } else if (local.needsSync) {
                     if (!pushLocalMemo(local.identifier, forceCreate = true)) {
-                        hadErrors = true
+                        recordFailure()
                     }
                 }
             }
         }
 
         return if (hadErrors) {
-            ApiResponse.Failure.Exception(Exception("Sync finished with partial failures"))
+            ApiResponse.Failure.Exception(
+                Exception(firstErrorMessage ?: "Sync finished with partial failures")
+            )
         } else {
             ApiResponse.Success(Unit)
         }
@@ -549,6 +565,7 @@ class SyncingRepository(
     }
 
     private suspend fun pushLocalMemo(identifier: String, forceCreate: Boolean = false): Boolean {
+        pendingDetailedSyncError = null
         val local = memoDao.getMemoById(identifier, accountKey) ?: return true
 
         if (local.isDeleted) {
@@ -566,7 +583,12 @@ class SyncingRepository(
             }
         }
 
-        val remoteResourceIds = ensureUploadedResources(local)
+        val uploadedResources = ensureUploadedResources(local)
+        if (uploadedResources.failedUploads > 0) {
+            pendingDetailedSyncError = ATTACHMENT_UPLOAD_FAILED_MESSAGE
+            return false
+        }
+        val remoteResourceIds = uploadedResources.remoteResourceIds
 
         return if (!forceCreate && local.remoteId != null) {
             val updated = remoteRepository.updateMemo(
@@ -637,18 +659,21 @@ class SyncingRepository(
         applyRemoteMemo(remoteMemo, preferredLocalIdentifier = localIdentifier)
     }
 
-    private suspend fun ensureUploadedResources(localMemo: MemoEntity): List<String> {
+    private suspend fun ensureUploadedResources(localMemo: MemoEntity): UploadedResourcesResult {
         val resources = memoDao.getMemoResources(localMemo.identifier, accountKey)
         val uploaded = arrayListOf<String>()
+        var failedUploads = 0
 
         for (resource in resources) {
             val ensured = ensureUploadedResource(resource, localMemo.remoteId)
             if (ensured?.remoteId != null) {
                 uploaded.add(ensured.remoteId)
+            } else if (resource.remoteId == null) {
+                failedUploads += 1
             }
         }
 
-        return uploaded
+        return UploadedResourcesResult(uploaded, failedUploads)
     }
 
     private suspend fun ensureUploadedResource(
@@ -798,8 +823,13 @@ class SyncingRepository(
     }
 
     private suspend fun pushLocalResource(identifier: String): Boolean {
+        pendingDetailedSyncError = null
         val local = memoDao.getResourceById(identifier, accountKey) ?: return true
-        val ensured = ensureUploadedResource(local, memoRemoteId = null) ?: return false
+        val ensured = ensureUploadedResource(local, memoRemoteId = null)
+            ?: run {
+                pendingDetailedSyncError = ATTACHMENT_UPLOAD_FAILED_MESSAGE
+                return false
+            }
         return ensured.remoteId != null
     }
 
@@ -833,7 +863,7 @@ class SyncingRepository(
                     if (success) {
                         setSyncError(null)
                     } else {
-                        setSyncError(defaultErrorMessage)
+                        setSyncError(consumeDetailedSyncError() ?: defaultErrorMessage)
                     }
                 } catch (e: Throwable) {
                     setSyncError(e.localizedMessage ?: defaultErrorMessage)
@@ -856,6 +886,12 @@ class SyncingRepository(
 
     private fun setSyncError(message: String?) {
         _syncStatus.update { it.copy(errorMessage = message) }
+    }
+
+    private fun consumeDetailedSyncError(): String? {
+        val message = pendingDetailedSyncError
+        pendingDetailedSyncError = null
+        return message
     }
 
     private suspend fun withResources(memo: MemoEntity): MemoEntity {
@@ -906,6 +942,11 @@ class SyncingRepository(
 
     override fun close() {
         operationScope.cancel()
+    }
+
+    companion object {
+        private const val ATTACHMENT_UPLOAD_FAILED_MESSAGE =
+            "Failed to upload one or more attachments during sync"
     }
 
 }

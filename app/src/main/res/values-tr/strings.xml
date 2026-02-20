@@ -98,6 +98,9 @@
     <string name="export_local_account">Yerel verileri dışa aktar</string>
     <string name="local_export_success">Yerel veriler dışa aktarıldı</string>
     <string name="local_export_failed">Yerel veriler dışa aktarılamadı</string>
+    <string name="memos_widget_title">Notlar</string>
+    <string name="memory_widget_title">Anı</string>
+    <string name="memory_widget_description">Zaman çizelgenizden rastgele bir not gösterir.</string>
     <string name="loading">Yükleniyor…</string>
     <string name="error_unknown">Bilinmeyen hata</string>
     <string name="no_memos">Not bulunamadı</string>

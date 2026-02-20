@@ -18,7 +18,7 @@ class ResourceListViewModel @Inject constructor(
         private set
 
     fun loadResources() = viewModelScope.launch {
-        memoService.repository.listResources().suspendOnSuccess {
+        memoService.getRepository().listResources().suspendOnSuccess {
             resources.clear()
             resources.addAll(data.sortedByDescending { it.date })
         }

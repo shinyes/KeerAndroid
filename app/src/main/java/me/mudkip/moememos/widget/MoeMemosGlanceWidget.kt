@@ -72,7 +72,7 @@ class MoeMemosGlanceWidget : GlanceAppWidget() {
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
                 try {
-                    memoService.repository.listMemos().suspendOnSuccess {
+                    memoService.getRepository().listMemos().suspendOnSuccess {
                         // Get pinned memos first, then most recent
                         val sortedMemos = data.sortedWith(
                             compareByDescending<MemoEntity> { it.pinned }

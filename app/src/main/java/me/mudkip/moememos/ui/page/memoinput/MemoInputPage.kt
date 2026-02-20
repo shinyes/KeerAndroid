@@ -241,6 +241,7 @@ fun MemoInputPage(
     }
 
     LaunchedEffect(Unit) {
+        viewModel.uploadResources.clear()
         when {
             memo != null -> {
                 viewModel.uploadResources.addAll(memo.resources)

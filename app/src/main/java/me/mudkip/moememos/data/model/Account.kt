@@ -9,12 +9,6 @@ sealed class Account {
         is Local -> "local"
     }
 
-    fun toUserData(): UserData = when (this) {
-        is MemosV0 -> UserData(accountKey = accountKey(), memosV0 = this.info)
-        is MemosV1 -> UserData(accountKey = accountKey(), memosV1 = this.info)
-        is Local -> UserData(accountKey = accountKey(), local = this.info)
-    }
-
     fun getAccountInfo(): MemosAccount? = when (this) {
         is MemosV0 -> this.info
         is MemosV1 -> this.info

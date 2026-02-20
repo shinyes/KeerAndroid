@@ -92,6 +92,9 @@
     <string name="export_local_account">Lokale Daten exportieren</string>
     <string name="local_export_success">Lokale Daten exportiert</string>
     <string name="local_export_failed">Export lokaler Daten fehlgeschlagen</string>
+    <string name="memos_widget_title">Memos</string>
+    <string name="memory_widget_title">Erinnerung</string>
+    <string name="memory_widget_description">Zeigt ein zufälliges Memo aus deiner Zeitleiste.</string>
     <string name="loading">Wird geladen…</string>
     <string name="error_unknown">Unbekannter Fehler</string>
     <string name="no_memos">Keine Memos gefunden</string>

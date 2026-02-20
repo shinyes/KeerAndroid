@@ -98,6 +98,9 @@
     <string name="export_local_account">Exporter les données locales</string>
     <string name="local_export_success">Données locales exportées</string>
     <string name="local_export_failed">Échec de l\'exportation des données locales</string>
+    <string name="memos_widget_title">Memos</string>
+    <string name="memory_widget_title">Souvenir</string>
+    <string name="memory_widget_description">Affiche un memo aléatoire de votre chronologie.</string>
     <string name="loading">Chargement…</string>
     <string name="error_unknown">Erreur inconnue</string>
     <string name="no_memos">Aucun memo trouvé</string>

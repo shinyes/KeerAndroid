@@ -94,6 +94,9 @@
     <string name="local_export_failed">ローカルデータのエクスポートに失敗しました</string>
 
     <!-- Widget strings -->
+    <string name="memos_widget_title">メモ</string>
+    <string name="memory_widget_title">メモリー</string>
+    <string name="memory_widget_description">タイムラインからランダムなメモを表示します。</string>
     <string name="loading">読み込み中…</string>
     <string name="error_unknown">不明なエラー</string>
     <string name="no_memos">メモはありません</string>

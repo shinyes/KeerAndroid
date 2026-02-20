@@ -88,7 +88,7 @@ class MemosViewModel @Inject constructor(
     }
 
     private suspend fun loadMemosSnapshot() {
-        when (val response = memoService.repository.listMemos()) {
+        when (val response = memoService.getRepository().listMemos()) {
             is ApiResponse.Success -> {
                 applyMemos(response.data)
             }
@@ -164,14 +164,14 @@ class MemosViewModel @Inject constructor(
     }
 
     fun loadTags() = viewModelScope.launch {
-        memoService.repository.listTags().suspendOnSuccess {
+        memoService.getRepository().listTags().suspendOnSuccess {
             tags.clear()
             tags.addAll(data)
         }
     }
 
     suspend fun updateMemoPinned(memoIdentifier: String, pinned: Boolean) = withContext(viewModelScope.coroutineContext) {
-        memoService.repository.updateMemo(memoIdentifier, pinned = pinned).suspendOnSuccess {
+        memoService.getRepository().updateMemo(memoIdentifier, pinned = pinned).suspendOnSuccess {
             updateMemo(data)
             // Update widgets after pinning/unpinning a memo
             WidgetUpdater.updateWidgets(appContext)
@@ -179,7 +179,7 @@ class MemosViewModel @Inject constructor(
     }
 
     suspend fun editMemo(memoIdentifier: String, content: String, resourceList: List<ResourceEntity>?, visibility: MemoVisibility): ApiResponse<MemoEntity> = withContext(viewModelScope.coroutineContext) {
-        memoService.repository.updateMemo(memoIdentifier, content, resourceList, visibility).suspendOnSuccess {
+        memoService.getRepository().updateMemo(memoIdentifier, content, resourceList, visibility).suspendOnSuccess {
             updateMemo(data)
             // Update widgets after editing a memo
             WidgetUpdater.updateWidgets(appContext)
@@ -187,7 +187,7 @@ class MemosViewModel @Inject constructor(
     }
 
     suspend fun archiveMemo(memoIdentifier: String) = withContext(viewModelScope.coroutineContext) {
-        memoService.repository.archiveMemo(memoIdentifier).suspendOnSuccess {
+        memoService.getRepository().archiveMemo(memoIdentifier).suspendOnSuccess {
             memos.removeIf { it.identifier == memoIdentifier }
             // Update widgets after archiving a memo
             WidgetUpdater.updateWidgets(appContext)
@@ -195,7 +195,7 @@ class MemosViewModel @Inject constructor(
     }
 
     suspend fun deleteMemo(memoIdentifier: String) = withContext(viewModelScope.coroutineContext) {
-        memoService.repository.deleteMemo(memoIdentifier).suspendOnSuccess {
+        memoService.getRepository().deleteMemo(memoIdentifier).suspendOnSuccess {
             memos.removeIf { it.identifier == memoIdentifier }
             // Update widgets after deleting a memo
             WidgetUpdater.updateWidgets(appContext)
@@ -203,11 +203,11 @@ class MemosViewModel @Inject constructor(
     }
 
     suspend fun cacheResourceFile(resourceIdentifier: String, downloadedUri: Uri): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
-        memoService.repository.cacheResourceFile(resourceIdentifier, downloadedUri)
+        memoService.getRepository().cacheResourceFile(resourceIdentifier, downloadedUri)
     }
 
     suspend fun getResourceById(resourceIdentifier: String): ResourceEntity? = withContext(viewModelScope.coroutineContext) {
-        when (val response = memoService.repository.listResources()) {
+        when (val response = memoService.getRepository().listResources()) {
             is ApiResponse.Success -> response.data.firstOrNull { it.identifier == resourceIdentifier }
             else -> null
         }

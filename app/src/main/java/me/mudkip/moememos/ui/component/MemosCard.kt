@@ -162,6 +162,7 @@ fun MemosCardActionButton(
     val rootNavController = LocalRootNavController.current
     val scope = rememberCoroutineScope()
     var showDeleteDialog by remember { mutableStateOf(false) }
+    val memoLabel = stringResource(R.string.memo)
 
     Box {
         IconButton(onClick = { menuExpanded = true }) {
@@ -233,7 +234,7 @@ fun MemosCardActionButton(
                 text = { Text(R.string.copy.string) },
                 onClick = {
                     clipboardManager?.setPrimaryClip(
-                        ClipData.newPlainText(context.getString(R.string.memo), memo.content)
+                        ClipData.newPlainText(memoLabel, memo.content)
                     )
                     menuExpanded = false
                 },

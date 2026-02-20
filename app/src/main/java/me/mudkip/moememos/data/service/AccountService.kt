@@ -8,9 +8,13 @@ import com.skydoves.sandwich.getOrNull
 import com.skydoves.sandwich.getOrThrow
 import com.skydoves.sandwich.retrofit.adapters.ApiResponseCallAdapterFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
@@ -34,6 +38,7 @@ import me.mudkip.moememos.data.repository.SyncingRepository
 import me.mudkip.moememos.ext.string
 import me.mudkip.moememos.ext.settingsDataStore
 import net.swiftzer.semver.SemVer
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -55,6 +60,7 @@ class AccountService @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val database: MoeMemosDatabase,
     private val fileStorage: FileStorage,
+    private val secureTokenStorage: SecureTokenStorage,
 ) {
     sealed class LoginCompatibility {
         data class Supported(val accountCase: UserData.AccountCase) : LoginCompatibility()
@@ -93,31 +99,43 @@ class AccountService @Inject constructor(
         explicitNulls = false
     }
 
+    @Volatile
     var httpClient: OkHttpClient = okHttpClient
         private set
 
     val accounts = context.settingsDataStore.data.map { settings ->
-        settings.usersList.mapNotNull { Account.parseUserData(it) }
+        settings.usersList.mapNotNull(::parseAccountWithSecureToken)
     }
 
     val currentAccount = context.settingsDataStore.data.map { settings ->
         settings.usersList.firstOrNull { it.accountKey == settings.currentUser }
-            ?.let { Account.parseUserData(it) }
+            ?.let(::parseAccountWithSecureToken)
     }
 
+    @Volatile
     private var repository: AbstractMemoRepository = LocalDatabaseRepository(
         database.memoDao(),
         fileStorage,
         Account.Local(LocalAccount())
     )
 
+    @Volatile
     private var remoteRepository: RemoteRepository? = null
 
     private val mutex = Mutex()
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val initialization = CompletableDeferred<Unit>()
 
     init {
-        runBlocking {
-            updateCurrentAccount(currentAccount.first())
+        serviceScope.launch {
+            try {
+                mutex.withLock {
+                    updateCurrentAccount(currentAccount.first())
+                }
+                initialization.complete(Unit)
+            } catch (e: Throwable) {
+                initialization.completeExceptionally(e)
+            }
         }
     }
 
@@ -166,6 +184,7 @@ class AccountService @Inject constructor(
     }
 
     suspend fun switchAccount(accountKey: String) {
+        awaitInitialization()
         mutex.withLock {
             val account = accounts.first().firstOrNull { it.accountKey() == accountKey }
             context.settingsDataStore.updateData { settings ->
@@ -176,7 +195,9 @@ class AccountService @Inject constructor(
     }
 
     suspend fun addAccount(account: Account) {
+        awaitInitialization()
         mutex.withLock {
+            persistAccessToken(account)
             context.settingsDataStore.updateData { settings ->
                 val users = settings.usersList.toMutableList()
                 val index = users.indexOfFirst { it.accountKey == account.accountKey() }
@@ -184,7 +205,7 @@ class AccountService @Inject constructor(
                 if (index != -1) {
                     users.removeAt(index)
                 }
-                users.add(account.toUserData().copy(settings = currentSettings))
+                users.add(account.toPersistedUserData(currentSettings))
                 settings.copy(
                     usersList = users,
                     currentUser = account.accountKey(),
@@ -195,6 +216,7 @@ class AccountService @Inject constructor(
     }
 
     suspend fun removeAccount(accountKey: String) {
+        awaitInitialization()
         mutex.withLock {
             context.settingsDataStore.updateData { settings ->
                 val users = settings.usersList.toMutableList()
@@ -214,6 +236,7 @@ class AccountService @Inject constructor(
             }
             updateCurrentAccount(currentAccount.first())
             purgeAccountData(accountKey)
+            secureTokenStorage.removeToken(accountKey)
         }
     }
 
@@ -304,10 +327,10 @@ class AccountService @Inject constructor(
                     return@updateData settings
                 }
                 val existingUser = settings.usersList[index]
-                val current = Account.parseUserData(existingUser) ?: return@updateData settings
+                val current = parseAccountWithSecureToken(existingUser) ?: return@updateData settings
                 val updated = current.withUser(user)
                 val users = settings.usersList.toMutableList()
-                users[index] = updated.toUserData().copy(settings = existingUser.settings)
+                users[index] = updated.toPersistedUserData(existingUser.settings)
                 settings.copy(usersList = users)
             }
         }
@@ -319,7 +342,7 @@ class AccountService @Inject constructor(
         if (!accessToken.isNullOrEmpty()) {
             client = client.newBuilder().addNetworkInterceptor { chain ->
                 var request = chain.request()
-                if (request.url.host == host.toHttpUrlOrNull()?.host) {
+                if (shouldAttachAccessToken(request.url, host)) {
                     request = request.newBuilder().addHeader("Authorization", "Bearer $accessToken")
                         .build()
                 }
@@ -338,11 +361,14 @@ class AccountService @Inject constructor(
 
     fun createMemosV1Client(host: String, accessToken: String?): Pair<OkHttpClient, MemosV1Api> {
         val client = okHttpClient.newBuilder().apply {
-            if (accessToken != null) {
-                addInterceptor { chain ->
-                    val request = chain.request().newBuilder()
-                        .addHeader("Authorization", "Bearer $accessToken")
-                        .build()
+            if (!accessToken.isNullOrBlank()) {
+                addNetworkInterceptor { chain ->
+                    var request = chain.request()
+                    if (shouldAttachAccessToken(request.url, host)) {
+                        request = request.newBuilder()
+                            .addHeader("Authorization", "Bearer $accessToken")
+                            .build()
+                    }
                     chain.proceed(request)
                 }
             }
@@ -380,6 +406,7 @@ class AccountService @Inject constructor(
         isAutomatic: Boolean,
         allowHigherV1Version: String? = null,
     ): SyncCompatibility {
+        awaitInitialization()
         val account = currentAccount.first() ?: return SyncCompatibility.Allowed
         if (account !is Account.MemosV0 && account !is Account.MemosV1) {
             return SyncCompatibility.Allowed
@@ -424,6 +451,7 @@ class AccountService @Inject constructor(
     }
 
     suspend fun rememberAcceptedUnsupportedSyncVersion(version: String) {
+        awaitInitialization()
         val accountKey = currentAccount.first()?.accountKey() ?: return
         mutex.withLock {
             context.settingsDataStore.updateData { settings ->
@@ -447,12 +475,14 @@ class AccountService @Inject constructor(
     }
 
     suspend fun getRepository(): AbstractMemoRepository {
+        awaitInitialization()
         mutex.withLock {
             return repository
         }
     }
 
     suspend fun getRemoteRepository(): RemoteRepository? {
+        awaitInitialization()
         mutex.withLock {
             return remoteRepository
         }
@@ -507,6 +537,56 @@ class AccountService @Inject constructor(
             .firstOrNull { it.accountKey == accountKey }
             ?: return false
         return userData.settings.acceptedUnsupportedSyncVersions.contains(version)
+    }
+
+    private fun parseAccountWithSecureToken(userData: UserData): Account? {
+        val account = Account.parseUserData(userData) ?: return null
+        val token = secureTokenStorage.getToken(userData.accountKey)
+            .orEmpty()
+        return when (account) {
+            is Account.MemosV0 -> Account.MemosV0(account.info.copy(accessToken = token))
+            is Account.MemosV1 -> Account.MemosV1(account.info.copy(accessToken = token))
+            is Account.Local -> account
+        }
+    }
+
+    private fun Account.toPersistedUserData(settings: UserSettings): UserData {
+        return when (this) {
+            is Account.MemosV0 -> UserData(
+                settings = settings,
+                accountKey = accountKey(),
+                memosV0 = info.copy(accessToken = "")
+            )
+            is Account.MemosV1 -> UserData(
+                settings = settings,
+                accountKey = accountKey(),
+                memosV1 = info.copy(accessToken = "")
+            )
+            is Account.Local -> UserData(
+                settings = settings,
+                accountKey = accountKey(),
+                local = info
+            )
+        }
+    }
+
+    private fun persistAccessToken(account: Account) {
+        when (account) {
+            is Account.MemosV0 -> secureTokenStorage.saveToken(account.accountKey(), account.info.accessToken)
+            is Account.MemosV1 -> secureTokenStorage.saveToken(account.accountKey(), account.info.accessToken)
+            is Account.Local -> Unit
+        }
+    }
+
+    private fun shouldAttachAccessToken(requestUrl: HttpUrl, host: String): Boolean {
+        val baseUrl = host.toHttpUrlOrNull() ?: return false
+        return requestUrl.scheme == baseUrl.scheme &&
+            requestUrl.host == baseUrl.host &&
+            requestUrl.port == baseUrl.port
+    }
+
+    private suspend fun awaitInitialization() {
+        initialization.await()
     }
 
     private fun evaluateVersionPolicy(serverVersion: ServerVersionInfo): VersionPolicy {

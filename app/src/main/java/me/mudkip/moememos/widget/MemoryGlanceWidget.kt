@@ -63,7 +63,7 @@ class MemoryGlanceWidget : GlanceAppWidget() {
         LaunchedEffect(Unit) {
             withContext(Dispatchers.IO) {
                 try {
-                    memoService.repository.listMemos().suspendOnSuccess {
+                    memoService.getRepository().listMemos().suspendOnSuccess {
                         memo = data.shuffled().firstOrNull()
                         error = null
                     }

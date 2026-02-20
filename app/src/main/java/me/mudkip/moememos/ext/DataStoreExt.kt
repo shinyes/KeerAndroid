@@ -7,6 +7,6 @@ import me.mudkip.moememos.data.model.Settings
 import me.mudkip.moememos.util.SettingsSerializer
 
 val Context.settingsDataStore: DataStore<Settings> by dataStore(
-    fileName = "settings.json",
+    fileName = "settings_v2.json",
     serializer = SettingsSerializer
 )

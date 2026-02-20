@@ -97,6 +97,9 @@
     <string name="export_local_account">Экспортировать локальные данные</string>
     <string name="local_export_success">Локальные данные экспортированы</string>
     <string name="local_export_failed">Не удалось экспортировать локальные данные</string>
+    <string name="memos_widget_title">Заметки</string>
+    <string name="memory_widget_title">Воспоминание</string>
+    <string name="memory_widget_description">Показывает случайную заметку из вашей ленты.</string>
     <string name="loading">Загрузка…</string>
     <string name="error_unknown">Неизвестная ошибка</string>
     <string name="no_memos">Заметки не найдены</string>

@@ -4,7 +4,6 @@ import com.skydoves.sandwich.ApiResponse
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import me.mudkip.moememos.data.local.entity.MemoEntity
@@ -22,10 +21,9 @@ class MemoService @Inject constructor(
     private val syncThreshold = 5000L
     private val syncMutex = Mutex()
 
-    val repository: AbstractMemoRepository
-        get() = runBlocking {
-            accountService.getRepository()
-        }
+    suspend fun getRepository(): AbstractMemoRepository {
+        return accountService.getRepository()
+    }
 
     val syncStatus: Flow<SyncStatus> = accountService.currentAccount.flatMapLatest {
         accountService.getRepository().syncStatus
@@ -42,7 +40,7 @@ class MemoService @Inject constructor(
                 return@withLock ApiResponse.Success(Unit)
             }
 
-            val repo = accountService.getRepository()
+            val repo = getRepository()
             val result = repo.sync()
             if (result is ApiResponse.Success) {
                 lastSyncTime = now

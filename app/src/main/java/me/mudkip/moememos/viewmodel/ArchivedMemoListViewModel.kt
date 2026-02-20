@@ -28,7 +28,7 @@ class ArchivedMemoListViewModel @Inject constructor(
         private set
 
     fun loadMemos() = viewModelScope.launch {
-        memoService.repository.listArchivedMemos().suspendOnSuccess {
+        memoService.getRepository().listArchivedMemos().suspendOnSuccess {
             memos.clear()
             memos.addAll(data)
             errorMessage = null
@@ -38,13 +38,13 @@ class ArchivedMemoListViewModel @Inject constructor(
     }
 
     suspend fun restoreMemo(identifier: String) = withContext(viewModelScope.coroutineContext) {
-        memoService.repository.restoreMemo(identifier).suspendOnSuccess {
+        memoService.getRepository().restoreMemo(identifier).suspendOnSuccess {
             memos.removeIf { it.identifier == identifier }
         }
     }
 
     suspend fun deleteMemo(identifier: String) = withContext(viewModelScope.coroutineContext) {
-        memoService.repository.deleteMemo(identifier).suspendOnSuccess {
+        memoService.getRepository().deleteMemo(identifier).suspendOnSuccess {
             memos.removeIf { it.identifier == identifier }
         }
     }
