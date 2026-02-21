@@ -20,12 +20,19 @@ def hasReleaseSigning = [
 android {
     compileSdk = 36
 
+    dependenciesInfo {
+        // Disables dependency metadata when building APKs.
+        includeInApk = false
+        // Disables dependency metadata when building Android App Bundles.
+        includeInBundle = false
+    }
+
     defaultConfig {
         applicationId = "me.mudkip.moememos"
         minSdk = 26
         targetSdk = 36
-        versionCode = 45
-        versionName = "2.0.0"
+        versionCode = 46
+        versionName = "2.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
