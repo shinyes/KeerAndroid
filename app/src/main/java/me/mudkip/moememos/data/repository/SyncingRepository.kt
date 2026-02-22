@@ -613,7 +613,8 @@ class SyncingRepository(
                 content = local.content,
                 visibility = local.visibility,
                 resourceRemoteIds = remoteResourceIds,
-                tags = null
+                tags = null,
+                createdAt = local.date
             )
             if (created !is ApiResponse.Success) {
                 return false

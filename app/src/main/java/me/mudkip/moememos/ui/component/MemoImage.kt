@@ -17,7 +17,6 @@ import androidx.core.net.toUri
 import coil3.ImageLoader
 import coil3.annotation.ExperimentalCoilApi
 import coil3.compose.AsyncImage
-import coil3.imageLoader
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import kotlinx.coroutines.launch
 import me.mudkip.moememos.viewmodel.LocalMemos
@@ -37,14 +36,8 @@ fun MemoImage(
     val userStateViewModel = LocalUserState.current
     val memosViewModel = LocalMemos.current
     val scope = rememberCoroutineScope()
-    val modelUri = remember(url) { url.toUri() }
-    val modelFile = remember(url) {
-        modelUri.takeIf { it.scheme == "file" }?.path?.let(::File)
-    }
-
-    AsyncImage(
-        model = url,
-        imageLoader = ImageLoader.Builder(context)
+    val imageLoader = remember(context, userStateViewModel.okHttpClient) {
+        ImageLoader.Builder(context)
             .components {
                 add(
                     OkHttpNetworkFetcherFactory(
@@ -52,7 +45,16 @@ fun MemoImage(
                     )
                 )
             }
-            .build(),
+            .build()
+    }
+    val modelUri = remember(url) { url.toUri() }
+    val modelFile = remember(url) {
+        modelUri.takeIf { it.scheme == "file" }?.path?.let(::File)
+    }
+
+    AsyncImage(
+        model = url,
+        imageLoader = imageLoader,
         contentDescription = null,
         modifier = modifier.clickable {
             val fileToOpen = diskCacheFile ?: modelFile
@@ -78,7 +80,7 @@ fun MemoImage(
         },
         contentScale = ContentScale.Crop,
         onSuccess = { state ->
-            val diskCache = context.imageLoader.diskCache
+            val diskCache = imageLoader.diskCache
             val diskCacheKey = state.result.diskCacheKey
 
             if (diskCache != null && diskCacheKey != null) {
@@ -93,6 +95,9 @@ fun MemoImage(
                     }
                 }
             }
+        },
+        onError = {
+            Timber.d("Failed to load memo image: %s", url)
         }
     )
 }

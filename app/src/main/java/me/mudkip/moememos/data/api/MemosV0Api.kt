@@ -19,19 +19,12 @@ import retrofit2.http.Query
 import java.time.Instant
 
 @Serializable
-data class MemosV0SignInInput(
-    val email: String,
-    var username: String,
-    val password: String,
-    val remember: Boolean
-)
-
-@Serializable
 data class MemosV0CreateMemoInput(
     val content: String,
     val visibility: MemosVisibility? = null,
     val resourceIdList: List<Long>? = null,
-    val pinned: Boolean? = null
+    val pinned: Boolean? = null,
+    val createdTs: Long? = null
 )
 
 @Serializable

@@ -6,6 +6,7 @@ import me.mudkip.moememos.data.model.MemoVisibility
 import me.mudkip.moememos.data.model.Resource
 import me.mudkip.moememos.data.model.User
 import okhttp3.MediaType
+import java.time.Instant
 
 abstract class RemoteRepository {
     abstract suspend fun listMemos(): ApiResponse<List<Memo>>
@@ -16,7 +17,8 @@ abstract class RemoteRepository {
         content: String,
         visibility: MemoVisibility,
         resourceRemoteIds: List<String>,
-        tags: List<String>? = null
+        tags: List<String>? = null,
+        createdAt: Instant? = null
     ): ApiResponse<Memo>
 
     abstract suspend fun updateMemo(

@@ -43,19 +43,22 @@ fun InputImage(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val userStateViewModel = LocalUserState.current
+    val imageLoader = remember(context, userStateViewModel.okHttpClient) {
+        ImageLoader.Builder(context)
+            .components {
+                add(
+                    OkHttpNetworkFetcherFactory(
+                        callFactory = { userStateViewModel.okHttpClient }
+                    )
+                )
+            }
+            .build()
+    }
 
     Box {
         AsyncImage(
             model = resource.localUri ?: resource.uri,
-            imageLoader = ImageLoader.Builder(context)
-                .components {
-                    add(
-                        OkHttpNetworkFetcherFactory(
-                            callFactory = { userStateViewModel.okHttpClient }
-                        )
-                    )
-                }
-                .build(),
+            imageLoader = imageLoader,
             contentDescription = null,
             modifier = Modifier
                 .fillMaxHeight()

@@ -82,7 +82,9 @@ data class GetCurrentUserResponse(
 data class MemosV1CreateMemoRequest(
     val content: String,
     val visibility: MemosVisibility?,
-    val attachments: List<MemosV1Resource>?
+    val attachments: List<MemosV1Resource>?,
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val createTime: Instant? = null
 )
 
 @Serializable

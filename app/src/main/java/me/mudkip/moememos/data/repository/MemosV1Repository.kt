@@ -124,9 +124,17 @@ class MemosV1Repository(
         content: String,
         visibility: MemoVisibility,
         resourceRemoteIds: List<String>,
-        tags: List<String>?
+        tags: List<String>?,
+        createdAt: Instant?
     ): ApiResponse<Memo> {
-        val resp = memosApi.createMemo(MemosV1CreateMemoRequest(content, MemosVisibility.fromMemoVisibility(visibility), resourceRemoteIds.map { MemosV1Resource(name = getName(it)) }))
+        val resp = memosApi.createMemo(
+            MemosV1CreateMemoRequest(
+                content = content,
+                visibility = MemosVisibility.fromMemoVisibility(visibility),
+                attachments = resourceRemoteIds.map { MemosV1Resource(name = getName(it)) },
+                createTime = createdAt
+            )
+        )
             .mapSuccess { convertMemo(this) }
         return resp
     }

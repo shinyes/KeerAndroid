@@ -67,9 +67,17 @@ class MemosV0Repository (
         content: String,
         visibility: MemoVisibility,
         resourceRemoteIds: List<String>,
-        tags: List<String>?
+        tags: List<String>?,
+        createdAt: Instant?
     ): ApiResponse<Memo> {
-        val result = memosApi.createMemo(MemosV0CreateMemoInput(content, resourceIdList = resourceRemoteIds.map { it.toLong() }, visibility = MemosVisibility.fromMemoVisibility(visibility))).mapSuccess {
+        val result = memosApi.createMemo(
+            MemosV0CreateMemoInput(
+                content = content,
+                resourceIdList = resourceRemoteIds.map { it.toLong() },
+                visibility = MemosVisibility.fromMemoVisibility(visibility),
+                createdTs = createdAt?.epochSecond
+            )
+        ).mapSuccess {
             convertMemo(this)
         }
         tags?.forEach { tag ->
