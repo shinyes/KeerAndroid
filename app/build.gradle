@@ -28,7 +28,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "me.mudkip.moememos"
+        applicationId = "site.lcyk.keer"
         minSdk = 26
         targetSdk = 36
         versionCode = 47

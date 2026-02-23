@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">MoeMemos</string>
+    <string name="app_name">keer</string>
     <string name="default_card_content" translatable="false">It is what you do with the gift of life that determines who you are.      — Mewtwo</string>
     <string name="search">Search</string>
     <string name="back">Back</string>
@@ -24,10 +24,10 @@
     <string name="privacy">Privacy</string>
     <string name="website">Website</string>
     <string name="web">Web</string>
-    <string name="about">About Moe Memos</string>
+    <string name="about">About keer</string>
     <string name="add_account">Add Account</string>
     <string name="attachment">Attachment</string>
-    <string name="moe_memos" translatable="false">Moe Memos</string>
+    <string name="moe_memos" translatable="false">keer</string>
     <string name="selected">Selected</string>
     <string name="username_and_password">Username and password</string>
     <string name="report_an_issue">Report an Issue</string>
@@ -71,10 +71,10 @@
     <string name="invalid_server">Invalid server.</string>
     <string name="access_token_invalid_relogin">Your access token is invalid, please create a never expire access token and login again.</string>
     <string name="sync_failed">Sync Failed</string>
-    <string name="memos_supported_versions">Moe Memos only supports Memos 0.21.0, 0.26.0 and 0.26.1.</string>
+    <string name="memos_supported_versions">keer only supports Memos 0.21.0, 0.26.0 and 0.26.1.</string>
     <string name="unsupported_memos_version_title">Unsupported Memos Version</string>
-    <string name="memos_login_version_higher_warning">Your Memos version is higher than the versions supported by Moe Memos. Compatibility issues may happen. Check the Moe Memos website before continuing.</string>
-    <string name="memos_sync_version_higher_warning">Your Memos version is higher than the versions supported by Moe Memos. Force sync may corrupt unsynced data. Check the Moe Memos website before continuing.</string>
+    <string name="memos_login_version_higher_warning">Your Memos version is higher than the versions supported by keer. Compatibility issues may happen. Check the keer website before continuing.</string>
+    <string name="memos_sync_version_higher_warning">Your Memos version is higher than the versions supported by keer. Force sync may corrupt unsynced data. Check the keer website before continuing.</string>
     <string name="still_login">Still login</string>
     <string name="still_sync">Still Sync</string>
     <string name="pin">Pin</string>

@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">MoeMemos</string>
+    <string name="app_name">keer</string>
     <string name="default_card_content" translatable="false">It is what you do with the gift of life that determines who you are.      — Mewtwo</string>
     <string name="search">Ara</string>
     <string name="back">Geri</string>
@@ -24,10 +24,10 @@
     <string name="privacy">Gizlilik</string>
     <string name="website">Web Sitesi</string>
     <string name="web">Web</string>
-    <string name="about">Moe Memos Hakkında</string>
+    <string name="about">keer Hakkında</string>
     <string name="add_account">Giriş yap</string>
     <string name="attachment">Ek</string>
-    <string name="moe_memos" translatable="false">Moe Notlar</string>
+    <string name="moe_memos" translatable="false">keer</string>
     <string name="selected">Seçilen</string>
     <string name="username_and_password">Kullanıcı adı ve şifre</string>
     <string name="report_an_issue">Bir Sorun Bildir</string>
@@ -61,10 +61,10 @@
     <string name="invalid_server">Geçersiz sunucu.</string>
     <string name="access_token_invalid_relogin">Access Token geçersiz, lütfen süresi dolmayan bir Access Token oluşturup tekrar giriş yapın.</string>
     <string name="sync_failed">Senkronizasyon başarısız</string>
-    <string name="memos_supported_versions">Moe Memos yalnızca Memos 0.21.0, 0.26.0 ve 0.26.1 sürümlerini destekler.</string>
+    <string name="memos_supported_versions">keer yalnızca Memos 0.21.0, 0.26.0 ve 0.26.1 sürümlerini destekler.</string>
     <string name="unsupported_memos_version_title">Desteklenmeyen Memos sürümü</string>
-    <string name="memos_login_version_higher_warning">Memos sürümünüz, Moe Memos tarafından desteklenen sürümlerden daha yüksek. Uyumluluk sorunları olabilir. Devam etmeden önce Moe Memos web sitesini kontrol edin.</string>
-    <string name="memos_sync_version_higher_warning">Memos sürümünüz, Moe Memos tarafından desteklenen sürümlerden daha yüksek. Senkronizasyonu zorlamak, senkronize edilmemiş verilerin bozulmasına neden olabilir. Devam etmeden önce Moe Memos web sitesini kontrol edin.</string>
+    <string name="memos_login_version_higher_warning">Memos sürümünüz, keer tarafından desteklenen sürümlerden daha yüksek. Uyumluluk sorunları olabilir. Devam etmeden önce keer web sitesini kontrol edin.</string>
+    <string name="memos_sync_version_higher_warning">Memos sürümünüz, keer tarafından desteklenen sürümlerden daha yüksek. Senkronizasyonu zorlamak, senkronize edilmemiş verilerin bozulmasına neden olabilir. Devam etmeden önce keer web sitesini kontrol edin.</string>
     <string name="still_login">Yine de giriş yap</string>
     <string name="still_sync">Yine de senkronize et</string>
     <string name="pin">Sabitle</string>

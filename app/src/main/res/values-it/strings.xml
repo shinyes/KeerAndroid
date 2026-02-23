@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">MoeMemos</string>
+    <string name="app_name">keer</string>
     <string name="default_card_content" translatable="false">È ciò che fai con il dono della vita che determina chi sei.      — Mewtwo</string>
     <string name="search">Ricerca</string>
     <string name="back">Indietro</string>
@@ -24,10 +24,10 @@
     <string name="privacy">Privacy</string>
     <string name="website">Sito Web</string>
     <string name="web">Web</string>
-    <string name="about">Info su Moe Memos</string>
+    <string name="about">Info su keer</string>
     <string name="add_account">Registrazione</string>
     <string name="attachment">Allegati</string>
-    <string name="moe_memos" translatable="false">Moe Memos</string>
+    <string name="moe_memos" translatable="false">keer</string>
     <string name="selected">Selezionato</string>
     <string name="username_and_password">Utente e password</string>
     <string name="report_an_issue">Segnala un problema</string>
@@ -61,10 +61,10 @@
     <string name="invalid_server">Server non valido.</string>
     <string name="access_token_invalid_relogin">Il tuo token di accesso non è valido, crea un token di accesso senza scadenza ed effettua nuovamente l\'accesso.</string>
     <string name="sync_failed">Sincronizzazione non riuscita</string>
-    <string name="memos_supported_versions">Moe Memos supporta solo Memos 0.21.0, 0.26.0 e 0.26.1.</string>
+    <string name="memos_supported_versions">keer supporta solo Memos 0.21.0, 0.26.0 e 0.26.1.</string>
     <string name="unsupported_memos_version_title">Versione di Memos non supportata</string>
-    <string name="memos_login_version_higher_warning">La tua versione di Memos è più alta delle versioni supportate da Moe Memos. Potrebbero verificarsi problemi di compatibilità. Controlla il sito di Moe Memos prima di continuare.</string>
-    <string name="memos_sync_version_higher_warning">La tua versione di Memos è più alta delle versioni supportate da Moe Memos. Forzare la sincronizzazione potrebbe corrompere i dati non sincronizzati. Controlla il sito di Moe Memos prima di continuare.</string>
+    <string name="memos_login_version_higher_warning">La tua versione di Memos è più alta delle versioni supportate da keer. Potrebbero verificarsi problemi di compatibilità. Controlla il sito di keer prima di continuare.</string>
+    <string name="memos_sync_version_higher_warning">La tua versione di Memos è più alta delle versioni supportate da keer. Forzare la sincronizzazione potrebbe corrompere i dati non sincronizzati. Controlla il sito di keer prima di continuare.</string>
     <string name="still_login">Accedi comunque</string>
     <string name="still_sync">Sincronizza comunque</string>
     <string name="pin">Pin</string>

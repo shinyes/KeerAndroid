@@ -20,9 +20,9 @@ class MainActivity : ComponentActivity() {
     private val memosViewModel: MemosViewModel by viewModels()
 
     companion object {
-        const val ACTION_NEW_MEMO = "me.mudkip.moememos.action.NEW_MEMO"
-        const val ACTION_EDIT_MEMO = "me.mudkip.moememos.action.EDIT_MEMO"
-        const val ACTION_VIEW_MEMO = "me.mudkip.moememos.action.VIEW_MEMO"
+        const val ACTION_NEW_MEMO = "site.lcyk.keer.action.NEW_MEMO"
+        const val ACTION_EDIT_MEMO = "site.lcyk.keer.action.EDIT_MEMO"
+        const val ACTION_VIEW_MEMO = "site.lcyk.keer.action.VIEW_MEMO"
         const val EXTRA_MEMO_ID = "memoId"
     }
 

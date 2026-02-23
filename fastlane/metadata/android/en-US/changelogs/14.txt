@@ -1,3 +1,0 @@
-What's new in this version:
-- Fixed compatibility with Memos 0.11.0
-- Fixed display of Markdown links

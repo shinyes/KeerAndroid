@@ -1,3 +1,0 @@
-What's new in this version:
-- Save texts, images and webpages from share sheet
-- Minor bug fixes

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">MoeMemos</string>
+    <string name="app_name">keer</string>
     <string name="default_card_content" translatable="false">Именно то, что вы делаете с даром жизни, определяет, кто вы есть. — Мьютво</string>
     <string name="search">Поиск</string>
     <string name="back">Назад</string>
@@ -24,7 +24,7 @@
     <string name="privacy">Конфиденциальность</string>
     <string name="website">Веб-сайт</string>
     <string name="web">Веб</string>
-    <string name="about">О Moe Memos</string>
+    <string name="about">О keer</string>
     <string name="add_account">Войти в систему</string>
     <string name="attachment">Вложение</string>
     <string name="selected">Выбрано</string>
@@ -60,10 +60,10 @@
     <string name="invalid_server">Недопустимый сервер.</string>
     <string name="access_token_invalid_relogin">Ваш токен доступа недействителен. Создайте токен доступа без срока действия и войдите снова.</string>
     <string name="sync_failed">Синхронизация не удалась</string>
-    <string name="memos_supported_versions">Moe Memos поддерживает только Memos 0.21.0, 0.26.0 и 0.26.1.</string>
+    <string name="memos_supported_versions">keer поддерживает только Memos 0.21.0, 0.26.0 и 0.26.1.</string>
     <string name="unsupported_memos_version_title">Неподдерживаемая версия Memos</string>
-    <string name="memos_login_version_higher_warning">Ваша версия Memos выше версий, поддерживаемых Moe Memos. Возможны проблемы совместимости. Перед продолжением проверьте сайт Moe Memos.</string>
-    <string name="memos_sync_version_higher_warning">Ваша версия Memos выше версий, поддерживаемых Moe Memos. Принудительная синхронизация может повредить несинхронизированные данные. Перед продолжением проверьте сайт Moe Memos.</string>
+    <string name="memos_login_version_higher_warning">Ваша версия Memos выше версий, поддерживаемых keer. Возможны проблемы совместимости. Перед продолжением проверьте сайт keer.</string>
+    <string name="memos_sync_version_higher_warning">Ваша версия Memos выше версий, поддерживаемых keer. Принудительная синхронизация может повредить несинхронизированные данные. Перед продолжением проверьте сайт keer.</string>
     <string name="still_login">Все равно войти</string>
     <string name="still_sync">Все равно синхронизировать</string>
     <string name="pin">Закрепить</string>

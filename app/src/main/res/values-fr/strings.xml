@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">MoeMemos</string>
+    <string name="app_name">keer</string>
     <string name="default_card_content" translatable="false">C\'est ce que vous faites avec le don de la vie qui détermine qui vous êtes.      — Mewtwo</string>
     <string name="search">Recherche</string>
     <string name="back">Retour</string>
@@ -24,10 +24,10 @@
     <string name="privacy">Confidentialité</string>
     <string name="website">Website</string>
     <string name="web">Web</string>
-    <string name="about">À propos de Moe Memos</string>
+    <string name="about">À propos de keer</string>
     <string name="add_account">S\'identifier</string>
     <string name="attachment">Pièce jointe</string>
-    <string name="moe_memos" translatable="false">Moe Memos</string>
+    <string name="moe_memos" translatable="false">keer</string>
     <string name="selected">Sélectionné</string>
     <string name="username_and_password">Nom d\'utilisateur et mot de passe</string>
     <string name="report_an_issue">Signaler un problème</string>
@@ -61,10 +61,10 @@
     <string name="invalid_server">Serveur invalide.</string>
     <string name="access_token_invalid_relogin">Votre jeton d\'accès est invalide, veuillez créer un jeton d\'accès sans expiration et vous reconnecter.</string>
     <string name="sync_failed">Échec de la synchronisation</string>
-    <string name="memos_supported_versions">Moe Memos prend uniquement en charge Memos 0.21.0, 0.26.0 et 0.26.1.</string>
+    <string name="memos_supported_versions">keer prend uniquement en charge Memos 0.21.0, 0.26.0 et 0.26.1.</string>
     <string name="unsupported_memos_version_title">Version de Memos non prise en charge</string>
-    <string name="memos_login_version_higher_warning">Votre version de Memos est supérieure aux versions prises en charge par Moe Memos. Des problèmes de compatibilité peuvent survenir. Veuillez consulter le site de Moe Memos avant de continuer.</string>
-    <string name="memos_sync_version_higher_warning">Votre version de Memos est supérieure aux versions prises en charge par Moe Memos. Forcer la synchronisation peut corrompre les données non synchronisées. Veuillez consulter le site de Moe Memos avant de continuer.</string>
+    <string name="memos_login_version_higher_warning">Votre version de Memos est supérieure aux versions prises en charge par keer. Des problèmes de compatibilité peuvent survenir. Veuillez consulter le site de keer avant de continuer.</string>
+    <string name="memos_sync_version_higher_warning">Votre version de Memos est supérieure aux versions prises en charge par keer. Forcer la synchronisation peut corrompre les données non synchronisées. Veuillez consulter le site de keer avant de continuer.</string>
     <string name="still_login">Se connecter quand même</string>
     <string name="still_sync">Synchroniser quand même</string>
     <string name="pin">Épingler</string>

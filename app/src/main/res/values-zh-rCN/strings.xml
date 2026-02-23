@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">MoeMemos</string>
+    <string name="app_name">keer</string>
     <string name="search">搜索</string>
     <string name="back">返回</string>
     <string name="memos">灵感</string>
@@ -23,7 +23,7 @@
     <string name="privacy">隐私</string>
     <string name="website">官网</string>
     <string name="web">官网</string>
-    <string name="about">关于 Moe Memos</string>
+    <string name="about">关于 keer</string>
     <string name="add_account">登录</string>
     <string name="attachment">附件</string>
     <string name="selected">已选择</string>
@@ -66,10 +66,10 @@
     <string name="invalid_server">无效的服务器。</string>
     <string name="access_token_invalid_relogin">你的 Access Token 无效，请创建一个永不过期的 Access Token 并重新登录。</string>
     <string name="sync_failed">同步失败</string>
-    <string name="memos_supported_versions">Moe Memos 仅支持 Memos 0.21.0、0.26.0 和 0.26.1。</string>
+    <string name="memos_supported_versions">keer 仅支持 Memos 0.21.0、0.26.0 和 0.26.1。</string>
     <string name="unsupported_memos_version_title">不受支持的 Memos 版本</string>
-    <string name="memos_login_version_higher_warning">你的 Memos 版本高于 Moe Memos 支持的版本，可能存在兼容性问题。继续之前请先查看 Moe Memos 网站确认是否支持该版本。</string>
-    <string name="memos_sync_version_higher_warning">你的 Memos 版本高于 Moe Memos 支持的版本，强制同步可能会损坏未同步的数据。继续之前请先查看 Moe Memos 网站确认是否支持该版本。</string>
+    <string name="memos_login_version_higher_warning">你的 Memos 版本高于 keer 支持的版本，可能存在兼容性问题。继续之前请先查看 keer 网站确认是否支持该版本。</string>
+    <string name="memos_sync_version_higher_warning">你的 Memos 版本高于 keer 支持的版本，强制同步可能会损坏未同步的数据。继续之前请先查看 keer 网站确认是否支持该版本。</string>
     <string name="still_login">仍然登录</string>
     <string name="still_sync">仍然同步</string>
     <string name="pin">置顶</string>
