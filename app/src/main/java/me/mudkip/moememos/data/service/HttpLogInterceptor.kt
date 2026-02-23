@@ -87,14 +87,14 @@ class HttpLogInterceptor @Inject constructor(
         }
     }
 
-    private fun captureResponseBody(response: Response): String? {
-        val responseBody = response.body ?: return null
+    private fun captureResponseBody(response: Response): String {
+        val responseBody = response.body
         val contentType = responseBody.contentType()?.toString().orEmpty()
         if (!isTextContentType(contentType)) {
             return NON_TEXT_BODY_OMITTED
         }
         return runCatching {
-            response.peekBody(MAX_CAPTURE_BODY_BYTES.toLong())
+            response.peekBody(MAX_CAPTURE_BODY_BYTES)
                 .string()
                 .truncate(MAX_CAPTURE_BODY_CHARS)
         }.getOrElse {
