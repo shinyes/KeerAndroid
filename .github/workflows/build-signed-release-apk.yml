@@ -81,19 +81,19 @@ jobs:
             echo "APK not found at $APK_PATH"
             exit 1
           fi
-          cp "$APK_PATH" "moememos-v${{ steps.meta.outputs.tag }}.apk"
+          cp "$APK_PATH" "keer-v${{ steps.meta.outputs.tag }}.apk"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: moememos-v${{ steps.meta.outputs.tag }}
-          path: moememos-v${{ steps.meta.outputs.tag }}.apk
+          name: keer-v${{ steps.meta.outputs.tag }}
+          path: keer-v${{ steps.meta.outputs.tag }}.apk
 
       - name: Upload APK to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          files: moememos-v${{ steps.meta.outputs.tag }}.apk
+          files: keer-v${{ steps.meta.outputs.tag }}.apk
           generate_release_notes: true
           prerelease: ${{ steps.meta.outputs.is_prerelease == 'true' }}
