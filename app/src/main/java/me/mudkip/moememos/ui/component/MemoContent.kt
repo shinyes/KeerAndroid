@@ -20,7 +20,6 @@ import androidx.compose.ui.unit.dp
 import me.mudkip.moememos.ui.page.common.LocalRootNavController
 import me.mudkip.moememos.ui.page.common.RouteName
 import me.mudkip.moememos.R
-import me.mudkip.moememos.data.local.entity.ResourceEntity
 import me.mudkip.moememos.data.model.MemoRepresentable
 import me.mudkip.moememos.ext.string
 import me.mudkip.moememos.viewmodel.LocalUserState
@@ -241,22 +240,21 @@ private fun isPreviewWhitespaceToken(node: ASTNode): Boolean {
 fun MemoResourceContent(memo: MemoRepresentable) {
     val cols = 3
 
-    val imageList = memo.resources.filter { it.mimeType?.startsWith("image/") == true }
-    if (imageList.isNotEmpty()) {
-        val rows = ceil(imageList.size.toFloat() / cols).toInt()
+    val mediaList = memo.resources.filter { it.isMediaResource() }
+    if (mediaList.isNotEmpty()) {
+        val rows = ceil(mediaList.size.toFloat() / cols).toInt()
         for (rowIndex in 0 until rows) {
             Row {
                 for (colIndex in 0 until cols) {
                     val index = rowIndex * cols + colIndex
-                    if (index < imageList.size) {
+                    if (index < mediaList.size) {
                         Box(modifier = Modifier.fillMaxWidth(1f / (cols - colIndex))) {
-                            MemoImage(
-                                url = imageList[index].localUri ?: imageList[index].uri,
+                            MemoMedia(
+                                resource = mediaList[index],
                                 modifier = Modifier
                                     .aspectRatio(1f)
                                     .padding(2.dp)
-                                    .clip(RoundedCornerShape(4.dp)),
-                                resourceIdentifier = (imageList[index] as? ResourceEntity)?.identifier
+                                    .clip(RoundedCornerShape(4.dp))
                             )
                         }
                     } else {
@@ -266,7 +264,7 @@ fun MemoResourceContent(memo: MemoRepresentable) {
             }
         }
     }
-    memo.resources.filterNot { it.mimeType?.startsWith("image/") == true }.forEach { resource ->
+    memo.resources.filterNot { it.isMediaResource() }.forEach { resource ->
         Attachment(resource)
     }
 }

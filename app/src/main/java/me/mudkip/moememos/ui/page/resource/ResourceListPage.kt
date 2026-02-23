@@ -39,7 +39,8 @@ import me.mudkip.moememos.R
 import me.mudkip.moememos.ext.popBackStackIfLifecycleIsResumed
 import me.mudkip.moememos.ext.string
 import me.mudkip.moememos.ui.component.Attachment
-import me.mudkip.moememos.ui.component.MemoImage
+import me.mudkip.moememos.ui.component.MemoMedia
+import me.mudkip.moememos.ui.component.isMediaResource
 import me.mudkip.moememos.viewmodel.ResourceListViewModel
 
 private enum class ResourceFilter {
@@ -55,8 +56,8 @@ fun ResourceListPage(
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     var selectedFilter by rememberSaveable { mutableStateOf(ResourceFilter.IMAGE) }
-    val imageResources = viewModel.resources.filter { it.mimeType?.startsWith("image/") == true }
-    val otherResources = viewModel.resources.filterNot { it.mimeType?.startsWith("image/") == true }
+    val imageResources = viewModel.resources.filter { it.isMediaResource() }
+    val otherResources = viewModel.resources.filterNot { it.isMediaResource() }
 
     Scaffold(
         topBar = {
@@ -107,9 +108,8 @@ fun ResourceListPage(
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
                     staggeredGridItems(imageResources, key = { it.identifier }) { resource ->
-                        MemoImage(
-                            url = resource.localUri ?: resource.uri,
-                            resourceIdentifier = resource.identifier,
+                        MemoMedia(
+                            resource = resource,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))

@@ -154,7 +154,7 @@ fun Attachment(
     }
 }
 
-private suspend fun resolveAttachmentFile(
+suspend fun resolveAttachmentFile(
     context: Context,
     resource: ResourceRepresentable,
     okHttpClient: OkHttpClient,
@@ -219,7 +219,7 @@ private fun sanitizeFilename(filename: String): String {
     return filename.replace(Regex("[^A-Za-z0-9._-]"), "_")
 }
 
-private fun resolveMimeType(resource: ResourceRepresentable, file: File): String {
+fun resolveMimeType(resource: ResourceRepresentable, file: File): String {
     resource.mimeType?.takeIf { it.isNotBlank() }?.let { return it }
     val ext = file.extension.lowercase()
     if (ext.isBlank()) {
