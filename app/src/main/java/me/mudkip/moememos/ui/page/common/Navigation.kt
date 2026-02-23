@@ -36,7 +36,6 @@ import me.mudkip.moememos.ui.page.memos.MemosPage
 import me.mudkip.moememos.ui.page.memos.SearchPage
 import me.mudkip.moememos.ui.page.memos.TagMemoPage
 import me.mudkip.moememos.ui.page.resource.ResourceListPage
-import me.mudkip.moememos.ui.page.settings.HttpLogPage
 import me.mudkip.moememos.ui.page.settings.SettingsPage
 import me.mudkip.moememos.ui.theme.MoeMemosTheme
 import me.mudkip.moememos.viewmodel.LocalUserState
@@ -69,10 +68,6 @@ fun Navigation() {
 
                 composable(RouteName.SETTINGS) {
                     SettingsPage(navController = navController)
-                }
-
-                composable(RouteName.HTTP_LOGS) {
-                    HttpLogPage(navController = navController)
                 }
 
                 composable(RouteName.ADD_ACCOUNT) {

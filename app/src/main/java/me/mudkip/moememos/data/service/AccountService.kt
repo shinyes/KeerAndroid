@@ -58,7 +58,6 @@ import javax.inject.Singleton
 class AccountService @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val okHttpClient: OkHttpClient,
-    private val httpLogInterceptor: HttpLogInterceptor,
     private val database: MoeMemosDatabase,
     private val fileStorage: FileStorage,
     private val secureTokenStorage: SecureTokenStorage,
@@ -350,7 +349,6 @@ class AccountService @Inject constructor(
                 chain.proceed(request)
             }
         }
-        clientBuilder.addNetworkInterceptor(httpLogInterceptor)
         val client = clientBuilder.build()
 
         return client to Retrofit.Builder()
@@ -375,7 +373,6 @@ class AccountService @Inject constructor(
                     chain.proceed(request)
                 }
             }
-            addNetworkInterceptor(httpLogInterceptor)
         }.build()
 
         return client to Retrofit.Builder()

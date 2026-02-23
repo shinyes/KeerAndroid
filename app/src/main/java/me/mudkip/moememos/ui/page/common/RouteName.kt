@@ -3,7 +3,6 @@ package me.mudkip.moememos.ui.page.common
 object RouteName {
     const val MEMOS = "memos"
     const val SETTINGS = "settings"
-    const val HTTP_LOGS = "http-logs"
     const val ADD_ACCOUNT = "add-account"
     const val LOGIN = "login"
     const val INPUT = "input"
