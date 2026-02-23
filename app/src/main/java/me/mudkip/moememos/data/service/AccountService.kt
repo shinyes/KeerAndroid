@@ -58,6 +58,7 @@ import javax.inject.Singleton
 class AccountService @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val okHttpClient: OkHttpClient,
+    private val httpLogInterceptor: HttpLogInterceptor,
     private val database: MoeMemosDatabase,
     private val fileStorage: FileStorage,
     private val secureTokenStorage: SecureTokenStorage,
@@ -337,18 +338,20 @@ class AccountService @Inject constructor(
     }
 
     fun createMemosV0Client(host: String, accessToken: String?): Pair<OkHttpClient, MemosV0Api> {
-        var client = okHttpClient
+        val clientBuilder = okHttpClient.newBuilder()
 
         if (!accessToken.isNullOrEmpty()) {
-            client = client.newBuilder().addNetworkInterceptor { chain ->
+            clientBuilder.addNetworkInterceptor { chain ->
                 var request = chain.request()
                 if (shouldAttachAccessToken(request.url, host)) {
                     request = request.newBuilder().addHeader("Authorization", "Bearer $accessToken")
                         .build()
                 }
                 chain.proceed(request)
-            }.build()
+            }
         }
+        clientBuilder.addNetworkInterceptor(httpLogInterceptor)
+        val client = clientBuilder.build()
 
         return client to Retrofit.Builder()
             .baseUrl(host)
@@ -372,6 +375,7 @@ class AccountService @Inject constructor(
                     chain.proceed(request)
                 }
             }
+            addNetworkInterceptor(httpLogInterceptor)
         }.build()
 
         return client to Retrofit.Builder()

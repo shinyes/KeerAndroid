@@ -3,8 +3,15 @@ name: Build Signed Release APK
 on:
   push:
     tags:
-      - "[0-9]+.[0-9]+.[0-9]+"
-      - "[0-9]+.[0-9]+.[0-9]+-*"
+      - "[0-9]*.[0-9]*.[0-9]*"
+      - "[0-9]*.[0-9]*.[0-9]*-alpha.*"
+      - "[0-9]*.[0-9]*.[0-9]*-beta.*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag (e.g. 2.0.2-beta.1)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -14,13 +21,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Validate tag format
+      - name: Resolve release metadata
+        id: meta
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ github.event.inputs.release_tag || github.ref_name }}"
           if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]]; then
             echo "Tag '$TAG' is not supported. Expected formats: 0.9.0, 0.9.0-alpha.0, or 0.9.0-beta.0"
             exit 1
           fi
+          if [[ "$TAG" == *-* ]]; then
+            IS_PRERELEASE=true
+          else
+            IS_PRERELEASE=false
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,17 +81,19 @@ jobs:
             echo "APK not found at $APK_PATH"
             exit 1
           fi
-          cp "$APK_PATH" "moememos-v${GITHUB_REF_NAME}.apk"
+          cp "$APK_PATH" "moememos-v${{ steps.meta.outputs.tag }}.apk"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: moememos-v${{ github.ref_name }}
-          path: moememos-v${{ github.ref_name }}.apk
+          name: moememos-v${{ steps.meta.outputs.tag }}
+          path: moememos-v${{ steps.meta.outputs.tag }}.apk
 
       - name: Upload APK to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: moememos-v${{ github.ref_name }}.apk
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          files: moememos-v${{ steps.meta.outputs.tag }}.apk
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ steps.meta.outputs.is_prerelease == 'true' }}

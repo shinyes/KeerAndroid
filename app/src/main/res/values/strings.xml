@@ -31,6 +31,16 @@
     <string name="selected">Selected</string>
     <string name="username_and_password">Username and password</string>
     <string name="report_an_issue">Report an Issue</string>
+    <string name="http_logs">HTTP Logs</string>
+    <string name="http_logs_clear">Clear logs</string>
+    <string name="http_logs_empty">No HTTP logs yet</string>
+    <string name="http_logs_show_details">Show details</string>
+    <string name="http_logs_hide_details">Hide details</string>
+    <string name="http_logs_status">Status</string>
+    <string name="http_logs_duration">Duration</string>
+    <string name="http_logs_error">Error</string>
+    <string name="http_logs_request">Request</string>
+    <string name="http_logs_response">Response</string>
     <string name="unpin">Unpin</string>
     <string name="sign_out">Sign Out</string>
     <string name="sign_in_method">Sign in method</string>

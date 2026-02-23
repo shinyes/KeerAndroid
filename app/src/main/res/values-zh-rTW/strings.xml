@@ -29,6 +29,16 @@
     <string name="selected">已選中</string>
     <string name="username_and_password">使用者名稱與密碼</string>
     <string name="report_an_issue">反饋 Bug</string>
+    <string name="http_logs">HTTP 日誌</string>
+    <string name="http_logs_clear">清空日誌</string>
+    <string name="http_logs_empty">暫無 HTTP 日誌</string>
+    <string name="http_logs_show_details">顯示詳情</string>
+    <string name="http_logs_hide_details">隱藏詳情</string>
+    <string name="http_logs_status">狀態</string>
+    <string name="http_logs_duration">耗時</string>
+    <string name="http_logs_error">錯誤</string>
+    <string name="http_logs_request">請求</string>
+    <string name="http_logs_response">回應</string>
     <string name="unpin">取消置頂</string>
     <string name="sign_out">退出登入</string>
     <string name="sign_in_method">登入方式</string>

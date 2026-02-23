@@ -195,6 +195,12 @@ fun SettingsPage(
             }
 
             item {
+                SettingItem(icon = Icons.Outlined.BugReport, text = R.string.http_logs.string) {
+                    navController.navigate(RouteName.HTTP_LOGS)
+                }
+            }
+
+            item {
                 SettingItem(icon = Icons.Outlined.BugReport, text = R.string.report_an_issue.string) {
                     uriHandler.openUri("https://github.com/mudkipme/MoeMemosAndroid/issues")
                 }
