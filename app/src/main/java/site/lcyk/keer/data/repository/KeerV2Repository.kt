@@ -10,11 +10,11 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import site.lcyk.keer.data.api.MemosV1Api
-import site.lcyk.keer.data.api.MemosV1CreateMemoRequest
-import site.lcyk.keer.data.api.MemosV1Memo
-import site.lcyk.keer.data.api.MemosV1Resource
-import site.lcyk.keer.data.api.MemosV1State
+import site.lcyk.keer.data.api.KeerV2Api
+import site.lcyk.keer.data.api.KeerV2CreateMemoRequest
+import site.lcyk.keer.data.api.KeerV2Memo
+import site.lcyk.keer.data.api.KeerV2Resource
+import site.lcyk.keer.data.api.KeerV2State
 import site.lcyk.keer.data.api.MemosVisibility
 import site.lcyk.keer.data.api.UpdateMemoRequest
 import site.lcyk.keer.data.constant.KeerException
@@ -47,12 +47,12 @@ private val uploadJson = Json {
     explicitNulls = false
 }
 
-class MemosV1Repository(
-    private val memosApi: MemosV1Api,
-    private val account: Account.MemosV1,
+class KeerV2Repository(
+    private val memosApi: KeerV2Api,
+    private val account: Account.KeerV2,
     private val okHttpClient: OkHttpClient
 ): RemoteRepository() {
-    private fun convertResource(resource: MemosV1Resource): Resource {
+    private fun convertResource(resource: KeerV2Resource): Resource {
         return Resource(
             remoteId = requireNotNull(resource.name),
             date = resource.createTime ?: Instant.now(),
@@ -62,7 +62,7 @@ class MemosV1Repository(
         )
     }
 
-    private fun convertMemo(memo: MemosV1Memo): Memo {
+    private fun convertMemo(memo: KeerV2Memo): Memo {
         return Memo(
             remoteId = memo.name,
             content = memo.content ?: "",
@@ -71,12 +71,12 @@ class MemosV1Repository(
             visibility = memo.visibility?.toMemoVisibility() ?: MemoVisibility.PRIVATE,
             resources = memo.attachments?.map { convertResource(it) } ?: emptyList(),
             tags = emptyList(),
-            archived = memo.state == MemosV1State.ARCHIVED,
+            archived = memo.state == KeerV2State.ARCHIVED,
             updatedAt = memo.updateTime
         )
     }
 
-    private suspend fun listMemosByFilter(state: MemosV1State, filter: String): ApiResponse<List<Memo>> {
+    private suspend fun listMemosByFilter(state: KeerV2State, filter: String): ApiResponse<List<Memo>> {
         var nextPageToken = ""
         val memos = arrayListOf<Memo>()
 
@@ -102,11 +102,11 @@ class MemosV1Repository(
     }
 
     override suspend fun listMemos(): ApiResponse<List<Memo>> {
-        return listMemosByFilter(MemosV1State.NORMAL, "creator_id == ${account.info.id}")
+        return listMemosByFilter(KeerV2State.NORMAL, "creator_id == ${account.info.id}")
     }
 
     override suspend fun listArchivedMemos(): ApiResponse<List<Memo>> {
-        return listMemosByFilter(MemosV1State.ARCHIVED, "creator_id == ${account.info.id}")
+        return listMemosByFilter(KeerV2State.ARCHIVED, "creator_id == ${account.info.id}")
     }
 
     override suspend fun listWorkspaceMemos(
@@ -149,10 +149,10 @@ class MemosV1Repository(
         createdAt: Instant?
     ): ApiResponse<Memo> {
         val resp = memosApi.createMemo(
-            MemosV1CreateMemoRequest(
+            KeerV2CreateMemoRequest(
                 content = content,
                 visibility = MemosVisibility.fromMemoVisibility(visibility),
-                attachments = resourceRemoteIds.map { MemosV1Resource(name = getName(it)) },
+                attachments = resourceRemoteIds.map { KeerV2Resource(name = getName(it)) },
                 createTime = createdAt
             )
         )
@@ -173,9 +173,9 @@ class MemosV1Repository(
             content = content,
             visibility = visibility?.let { MemosVisibility.fromMemoVisibility(it) },
             pinned = pinned,
-            state = archived?.let { isArchived -> if (isArchived) MemosV1State.ARCHIVED else MemosV1State.NORMAL },
+            state = archived?.let { isArchived -> if (isArchived) KeerV2State.ARCHIVED else KeerV2State.NORMAL },
             updateTime = Instant.now(),
-            attachments = resourceRemoteIds?.map { MemosV1Resource(name = getName(it)) }
+            attachments = resourceRemoteIds?.map { KeerV2Resource(name = getName(it)) }
         )).mapSuccess { convertMemo(this) }
         return resp
     }
@@ -232,7 +232,7 @@ class MemosV1Repository(
                     IllegalStateException("create upload failed: HTTP ${response.code}")
                 )
             }
-            val body = response.body?.string().orEmpty()
+            val body = response.body.string()
             if (body.isBlank()) {
                 return ApiResponse.Failure.Exception(IllegalStateException("create upload response empty"))
             }
@@ -333,12 +333,12 @@ class MemosV1Repository(
                     IllegalStateException("complete upload failed: HTTP ${response.code}")
                 )
             }
-            val body = response.body?.string().orEmpty()
+            val body = response.body.string()
             if (body.isBlank()) {
                 return ApiResponse.Failure.Exception(IllegalStateException("complete upload response empty"))
             }
             try {
-                uploadJson.decodeFromString(MemosV1Resource.serializer(), body)
+                uploadJson.decodeFromString(KeerV2Resource.serializer(), body)
             } catch (e: Throwable) {
                 return ApiResponse.Failure.Exception(e)
             }

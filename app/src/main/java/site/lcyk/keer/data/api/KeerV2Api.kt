@@ -14,26 +14,26 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 import java.time.Instant
 
-interface MemosV1Api {
+interface KeerV2Api {
     @GET("api/v1/auth/me")
     suspend fun getCurrentUser(): ApiResponse<GetCurrentUserResponse>
 
     @GET("api/v1/users/{id}/settings/GENERAL")
-    suspend fun getUserSetting(@Path("id") userId: String): ApiResponse<MemosV1UserSetting>
+    suspend fun getUserSetting(@Path("id") userId: String): ApiResponse<KeerV2UserSetting>
 
     @GET("api/v1/memos")
     suspend fun listMemos(
         @Query("pageSize") pageSize: Int,
         @Query("pageToken") pageToken: String? = null,
-        @Query("state") state: MemosV1State? = null,
+        @Query("state") state: KeerV2State? = null,
         @Query("filter") filter: String? = null,
     ): ApiResponse<ListMemosResponse>
 
     @POST("api/v1/memos")
-    suspend fun createMemo(@Body body: MemosV1CreateMemoRequest): ApiResponse<MemosV1Memo>
+    suspend fun createMemo(@Body body: KeerV2CreateMemoRequest): ApiResponse<KeerV2Memo>
 
     @PATCH("api/v1/memos/{id}")
-    suspend fun updateMemo(@Path("id") memoId: String, @Body body: UpdateMemoRequest): ApiResponse<MemosV1Memo>
+    suspend fun updateMemo(@Path("id") memoId: String, @Body body: UpdateMemoRequest): ApiResponse<KeerV2Memo>
 
     @DELETE("api/v1/memos/{id}")
     suspend fun deleteMemo(@Path("id") memoId: String): ApiResponse<Unit>
@@ -42,7 +42,7 @@ interface MemosV1Api {
     suspend fun listResources(): ApiResponse<ListResourceResponse>
 
     @POST("api/v1/attachments")
-    suspend fun createResource(@Body body: CreateResourceRequest): ApiResponse<MemosV1Resource>
+    suspend fun createResource(@Body body: CreateResourceRequest): ApiResponse<KeerV2Resource>
 
     @DELETE("api/v1/attachments/{id}")
     suspend fun deleteResource(@Path("id") resourceId: String): ApiResponse<Unit>
@@ -51,14 +51,14 @@ interface MemosV1Api {
     suspend fun getProfile(): ApiResponse<MemosProfile>
 
     @GET("api/v1/users/{id}")
-    suspend fun getUser(@Path("id") userId: String): ApiResponse<MemosV1User>
+    suspend fun getUser(@Path("id") userId: String): ApiResponse<KeerV2User>
 
     @GET("api/v1/users/{id}:getStats")
-    suspend fun getUserStats(@Path("id") userId: String): ApiResponse<MemosV1Stats>
+    suspend fun getUserStats(@Path("id") userId: String): ApiResponse<KeerV2Stats>
 }
 
 @Serializable
-data class MemosV1User(
+data class KeerV2User(
     val name: String,
     val role: MemosRole = MemosRole.ROLE_UNSPECIFIED,
     val username: String,
@@ -66,7 +66,7 @@ data class MemosV1User(
     val displayName: String? = null,
     val avatarUrl: String? = null,
     val description: String? = null,
-    val state: MemosV1State = MemosV1State.STATE_UNSPECIFIED,
+    val state: KeerV2State = KeerV2State.STATE_UNSPECIFIED,
     @Serializable(with = Rfc3339InstantSerializer::class)
     val createTime: Instant? = null,
     @Serializable(with = Rfc3339InstantSerializer::class)
@@ -75,21 +75,21 @@ data class MemosV1User(
 
 @Serializable
 data class GetCurrentUserResponse(
-    val user: MemosV1User?
+    val user: KeerV2User?
 )
 
 @Serializable
-data class MemosV1CreateMemoRequest(
+data class KeerV2CreateMemoRequest(
     val content: String,
     val visibility: MemosVisibility?,
-    val attachments: List<MemosV1Resource>?,
+    val attachments: List<KeerV2Resource>?,
     @Serializable(with = Rfc3339InstantSerializer::class)
     val createTime: Instant? = null
 )
 
 @Serializable
 data class ListMemosResponse(
-    val memos: List<MemosV1Memo>,
+    val memos: List<KeerV2Memo>,
     val nextPageToken: String?
 )
 
@@ -97,16 +97,16 @@ data class ListMemosResponse(
 data class UpdateMemoRequest(
     val content: String? = null,
     val visibility: MemosVisibility? = null,
-    val state: MemosV1State? = null,
+    val state: KeerV2State? = null,
     val pinned: Boolean? = null,
     @Serializable(with = Rfc3339InstantSerializer::class)
     val updateTime: Instant? = null,
-    val attachments: List<MemosV1Resource>? = null
+    val attachments: List<KeerV2Resource>? = null
 )
 
 @Serializable
 data class ListResourceResponse(
-    val attachments: List<MemosV1Resource>
+    val attachments: List<KeerV2Resource>
 )
 
 @Serializable
@@ -118,9 +118,9 @@ data class CreateResourceRequest(
 )
 
 @Serializable
-data class MemosV1Memo(
+data class KeerV2Memo(
     val name: String,
-    val state: MemosV1State? = null,
+    val state: KeerV2State? = null,
     val creator: String? = null,
     @Serializable(with = Rfc3339InstantSerializer::class)
     val createTime: Instant? = null,
@@ -131,12 +131,12 @@ data class MemosV1Memo(
     val content: String? = null,
     val visibility: MemosVisibility? = null,
     val pinned: Boolean? = null,
-    val attachments: List<MemosV1Resource>? = null,
+    val attachments: List<KeerV2Resource>? = null,
     val tags: List<String>? = null
 )
 
 @Serializable
-data class MemosV1Resource(
+data class KeerV2Resource(
     val name: String? = null,
     @Serializable(with = Rfc3339InstantSerializer::class)
     val createTime: Instant? = null,
@@ -156,19 +156,19 @@ data class MemosV1Resource(
 }
 
 @Serializable
-data class MemosV1UserSettingGeneralSetting(
+data class KeerV2UserSettingGeneralSetting(
     val locale: String? = null,
     val memoVisibility: MemosVisibility? = null,
     val theme: String? = null
 )
 
 @Serializable
-data class MemosV1UserSetting(
-    val generalSetting: MemosV1UserSettingGeneralSetting?
+data class KeerV2UserSetting(
+    val generalSetting: KeerV2UserSettingGeneralSetting?
 )
 
 @Serializable
-enum class MemosV1State {
+enum class KeerV2State {
     @SerialName("STATE_UNSPECIFIED")
     STATE_UNSPECIFIED,
     @SerialName("NORMAL")
@@ -178,6 +178,6 @@ enum class MemosV1State {
 }
 
 @Serializable
-data class MemosV1Stats(
+data class KeerV2Stats(
     val tagCount: Map<String, Int>,
 )

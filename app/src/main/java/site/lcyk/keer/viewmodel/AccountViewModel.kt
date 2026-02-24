@@ -17,8 +17,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.data.api.MemosProfile
-import site.lcyk.keer.data.api.MemosV0Api
-import site.lcyk.keer.data.api.MemosV1Api
+import site.lcyk.keer.data.api.KeerV2Api
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.service.AccountService
 
@@ -28,8 +27,7 @@ class AccountViewModel @AssistedInject constructor(
     private val accountService: AccountService
 ): ViewModel() {
     sealed class RemoteApi {
-        class MemosV0(val api: MemosV0Api): RemoteApi()
-        class MemosV1(val api: MemosV1Api): RemoteApi()
+        class KeerV2(val api: KeerV2Api): RemoteApi()
     }
 
     @AssistedFactory
@@ -44,13 +42,9 @@ class AccountViewModel @AssistedInject constructor(
 
     private val memosApi = selectedAccount.map { account ->
         when (account) {
-            is Account.MemosV0 -> {
-                val (_, api) = accountService.createMemosV0Client(account.info.host, account.info.accessToken)
-                return@map RemoteApi.MemosV0(api)
-            }
-            is Account.MemosV1 -> {
-                val (_, api) = accountService.createMemosV1Client(account.info.host, account.info.accessToken)
-                return@map RemoteApi.MemosV1(api)
+            is Account.KeerV2 -> {
+                val (_, api) = accountService.createKeerV2Client(account.info.host, account.info.accessToken)
+                return@map RemoteApi.KeerV2(api)
             }
             else -> null
         }
@@ -61,11 +55,7 @@ class AccountViewModel @AssistedInject constructor(
 
     suspend fun loadInstanceProfile() = withContext(viewModelScope.coroutineContext) {
         when (val memosApi = memosApi.firstOrNull()) {
-            is RemoteApi.MemosV0 -> {
-                val profile = memosApi.api.status().getOrNull()?.profile
-                instanceProfile = profile
-            }
-            is RemoteApi.MemosV1 -> {
+            is RemoteApi.KeerV2 -> {
                 val profile = memosApi.api.getProfile().getOrNull()
                 instanceProfile = profile
             }

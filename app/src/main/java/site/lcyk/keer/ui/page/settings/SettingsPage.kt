@@ -102,20 +102,7 @@ fun SettingsPage(
 
             accounts.forEach { account ->
                 when (account) {
-                    is Account.MemosV0 -> item {
-                        SettingItem(icon = MemosIcon, text = account.info.name, trailingIcon = {
-                            if (currentAccount?.accountKey() == account.accountKey()) {
-                                Icon(Icons.Outlined.Check,
-                                    contentDescription = R.string.selected.string,
-                                    modifier = Modifier.padding(start = 16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }) {
-                            navController.navigate("${RouteName.ACCOUNT}?accountKey=${account.accountKey()}")
-                        }
-                    }
-                    is Account.MemosV1 -> item {
+                    is Account.KeerV2 -> item {
                         SettingItem(icon = MemosIcon, text = account.info.name, trailingIcon = {
                             if (currentAccount?.accountKey() == account.accountKey()) {
                                 Icon(Icons.Outlined.Check,

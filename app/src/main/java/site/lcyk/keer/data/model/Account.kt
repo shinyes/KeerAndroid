@@ -4,40 +4,34 @@ import java.time.Instant
 
 sealed class Account {
     fun accountKey(): String = when (this) {
-        is MemosV0 -> "memos:${this.info.host}:${this.info.id}"
-        is MemosV1 -> "memos:${this.info.host}:${this.info.id}"
+        is KeerV2 -> "memos:${this.info.host}:${this.info.id}"
         is Local -> "local"
     }
 
     fun getAccountInfo(): MemosAccount? = when (this) {
-        is MemosV0 -> this.info
-        is MemosV1 -> this.info
+        is KeerV2 -> this.info
         else -> null
     }
 
     fun toUser(): User = when (this) {
-        is MemosV0 -> info.toUser()
-        is MemosV1 -> info.toUser()
+        is KeerV2 -> info.toUser()
         is Local -> info.toUser()
     }
 
     fun withUser(user: User): Account = when (this) {
-        is MemosV0 -> MemosV0(info.withUser(user))
-        is MemosV1 -> MemosV1(info.withUser(user))
+        is KeerV2 -> KeerV2(info.withUser(user))
         is Local -> Local(info.withUser(user))
     }
 
     companion object {
         fun parseUserData(userData: UserData): Account? = when (userData.accountCase) {
-            UserData.AccountCase.MEMOS_V0 -> userData.memosV0?.let { MemosV0(it) }
-            UserData.AccountCase.MEMOS_V1 -> userData.memosV1?.let { MemosV1(it) }
+            UserData.AccountCase.KEER_V2 -> userData.keerV2?.let { KeerV2(it) }
             UserData.AccountCase.LOCAL -> Local(userData.local ?: LocalAccount())
             else -> null
         }
     }
 
-    class MemosV0(val info: MemosAccount) : Account()
-    class MemosV1(val info: MemosAccount) : Account()
+    class KeerV2(val info: MemosAccount) : Account()
     class Local(val info: LocalAccount = LocalAccount()) : Account()
 }
 

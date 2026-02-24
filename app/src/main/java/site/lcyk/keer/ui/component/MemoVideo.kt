@@ -97,8 +97,7 @@ private fun MemoVideoPlayerDialog(
     }
     val authHeaderValue = remember(currentAccount) {
         val accessToken = when (val account = currentAccount) {
-            is Account.MemosV0 -> account.info.accessToken
-            is Account.MemosV1 -> account.info.accessToken
+            is Account.KeerV2 -> account.info.accessToken
             else -> ""
         }
         if (accessToken.isBlank()) null else "Bearer $accessToken"

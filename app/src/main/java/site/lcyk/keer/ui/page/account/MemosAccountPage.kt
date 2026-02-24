@@ -101,7 +101,7 @@ fun MemosAccountPage(
                             )
                         }
                     }
-                    if (profile?.version?.isNotEmpty() == true) {
+                    if (profile?.keerApiVersion?.isNotEmpty() == true) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(top = 8.dp),
@@ -114,7 +114,7 @@ fun MemosAccountPage(
                                     .clip(CircleShape),
                             )
                             Text(
-                                "memos v${profile.version}",
+                                "keer api v${profile.keerApiVersion}",
                                 modifier = Modifier.padding(top = 5.dp),
                                 style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.outline

@@ -126,20 +126,11 @@ class MemosViewModel @Inject constructor(
         }
     }
 
-    suspend fun refreshMemos(allowHigherV1Version: String? = null): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
-        when (val compatibility = accountService.checkCurrentAccountSyncCompatibility(
-            isAutomatic = false,
-            allowHigherV1Version = allowHigherV1Version
-        )) {
+    suspend fun refreshMemos(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
+        when (val compatibility = accountService.checkCurrentAccountSyncCompatibility(isAutomatic = false)) {
             is AccountService.SyncCompatibility.Blocked -> {
                 return@withContext ManualSyncResult.Blocked(
                     compatibility.message ?: R.string.memos_supported_versions.string
-                )
-            }
-            is AccountService.SyncCompatibility.RequiresConfirmation -> {
-                return@withContext ManualSyncResult.RequiresConfirmation(
-                    version = compatibility.version,
-                    message = compatibility.message
                 )
             }
             AccountService.SyncCompatibility.Allowed -> Unit
@@ -147,9 +138,6 @@ class MemosViewModel @Inject constructor(
 
         val syncResult = memoService.sync(true)
         if (syncResult is ApiResponse.Success) {
-            if (allowHigherV1Version != null) {
-                accountService.rememberAcceptedUnsupportedSyncVersion(allowHigherV1Version)
-            }
             WidgetUpdater.updateWidgets(appContext)
         } else {
             val message = syncResult.getErrorMessage()
@@ -240,6 +228,5 @@ val LocalMemos =
 sealed class ManualSyncResult {
     object Completed : ManualSyncResult()
     data class Blocked(val message: String) : ManualSyncResult()
-    data class RequiresConfirmation(val version: String, val message: String) : ManualSyncResult()
     data class Failed(val message: String) : ManualSyncResult()
 }

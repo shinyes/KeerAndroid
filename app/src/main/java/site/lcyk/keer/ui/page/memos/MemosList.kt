@@ -103,9 +103,6 @@ fun MemosList(
                         is ManualSyncResult.Blocked -> {
                             syncAlert = PullRefreshSyncAlert.Blocked(result.message)
                         }
-                        is ManualSyncResult.RequiresConfirmation -> {
-                            syncAlert = PullRefreshSyncAlert.RequiresConfirmation(result.version, result.message)
-                        }
                         is ManualSyncResult.Failed -> {
                             syncAlert = PullRefreshSyncAlert.Failed(result.message)
                         }
@@ -170,41 +167,6 @@ fun MemosList(
                 }
             )
         }
-        is PullRefreshSyncAlert.RequiresConfirmation -> {
-            AlertDialog(
-                onDismissRequest = { syncAlert = null },
-                title = { Text(R.string.unsupported_memos_version_title.string) },
-                text = { Text(alert.message) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            syncAlert = null
-                            scope.launch {
-                                when (val result = viewModel.refreshMemos(alert.version)) {
-                                    ManualSyncResult.Completed -> Unit
-                                    is ManualSyncResult.Blocked -> {
-                                        syncAlert = PullRefreshSyncAlert.Blocked(result.message)
-                                    }
-                                    is ManualSyncResult.RequiresConfirmation -> {
-                                        syncAlert = PullRefreshSyncAlert.RequiresConfirmation(result.version, result.message)
-                                    }
-                                    is ManualSyncResult.Failed -> {
-                                        syncAlert = PullRefreshSyncAlert.Failed(result.message)
-                                    }
-                                }
-                            }
-                        }
-                    ) {
-                        Text(R.string.still_sync.string)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { syncAlert = null }) {
-                        Text(R.string.cancel.string)
-                    }
-                }
-            )
-        }
         is PullRefreshSyncAlert.Failed -> {
             AlertDialog(
                 onDismissRequest = { syncAlert = null },
@@ -222,6 +184,5 @@ fun MemosList(
 
 private sealed class PullRefreshSyncAlert {
     data class Blocked(val message: String) : PullRefreshSyncAlert()
-    data class RequiresConfirmation(val version: String, val message: String) : PullRefreshSyncAlert()
     data class Failed(val message: String) : PullRefreshSyncAlert()
 }
