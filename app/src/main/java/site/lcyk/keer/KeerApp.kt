@@ -20,12 +20,13 @@ class KeerApp: Application() {
     }
 
     override fun attachBaseContext(base: Context?) {
-        CONTEXT = this
         super.attachBaseContext(base)
+        CONTEXT = base?.applicationContext ?: this
     }
 
     override fun onCreate() {
         super.onCreate()
+        CONTEXT = applicationContext
         if (Timber.forest().none { it is Timber.DebugTree }) {
             Timber.plant(Timber.DebugTree())
         }

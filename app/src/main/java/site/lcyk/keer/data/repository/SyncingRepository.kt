@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import site.lcyk.keer.data.local.FileStorage
 import site.lcyk.keer.data.local.dao.MemoDao
 import site.lcyk.keer.data.local.entity.MemoEntity
@@ -428,7 +429,8 @@ class SyncingRepository(
     }
 
     override suspend fun sync(): ApiResponse<Unit> {
-        return operationMutex.withLock {
+        return withContext(Dispatchers.IO) {
+            operationMutex.withLock {
             setSyncing(true)
             pendingDetailedSyncError = null
             try {
@@ -447,6 +449,7 @@ class SyncingRepository(
                 failure
             } finally {
                 setSyncing(false)
+            }
             }
         }
     }
@@ -625,7 +628,9 @@ class SyncingRepository(
 
         val uploadedResources = ensureUploadedResources(local)
         if (uploadedResources.failedUploads > 0) {
-            pendingDetailedSyncError = ATTACHMENT_UPLOAD_FAILED_MESSAGE
+            if (pendingDetailedSyncError == null) {
+                pendingDetailedSyncError = ATTACHMENT_UPLOAD_FAILED_MESSAGE
+            }
             return false
         }
         val remoteResourceIds = uploadedResources.remoteResourceIds
@@ -704,17 +709,15 @@ class SyncingRepository(
         val resources = memoDao.getMemoResources(localMemo.identifier, accountKey)
         val uploaded = arrayListOf<String>()
         var failedUploads = 0
-        val pendingUploads = resources
-            .filter { it.remoteId == null }
-            .map { resource ->
-                val file = resolveLocalFile(resource)
-                PendingUpload(
-                    resource = resource,
-                    file = file,
-                    sizeBytes = file?.length()?.takeIf { it > 0L } ?: 0L
-                )
-            }
-            .associateBy { it.resource.identifier }
+        val pendingUploads = linkedMapOf<String, PendingUpload>()
+        resources.filter { it.remoteId == null }.forEach { resource ->
+            val file = prepareUploadFile(resource)
+            pendingUploads[resource.identifier] = PendingUpload(
+                resource = resource,
+                file = file,
+                sizeBytes = file?.length()?.takeIf { it > 0L } ?: 0L
+            )
+        }
 
         setUploadProgressTotals(
             totalBytes = pendingUploads.values.sumOf { it.sizeBytes },
@@ -774,7 +777,15 @@ class SyncingRepository(
             return resource
         }
 
-        val file = localFile ?: resolveLocalFile(resource) ?: return null
+        val file = localFile ?: prepareUploadFile(resource)
+        if (file == null || !file.exists()) {
+            pendingDetailedSyncError = "Attachment file missing locally: ${resource.filename}"
+            return null
+        }
+        if (file.length() <= 0L) {
+            pendingDetailedSyncError = "Attachment file is empty: ${resource.filename}"
+            return null
+        }
 
         val uploaded = remoteRepository.createResource(
             filename = resource.filename,
@@ -785,7 +796,31 @@ class SyncingRepository(
             onProgress = onProgress
         )
 
-        val remoteResource = uploaded.getOrNull() ?: return null
+        val remoteResource = uploaded.getOrNull() ?: run {
+            val uploadErrorDetail = when (uploaded) {
+                is ApiResponse.Failure.Exception -> {
+                    val throwable = uploaded.throwable
+                    val reason = throwable.localizedMessage?.trim().orEmpty()
+                    if (reason.isNotEmpty()) {
+                        reason
+                    } else {
+                        throwable::class.simpleName ?: "Unknown exception"
+                    }
+                }
+                is ApiResponse.Failure.Error -> {
+                    val reason = uploaded.getErrorMessage().trim()
+                    if (reason.isNotEmpty()) {
+                        reason
+                    } else {
+                        "HTTP ${uploaded.statusCode}"
+                    }
+                }
+                else -> "Unknown upload failure"
+            }
+            pendingDetailedSyncError =
+                "Upload attachment failed (${resource.filename}): $uploadErrorDetail"
+            return null
+        }
         val cachedLocalUri = moveLocalFileToCache(resource, file)
         val synced = resource.copy(
             remoteId = remoteResourceId(remoteResource),
@@ -917,7 +952,7 @@ class SyncingRepository(
     private suspend fun pushLocalResource(identifier: String): Boolean {
         pendingDetailedSyncError = null
         val local = memoDao.getResourceById(identifier, accountKey) ?: return true
-        val localFile = resolveLocalFile(local)
+        val localFile = prepareUploadFile(local)
         val totalBytes = localFile?.length()?.takeIf { it > 0L } ?: 0L
         setUploadProgressTotals(totalBytes = totalBytes, totalFiles = 1)
         val ensured = ensureUploadedResource(
@@ -936,7 +971,9 @@ class SyncingRepository(
             )
         }
             ?: run {
-                pendingDetailedSyncError = ATTACHMENT_UPLOAD_FAILED_MESSAGE
+                if (pendingDetailedSyncError == null) {
+                    pendingDetailedSyncError = ATTACHMENT_UPLOAD_FAILED_MESSAGE
+                }
                 updateUploadProgress(
                     uploadedBytes = totalBytes,
                     uploadedFiles = 1
@@ -1071,6 +1108,46 @@ class SyncingRepository(
         val path = uri.path ?: return null
         val file = File(path)
         return if (file.exists()) file else null
+    }
+
+    private suspend fun prepareUploadFile(resource: ResourceEntity): File? {
+        val existing = resolveLocalFile(resource)
+        if (existing != null && existing.length() > 0L) {
+            return existing
+        }
+
+        val sourceContentUri = sequenceOf(resource.localUri, resource.uri)
+            .filterNotNull()
+            .map { it.toUri() }
+            .firstOrNull { it.scheme == "content" }
+            ?: return existing?.takeIf { it.length() > 0L }
+
+        return try {
+            val persistedUri = fileStorage.savePersistentFileFromUri(
+                accountKey = accountKey,
+                sourceUri = sourceContentUri,
+                filename = "${resource.identifier}_${resource.filename}"
+            )
+            val persistedPath = persistedUri.path
+            val persistedFile = persistedPath?.let(::File)
+                ?.takeIf { it.exists() && it.length() > 0L }
+                ?: return null
+
+            val updatedUri = if (resource.remoteId == null && resource.uri.toUri().scheme == "content") {
+                persistedUri.toString()
+            } else {
+                resource.uri
+            }
+            memoDao.insertResource(
+                resource.copy(
+                    uri = updatedUri,
+                    localUri = persistedUri.toString()
+                )
+            )
+            persistedFile
+        } catch (_: Exception) {
+            existing?.takeIf { it.length() > 0L }
+        }
     }
 
     private fun existingLocalUri(resource: ResourceEntity): Uri? {

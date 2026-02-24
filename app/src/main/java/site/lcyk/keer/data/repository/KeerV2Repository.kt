@@ -8,6 +8,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import site.lcyk.keer.data.api.KeerV2Api
@@ -29,6 +31,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import okio.BufferedSink
 import java.io.File
 import java.io.RandomAccessFile
@@ -202,60 +205,81 @@ class KeerV2Repository(
         memoRemoteId: String?,
         thumbnail: ResourceUploadThumbnail?,
         onProgress: (uploadedBytes: Long, totalBytes: Long) -> Unit
-    ): ApiResponse<Resource> {
+    ): ApiResponse<Resource> = withContext(Dispatchers.IO) {
         val totalBytes = file.length()
         if (totalBytes <= 0L) {
-            return ApiResponse.Failure.Exception(IllegalArgumentException("file is empty"))
+            return@withContext failure("prepare upload", "file is empty")
         }
 
         val baseUrl = account.info.host.trimEnd('/')
-        val createRequestBody = uploadJson.encodeToString(
-            ResumableUploadCreateRequest.serializer(),
-            ResumableUploadCreateRequest(
-                filename = filename,
-                type = type?.toString() ?: "application/octet-stream",
-                size = totalBytes,
-                memo = memoRemoteId?.let { getName(it) },
-                thumbnail = thumbnail?.let {
-                    ResumableUploadThumbnailRequest(
-                        filename = it.filename,
-                        type = it.type,
-                        content = it.content
-                    )
-                }
+        val createRequestBody = runCatching {
+            uploadJson.encodeToString(
+                ResumableUploadCreateRequest.serializer(),
+                ResumableUploadCreateRequest(
+                    filename = filename,
+                    type = type?.toString() ?: "application/octet-stream",
+                    size = totalBytes,
+                    memo = memoRemoteId?.let { getName(it) },
+                    thumbnail = thumbnail?.let {
+                        ResumableUploadThumbnailRequest(
+                            filename = it.filename,
+                            type = it.type,
+                            content = it.content
+                        )
+                    }
+                )
             )
-        )
-        val createRequest = Request.Builder()
-            .url("$baseUrl/api/v1/attachments/uploads")
-            .post(createRequestBody.toRequestBody(jsonMediaType))
-            .build()
+        }.getOrElse { throwable ->
+            return@withContext failure("prepare upload", "serialize create payload failed", throwable)
+        }
+
+        val createURL = "$baseUrl/api/v1/attachments/uploads"
+        val createRequest = runCatching {
+            Request.Builder()
+                .url(createURL)
+                .post(createRequestBody.toRequestBody(jsonMediaType))
+                .build()
+        }.getOrElse { throwable ->
+            return@withContext failure("prepare upload", "build create request failed ($createURL)", throwable)
+        }
 
         val createResponse = try {
             okHttpClient.newCall(createRequest).execute()
         } catch (e: Throwable) {
-            return ApiResponse.Failure.Exception(e)
+            return@withContext failure("create upload", "request execution failed ($createURL)", e)
         }
-        val session = createResponse.use { response ->
+
+        var createFailure: ApiResponse.Failure.Exception? = null
+        var session: ResumableUploadCreateResponse? = null
+        createResponse.use { response ->
             if (!response.isSuccessful) {
-                return ApiResponse.Failure.Exception(
-                    IllegalStateException("create upload failed: HTTP ${response.code}")
-                )
+                createFailure = httpFailure("create upload", response)
+                return@use
             }
             val body = response.body.string()
             if (body.isBlank()) {
-                return ApiResponse.Failure.Exception(IllegalStateException("create upload response empty"))
+                createFailure = failure("create upload", "response empty")
+                return@use
             }
             try {
-                uploadJson.decodeFromString(ResumableUploadCreateResponse.serializer(), body)
+                session = uploadJson.decodeFromString(ResumableUploadCreateResponse.serializer(), body)
             } catch (e: Throwable) {
-                return ApiResponse.Failure.Exception(e)
+                createFailure = failure("create upload", "decode response failed", e)
             }
         }
+        val resolvedCreateFailure = createFailure
+        if (resolvedCreateFailure != null) {
+            return@withContext resolvedCreateFailure
+        }
+        val resolvedSession = session ?: return@withContext failure(
+            "create upload",
+            "missing upload session in response"
+        )
 
-        var offset = session.uploadedSize.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
-        val uploadId = session.uploadId
+        var offset = resolvedSession.uploadedSize.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+        val uploadId = resolvedSession.uploadId
         if (uploadId.isBlank()) {
-            return ApiResponse.Failure.Exception(IllegalStateException("missing upload id"))
+            return@withContext failure("create upload", "missing upload id")
         }
 
         var retryCount = 0
@@ -278,12 +302,10 @@ class KeerV2Repository(
 
             val patchResponse = try {
                 okHttpClient.newCall(patchRequest).execute()
-            } catch (_: Throwable) {
+            } catch (e: Throwable) {
                 retryCount += 1
                 if (retryCount > maxChunkRetryCount) {
-                    return ApiResponse.Failure.Exception(
-                        IllegalStateException("upload chunk failed after retries")
-                    )
+                    return@withContext failure("upload chunk", "request execution failed after retries", e)
                 }
                 val latestOffset = queryUploadOffset(baseUrl, uploadId)
                 if (latestOffset >= 0L) {
@@ -293,6 +315,7 @@ class KeerV2Repository(
                 continue
             }
 
+            var chunkFatal: ApiResponse.Failure.Exception? = null
             val handled = patchResponse.use { response ->
                 if (response.isSuccessful) {
                     val nextOffset = response.header("Upload-Offset")?.toLongOrNull()
@@ -311,17 +334,18 @@ class KeerV2Repository(
                         retryCount += 1
                         false
                     } else {
-                        return ApiResponse.Failure.Exception(
-                            IllegalStateException("upload chunk failed: HTTP ${response.code}")
-                        )
+                        chunkFatal = httpFailure("upload chunk", response)
+                        false
                     }
                 }
             }
+            val resolvedChunkFatal = chunkFatal
+            if (resolvedChunkFatal != null) {
+                return@withContext resolvedChunkFatal
+            }
             if (!handled) {
                 if (retryCount > maxChunkRetryCount) {
-                    return ApiResponse.Failure.Exception(
-                        IllegalStateException("upload chunk conflict after retries")
-                    )
+                    return@withContext failure("upload chunk", "offset conflict after retries")
                 }
                 delay(retryDelayMillis)
             }
@@ -334,26 +358,37 @@ class KeerV2Repository(
         val completeResponse = try {
             okHttpClient.newCall(completeRequest).execute()
         } catch (e: Throwable) {
-            return ApiResponse.Failure.Exception(e)
+            return@withContext failure("complete upload", "request execution failed", e)
         }
-        val uploadedResource = completeResponse.use { response ->
+
+        var completeFailure: ApiResponse.Failure.Exception? = null
+        var uploadedResource: KeerV2Resource? = null
+        completeResponse.use { response ->
             if (!response.isSuccessful) {
-                return ApiResponse.Failure.Exception(
-                    IllegalStateException("complete upload failed: HTTP ${response.code}")
-                )
+                completeFailure = httpFailure("complete upload", response)
+                return@use
             }
             val body = response.body.string()
             if (body.isBlank()) {
-                return ApiResponse.Failure.Exception(IllegalStateException("complete upload response empty"))
+                completeFailure = failure("complete upload", "response empty")
+                return@use
             }
             try {
-                uploadJson.decodeFromString(KeerV2Resource.serializer(), body)
+                uploadedResource = uploadJson.decodeFromString(KeerV2Resource.serializer(), body)
             } catch (e: Throwable) {
-                return ApiResponse.Failure.Exception(e)
+                completeFailure = failure("complete upload", "decode response failed", e)
             }
         }
+        val resolvedCompleteFailure = completeFailure
+        if (resolvedCompleteFailure != null) {
+            return@withContext resolvedCompleteFailure
+        }
+        val resolvedResource = uploadedResource ?: return@withContext failure(
+            "complete upload",
+            "missing attachment in response"
+        )
 
-        return ApiResponse.Success(convertResource(uploadedResource))
+        return@withContext ApiResponse.Success(convertResource(resolvedResource))
     }
 
     private fun queryUploadOffset(baseUrl: String, uploadId: String): Long {
@@ -372,6 +407,37 @@ class KeerV2Repository(
             }
             response.header("Upload-Offset")?.toLongOrNull() ?: -1L
         }
+    }
+
+    private fun httpFailure(stage: String, response: Response): ApiResponse.Failure.Exception {
+        val code = response.code
+        val detail = runCatching { response.body.string().trim() }
+            .getOrElse { "" }
+            .ifEmpty { response.message.trim() }
+        val message = if (detail.isNotEmpty()) {
+            "$stage failed: HTTP $code - $detail"
+        } else {
+            "$stage failed: HTTP $code"
+        }
+        return ApiResponse.Failure.Exception(IllegalStateException(message))
+    }
+
+    private fun failure(
+        stage: String,
+        message: String,
+        throwable: Throwable? = null
+    ): ApiResponse.Failure.Exception {
+        val causeDetail = throwable?.let {
+            val className = it::class.simpleName ?: "Throwable"
+            val reason = it.message?.trim().orEmpty()
+            if (reason.isNotEmpty()) "$className: $reason" else className
+        }
+        val fullMessage = if (!causeDetail.isNullOrEmpty()) {
+            "$stage failed: $message - $causeDetail"
+        } else {
+            "$stage failed: $message"
+        }
+        return ApiResponse.Failure.Exception(IllegalStateException(fullMessage, throwable))
     }
 
     override suspend fun deleteResource(remoteId: String): ApiResponse<Unit> {
