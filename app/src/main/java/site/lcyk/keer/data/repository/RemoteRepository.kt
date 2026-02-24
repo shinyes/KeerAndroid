@@ -9,6 +9,12 @@ import okhttp3.MediaType
 import java.io.File
 import java.time.Instant
 
+data class ResourceUploadThumbnail(
+    val filename: String,
+    val type: String,
+    val content: String
+)
+
 abstract class RemoteRepository {
     abstract suspend fun listMemos(): ApiResponse<List<Memo>>
     abstract suspend fun listArchivedMemos(): ApiResponse<List<Memo>>
@@ -42,6 +48,7 @@ abstract class RemoteRepository {
         type: MediaType?,
         file: File,
         memoRemoteId: String? = null,
+        thumbnail: ResourceUploadThumbnail? = null,
         onProgress: (uploadedBytes: Long, totalBytes: Long) -> Unit = { _, _ -> }
     ): ApiResponse<Resource>
 

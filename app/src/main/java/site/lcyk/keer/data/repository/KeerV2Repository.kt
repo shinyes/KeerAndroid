@@ -200,6 +200,7 @@ class KeerV2Repository(
         type: MediaType?,
         file: File,
         memoRemoteId: String?,
+        thumbnail: ResourceUploadThumbnail?,
         onProgress: (uploadedBytes: Long, totalBytes: Long) -> Unit
     ): ApiResponse<Resource> {
         val totalBytes = file.length()
@@ -214,7 +215,14 @@ class KeerV2Repository(
                 filename = filename,
                 type = type?.toString() ?: "application/octet-stream",
                 size = totalBytes,
-                memo = memoRemoteId?.let { getName(it) }
+                memo = memoRemoteId?.let { getName(it) },
+                thumbnail = thumbnail?.let {
+                    ResumableUploadThumbnailRequest(
+                        filename = it.filename,
+                        type = it.type,
+                        content = it.content
+                    )
+                }
             )
         )
         val createRequest = Request.Builder()
@@ -399,7 +407,15 @@ private data class ResumableUploadCreateRequest(
     val filename: String,
     val type: String,
     val size: Long,
-    val memo: String?
+    val memo: String?,
+    val thumbnail: ResumableUploadThumbnailRequest? = null
+)
+
+@Serializable
+private data class ResumableUploadThumbnailRequest(
+    val filename: String,
+    val type: String,
+    val content: String
 )
 
 @Serializable

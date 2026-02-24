@@ -37,6 +37,7 @@ import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import java.io.File
 import java.time.Instant
+import java.util.Base64
 import java.util.UUID
 
 class SyncingRepository(
@@ -286,6 +287,12 @@ class SyncingRepository(
                     accountKey = accountKey,
                     sourceUri = sourceUri,
                     filename = "thumb_${UUID.randomUUID()}.jpg"
+                )?.toString()
+            } else if (type.isVideoMimeType()) {
+                fileStorage.saveVideoThumbnailFromUri(
+                    accountKey = accountKey,
+                    sourceUri = sourceUri,
+                    filename = "video_thumb_${UUID.randomUUID()}.jpg"
                 )?.toString()
             } else {
                 null
@@ -774,6 +781,7 @@ class SyncingRepository(
             type = resource.mimeType?.toMediaTypeOrNull(),
             file = file,
             memoRemoteId = memoRemoteId,
+            thumbnail = buildUploadThumbnail(resource),
             onProgress = onProgress
         )
 
@@ -1077,6 +1085,27 @@ class SyncingRepository(
         return if (uri.scheme == "file" && File(uri.path ?: "").exists()) uri else null
     }
 
+    private fun buildUploadThumbnail(resource: ResourceEntity): ResourceUploadThumbnail? {
+        val mime = resource.mimeType?.lowercase().orEmpty()
+        if (!mime.startsWith("video/")) {
+            return null
+        }
+        val thumbnailFile = existingThumbnailLocalUri(resource)?.path?.let(::File) ?: return null
+        val thumbnailBytes = try {
+            thumbnailFile.readBytes()
+        } catch (_: Exception) {
+            return null
+        }
+        if (thumbnailBytes.isEmpty() || thumbnailBytes.size > MAX_UPLOADED_THUMBNAIL_BYTES) {
+            return null
+        }
+        return ResourceUploadThumbnail(
+            filename = "video_thumb_${resource.identifier}.jpg",
+            type = "image/jpeg",
+            content = Base64.getEncoder().encodeToString(thumbnailBytes)
+        )
+    }
+
     private fun moveLocalFileToCache(resource: ResourceEntity, sourceFile: File): String? {
         if (!sourceFile.exists()) {
             return null
@@ -1135,12 +1164,17 @@ class SyncingRepository(
     companion object {
         private const val ATTACHMENT_UPLOAD_FAILED_MESSAGE =
             "Failed to upload one or more attachments during sync"
+        private const val MAX_UPLOADED_THUMBNAIL_BYTES = 2 * 1024 * 1024
     }
 
 }
 
 private fun MediaType?.isImageMimeType(): Boolean {
     return this?.type.equals("image", ignoreCase = true)
+}
+
+private fun MediaType?.isVideoMimeType(): Boolean {
+    return this?.type.equals("video", ignoreCase = true)
 }
 
 private fun MemoWithResources.toMemoEntity(): MemoEntity {

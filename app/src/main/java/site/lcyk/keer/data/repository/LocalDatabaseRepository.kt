@@ -233,6 +233,12 @@ class LocalDatabaseRepository(
                     sourceUri = sourceUri,
                     filename = "thumb_${UUID.randomUUID()}.jpg"
                 )?.toString()
+            } else if (type.isVideoMimeType()) {
+                fileStorage.saveVideoThumbnailFromUri(
+                    accountKey = accountKey,
+                    sourceUri = sourceUri,
+                    filename = "video_thumb_${UUID.randomUUID()}.jpg"
+                )?.toString()
             } else {
                 null
             }
@@ -327,6 +333,10 @@ class LocalDatabaseRepository(
 
 private fun MediaType?.isImageMimeType(): Boolean {
     return this?.type.equals("image", ignoreCase = true)
+}
+
+private fun MediaType?.isVideoMimeType(): Boolean {
+    return this?.type.equals("video", ignoreCase = true)
 }
 
 private fun MemoWithResources.toMemoEntity(): MemoEntity {
