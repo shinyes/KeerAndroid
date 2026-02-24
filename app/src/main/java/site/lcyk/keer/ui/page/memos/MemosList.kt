@@ -1,15 +1,21 @@
 package site.lcyk.keer.ui.page.memos
 
 import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -23,8 +29,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
@@ -55,6 +64,7 @@ fun MemosList(
     val viewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val syncStatus by viewModel.syncStatus.collectAsState()
     val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
     val editGesture = settings.usersList
         .firstOrNull { it.accountKey == settings.currentUser }
@@ -62,7 +72,6 @@ fun MemosList(
         ?.editGesture
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
-    var isRefreshing by remember { mutableStateOf(false) }
     var syncAlert by remember { mutableStateOf<PullRefreshSyncAlert?>(null) }
     val filteredMemos = remember(viewModel.memos.toList(), tag, searchString) {
         val pinned = viewModel.memos.filter { it.pinned }
@@ -91,9 +100,11 @@ fun MemosList(
     }
 
     PullToRefreshBox(
-        isRefreshing = isRefreshing,
+        isRefreshing = syncStatus.syncing,
         onRefresh = {
-            isRefreshing = true
+            if (syncStatus.syncing) {
+                return@PullToRefreshBox
+            }
             scope.launch {
                 if (onRefresh != null) {
                     onRefresh()
@@ -108,11 +119,28 @@ fun MemosList(
                         }
                     }
                 }
-                isRefreshing = false
             }
         },
         state = refreshState,
-        indicator = {},
+        indicator = {
+            val pullFraction = refreshState.distanceFraction.coerceIn(0f, 1f)
+            if (syncStatus.syncing || pullFraction > 0f) {
+                val widthFraction = if (syncStatus.syncing) {
+                    0.36f
+                } else {
+                    0.12f + (0.28f * pullFraction)
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 8.dp)
+                        .height(3.dp)
+                        .fillMaxWidth(widthFraction)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.9f))
+                )
+            }
+        },
         modifier = Modifier.padding(contentPadding)
     ) {
         LazyColumn(
