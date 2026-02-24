@@ -12,6 +12,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
@@ -27,6 +29,7 @@ fun TagMemoPage(
 ) {
     val scope = rememberCoroutineScope()
     val normalizedCurrentTag = remember(tag) { normalizeTag(tag) }
+    val hapticFeedback = LocalHapticFeedback.current
 
     Scaffold(
         topBar = {
@@ -34,7 +37,10 @@ fun TagMemoPage(
                 title = { Text(tag) },
                 navigationIcon = {
                     if (drawerState != null) {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                        IconButton(onClick = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            scope.launch { drawerState.open() }
+                        }) {
                             Icon(Icons.Filled.Menu, contentDescription = R.string.menu.string)
                         }
                     }

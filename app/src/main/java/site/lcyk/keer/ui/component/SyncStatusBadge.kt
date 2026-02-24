@@ -13,6 +13,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import site.lcyk.keer.R
@@ -25,6 +27,7 @@ fun SyncStatusBadge(
     progress: Float?,
     onSync: () -> Unit
 ) {
+    val hapticFeedback = LocalHapticFeedback.current
     val indicatorSize: Dp = 20.dp
     val progressValue = progress?.coerceIn(0f, 1f)
 
@@ -44,7 +47,10 @@ fun SyncStatusBadge(
         return
     }
 
-    IconButton(onClick = onSync) {
+    IconButton(onClick = {
+        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+        onSync()
+    }) {
         BadgedBox(
             badge = {
                 if (unsyncedCount > 0) {

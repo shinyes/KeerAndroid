@@ -30,6 +30,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavHostController
@@ -52,7 +54,8 @@ import java.util.Locale
 @Composable
 fun SideDrawer(
     memosNavController: NavHostController,
-    drawerState: DrawerState? = null
+    drawerState: DrawerState? = null,
+    onDrawerItemCloseRequested: (() -> Unit)? = null
 ) {
     val weekDays = remember {
         val day = WeekFields.of(Locale.getDefault()).firstDayOfWeek
@@ -71,6 +74,7 @@ fun SideDrawer(
     val rootNavController = LocalRootNavController.current
     val navBackStackEntry by memosNavController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
+    val hapticFeedback = LocalHapticFeedback.current
 
     fun isSelected(route: String): Boolean {
         return currentDestination?.hierarchy?.any { it.route == route } == true
@@ -131,11 +135,13 @@ fun SideDrawer(
                 icon = { Icon(Icons.Outlined.GridView, contentDescription = null) },
                 selected = isSelected(RouteName.MEMOS),
                 onClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
                         memosNavController.navigate(RouteName.MEMOS) {
                             launchSingleTop = true
                             restoreState = true
                         }
+                        onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
                     }
                 },
@@ -149,11 +155,13 @@ fun SideDrawer(
                     icon = { Icon(Icons.Outlined.Home, contentDescription = null) },
                     selected = isSelected(RouteName.EXPLORE),
                     onClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         scope.launch {
                             memosNavController.navigate(RouteName.EXPLORE) {
                                 launchSingleTop = true
                                 restoreState = true
                             }
+                            onDrawerItemCloseRequested?.invoke()
                             drawerState?.close()
                         }
                     },
@@ -167,7 +175,9 @@ fun SideDrawer(
                 icon = { Icon(Icons.Outlined.PhotoLibrary, contentDescription = null) },
                 selected = false,
                 onClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
+                        onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
                         rootNavController.navigate(RouteName.RESOURCE)
                     }
@@ -181,11 +191,13 @@ fun SideDrawer(
                 icon = { Icon(Icons.Outlined.Inventory2, contentDescription = null) },
                 selected = isSelected(RouteName.ARCHIVED),
                 onClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
                         memosNavController.navigate(RouteName.ARCHIVED) {
                             launchSingleTop = true
                             restoreState = true
                         }
+                        onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
                     }
                 },
@@ -198,7 +210,9 @@ fun SideDrawer(
                 icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
                 selected = false,
                 onClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
+                        onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
                         rootNavController.navigate(RouteName.SETTINGS)
                     }
@@ -225,7 +239,8 @@ fun SideDrawer(
                     tag = tag,
                     selected = isTagSelected(tag),
                     memosNavController = memosNavController,
-                    drawerState = drawerState
+                    drawerState = drawerState,
+                    onDrawerItemCloseRequested = onDrawerItemCloseRequested
                 )
             }
         }

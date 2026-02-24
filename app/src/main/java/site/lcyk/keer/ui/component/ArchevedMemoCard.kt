@@ -32,6 +32,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import com.skydoves.sandwich.suspendOnSuccess
 import kotlinx.coroutines.launch
@@ -78,11 +80,15 @@ fun ArchivedMemosCardActionButton(
     val archivedMemoListViewModel = LocalArchivedMemos.current
     val memosViewModel = LocalMemos.current
     var showDeleteDialog by remember { mutableStateOf(false) }
+    val hapticFeedback = LocalHapticFeedback.current
 
     Box(modifier = Modifier
         .fillMaxSize()
         .wrapContentSize(Alignment.TopEnd)) {
-        IconButton(onClick = { menuExpanded = true }) {
+        IconButton(onClick = {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+            menuExpanded = true
+        }) {
             Icon(Icons.Filled.MoreVert, contentDescription = null)
         }
         DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {

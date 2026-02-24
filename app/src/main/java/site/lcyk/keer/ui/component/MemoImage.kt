@@ -18,8 +18,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import com.skydoves.sandwich.ApiResponse
 import coil3.ImageLoader
 import coil3.annotation.ExperimentalCoilApi
@@ -45,6 +47,7 @@ fun MemoImage(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val hapticFeedback = LocalHapticFeedback.current
     val userStateViewModel = LocalUserState.current
     val memosViewModel = LocalMemos.current
     val scope = rememberCoroutineScope()
@@ -99,6 +102,7 @@ fun MemoImage(
     Box(
         modifier = modifier.clickable(enabled = !opening) {
             if (opening) return@clickable
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
             scope.launch {
                 opening = true
                 try {

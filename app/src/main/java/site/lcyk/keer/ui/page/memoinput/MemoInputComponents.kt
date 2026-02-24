@@ -56,6 +56,8 @@ import androidx.compose.ui.draganddrop.mimeTypes
 import androidx.compose.ui.draganddrop.toAndroidDragEvent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -85,6 +87,7 @@ internal fun MemoInputTopBar(
     onClose: () -> Unit,
     onSubmit: () -> Unit
 ) {
+    val hapticFeedback = LocalHapticFeedback.current
     TopAppBar(
         title = {
             if (isEditMode) {
@@ -101,7 +104,10 @@ internal fun MemoInputTopBar(
         actions = {
             IconButton(
                 enabled = canSubmit,
-                onClick = onSubmit
+                onClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onSubmit()
+                }
             ) {
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.post))
             }

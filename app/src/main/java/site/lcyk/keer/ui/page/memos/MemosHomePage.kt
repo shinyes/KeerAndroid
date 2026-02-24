@@ -23,6 +23,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
@@ -49,6 +51,7 @@ fun MemosHomePage(
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val syncStatus by memosViewModel.syncStatus.collectAsState()
+    val hapticFeedback = LocalHapticFeedback.current
 
     val expandedFab by remember {
         derivedStateOf {
@@ -76,7 +79,10 @@ fun MemosHomePage(
                 title = { Text(text = R.string.memos.string) },
                 navigationIcon = {
                     if (drawerState != null) {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                        IconButton(onClick = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            scope.launch { drawerState.open() }
+                        }) {
                             Icon(Icons.Filled.Menu, contentDescription = R.string.menu.string)
                         }
                     }
@@ -106,6 +112,7 @@ fun MemosHomePage(
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     rootNavController.navigate(RouteName.INPUT)
                 },
                 expanded = expandedFab,
