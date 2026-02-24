@@ -2,7 +2,6 @@ package site.lcyk.keer.ui.component
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.ResourceRepresentable
 
 private val imageExtensions = setOf(
@@ -40,11 +39,6 @@ fun MemoMedia(
     if (resource.isVideoResource()) {
         MemoVideo(resource = resource, modifier = modifier)
     } else {
-        MemoImage(
-            url = resource.localUri ?: resource.uri,
-            modifier = modifier,
-            resourceIdentifier = (resource as? ResourceEntity)?.identifier
-        )
+        MemoImage(resource = resource, modifier = modifier)
     }
 }
-
