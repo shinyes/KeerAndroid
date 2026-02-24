@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">keer</string>
+    <string name="default_card_content" translatable="false">It is what you do with the gift of life that determines who you are.      — Mewtwo</string>
     <string name="search">検索</string>
     <string name="back">戻る</string>
     <string name="memos">メモ</string>
@@ -26,6 +27,7 @@
     <string name="about">keer について</string>
     <string name="add_account">アカウントの追加</string>
     <string name="attachment">添付ファイル</string>
+    <string name="keer" translatable="false">keer</string>
     <string name="selected">選択済み</string>
     <string name="username_and_password">ユーザー名とパスワード</string>
     <string name="report_an_issue">問題の報告</string>
@@ -34,6 +36,7 @@
     <string name="sign_in_method">サインイン方法</string>
     <string name="address">アドレス</string>
     <string name="host">ホスト</string>
+    <string name="access_token" translatable="false">Access Token</string>
     <string name="edit">編集</string>
     <string name="close">閉じる</string>
     <string name="add_task">タスクを追加</string>
@@ -46,6 +49,9 @@
     <string name="password">パスワード</string>
     <string name="email">メール</string>
     <string name="user_state_not_found">ユーザー状態が見つかりません</string>
+    <string name="memos_view_model_not_found" translatable="false">Memos view model not found</string>
+    <string name="archived_memo_list_view_model_not_found" translatable="false">Archived memo list view model not found</string>
+    <string name="nav_host_controller_not_found" translatable="false">nav host controller not found</string>
     <string name="cancel">キャンセル</string>
     <string name="confirm">確認</string>
     <string name="delete_this_memo">このメモを削除しますか？</string>
@@ -88,7 +94,16 @@
     <string name="sync_status_unsynced">未同期の変更</string>
     <string name="memo_sync_pending">メモは未同期</string>
     <string name="memo_sync_synced">メモは同期済み</string>
+    <string name="edit_gesture">編集ジェスチャー</string>
+    <string name="edit_gesture_none">なし</string>
+    <string name="edit_gesture_single">シングルタップ</string>
+    <string name="edit_gesture_double">ダブルタップ</string>
+    <string name="edit_gesture_long">長押し</string>
     <string name="failed_to_open_attachment">添付ファイルを開けませんでした</string>
+    <string name="upload_preparing">添付ファイルを準備中…</string>
+    <string name="uploading">添付ファイルを保存中…</string>
+    <string name="upload_failed">添付ファイルの処理に失敗しました</string>
+    <string name="upload_in_progress_wait">添付ファイルの処理が完了するまでお待ちください。</string>
     <string name="export_local_account">ローカルデータをエクスポート</string>
     <string name="local_export_success">ローカルデータをエクスポートしました</string>
     <string name="local_export_failed">ローカルデータのエクスポートに失敗しました</string>

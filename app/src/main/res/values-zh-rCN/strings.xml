@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">keer</string>
+    <string name="default_card_content" translatable="false">It is what you do with the gift of life that determines who you are.      — Mewtwo</string>
     <string name="search">搜索</string>
     <string name="back">返回</string>
     <string name="memos">灵感</string>
@@ -26,6 +27,7 @@
     <string name="about">关于 keer</string>
     <string name="add_account">登录</string>
     <string name="attachment">附件</string>
+    <string name="keer" translatable="false">keer</string>
     <string name="selected">已选择</string>
     <string name="username_and_password">用户名与密码</string>
     <string name="report_an_issue">反馈 Bug</string>
@@ -34,6 +36,7 @@
     <string name="sign_in_method">登录方式</string>
     <string name="address">地址</string>
     <string name="host">服务器地址</string>
+    <string name="access_token" translatable="false">Access Token</string>
     <string name="edit">编辑</string>
     <string name="close">关闭</string>
     <string name="add_task">添加任务</string>
@@ -47,6 +50,9 @@
     <string name="password">密码</string>
     <string name="email">邮箱</string>
     <string name="user_state_not_found">用户状态丢失</string>
+    <string name="memos_view_model_not_found" translatable="false">Memos view model not found</string>
+    <string name="archived_memo_list_view_model_not_found" translatable="false">Archived memo list view model not found</string>
+    <string name="nav_host_controller_not_found" translatable="false">nav host controller not found</string>
     <string name="cancel">取消</string>
     <string name="confirm">确认</string>
     <string name="delete_this_memo">确认删除这条 MEMO 吗？</string>
@@ -89,7 +95,16 @@
     <string name="sync_status_unsynced">未同步的更改</string>
     <string name="memo_sync_pending">MEMO 未同步</string>
     <string name="memo_sync_synced">MEMO 已同步</string>
+    <string name="edit_gesture">编辑手势</string>
+    <string name="edit_gesture_none">无</string>
+    <string name="edit_gesture_single">单击</string>
+    <string name="edit_gesture_double">双击</string>
+    <string name="edit_gesture_long">长按</string>
     <string name="failed_to_open_attachment">无法打开附件</string>
+    <string name="upload_preparing">正在准备附件…</string>
+    <string name="uploading">正在保存附件…</string>
+    <string name="upload_failed">附件处理失败</string>
+    <string name="upload_in_progress_wait">请等待附件处理完成。</string>
     <string name="export_local_account">导出本地数据</string>
     <string name="local_export_success">本地数据已导出</string>
     <string name="local_export_failed">导出本地数据失败</string>

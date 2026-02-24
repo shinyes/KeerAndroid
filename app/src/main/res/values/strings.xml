@@ -27,7 +27,7 @@
     <string name="about">About keer</string>
     <string name="add_account">Add Account</string>
     <string name="attachment">Attachment</string>
-    <string name="moe_memos" translatable="false">keer</string>
+    <string name="keer" translatable="false">keer</string>
     <string name="selected">Selected</string>
     <string name="username_and_password">Username and password</string>
     <string name="report_an_issue">Report an Issue</string>
@@ -100,6 +100,10 @@
     <string name="edit_gesture_double">Double tap</string>
     <string name="edit_gesture_long">Long tap</string>
     <string name="failed_to_open_attachment">Failed to open attachment</string>
+    <string name="upload_preparing">Preparing attachment…</string>
+    <string name="uploading">Saving attachment…</string>
+    <string name="upload_failed">Attachment processing failed</string>
+    <string name="upload_in_progress_wait">Please wait for attachment processing to finish.</string>
     <string name="export_local_account">Export Local Data</string>
     <string name="local_export_success">Local data exported</string>
     <string name="local_export_failed">Failed to export local data</string>

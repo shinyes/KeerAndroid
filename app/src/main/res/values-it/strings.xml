@@ -27,7 +27,7 @@
     <string name="about">Info su keer</string>
     <string name="add_account">Registrazione</string>
     <string name="attachment">Allegati</string>
-    <string name="moe_memos" translatable="false">keer</string>
+    <string name="keer" translatable="false">keer</string>
     <string name="selected">Selezionato</string>
     <string name="username_and_password">Utente e password</string>
     <string name="report_an_issue">Segnala un problema</string>
@@ -94,7 +94,16 @@
     <string name="sync_status_unsynced">Modifiche non sincronizzate</string>
     <string name="memo_sync_pending">Memo non sincronizzato</string>
     <string name="memo_sync_synced">Memo sincronizzato</string>
+    <string name="edit_gesture">Gesto di modifica</string>
+    <string name="edit_gesture_none">Nessuno</string>
+    <string name="edit_gesture_single">Tocco singolo</string>
+    <string name="edit_gesture_double">Doppio tocco</string>
+    <string name="edit_gesture_long">Pressione prolungata</string>
     <string name="failed_to_open_attachment">Impossibile aprire l\'allegato</string>
+    <string name="upload_preparing">Preparazione allegato…</string>
+    <string name="uploading">Salvataggio allegato…</string>
+    <string name="upload_failed">Elaborazione allegato non riuscita</string>
+    <string name="upload_in_progress_wait">Attendi il completamento dell\'elaborazione dell\'allegato.</string>
     <string name="export_local_account">Esporta dati locali</string>
     <string name="local_export_success">Dati locali esportati</string>
     <string name="local_export_failed">Impossibile esportare i dati locali</string>

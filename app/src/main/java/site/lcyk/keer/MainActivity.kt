@@ -1,0 +1,46 @@
+package site.lcyk.keer
+
+import android.content.Intent
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.viewModels
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.core.view.WindowCompat
+import dagger.hilt.android.AndroidEntryPoint
+import site.lcyk.keer.ui.page.common.Navigation
+import site.lcyk.keer.viewmodel.LocalMemos
+import site.lcyk.keer.viewmodel.LocalUserState
+import site.lcyk.keer.viewmodel.MemosViewModel
+import site.lcyk.keer.viewmodel.UserStateViewModel
+
+@AndroidEntryPoint
+class MainActivity : ComponentActivity() {
+    private val userStateViewModel: UserStateViewModel by viewModels()
+    private val memosViewModel: MemosViewModel by viewModels()
+
+    companion object {
+        const val ACTION_NEW_MEMO = "site.lcyk.keer.action.NEW_MEMO"
+        const val ACTION_EDIT_MEMO = "site.lcyk.keer.action.EDIT_MEMO"
+        const val ACTION_VIEW_MEMO = "site.lcyk.keer.action.VIEW_MEMO"
+        const val EXTRA_MEMO_ID = "memoId"
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        setContent {
+            CompositionLocalProvider(
+                LocalUserState provides userStateViewModel,
+                LocalMemos provides memosViewModel
+            ) {
+                Navigation()
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+}

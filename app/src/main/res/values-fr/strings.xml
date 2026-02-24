@@ -27,7 +27,7 @@
     <string name="about">À propos de keer</string>
     <string name="add_account">S\'identifier</string>
     <string name="attachment">Pièce jointe</string>
-    <string name="moe_memos" translatable="false">keer</string>
+    <string name="keer" translatable="false">keer</string>
     <string name="selected">Sélectionné</string>
     <string name="username_and_password">Nom d\'utilisateur et mot de passe</string>
     <string name="report_an_issue">Signaler un problème</string>
@@ -94,7 +94,16 @@
     <string name="sync_status_unsynced">Modifications non synchronisées</string>
     <string name="memo_sync_pending">Memo non synchronisé</string>
     <string name="memo_sync_synced">Memo synchronisé</string>
+    <string name="edit_gesture">Geste de modification</string>
+    <string name="edit_gesture_none">Aucune</string>
+    <string name="edit_gesture_single">Appui simple</string>
+    <string name="edit_gesture_double">Appui double</string>
+    <string name="edit_gesture_long">Appui long</string>
     <string name="failed_to_open_attachment">Impossible d\'ouvrir la pièce jointe</string>
+    <string name="upload_preparing">Préparation de la pièce jointe…</string>
+    <string name="uploading">Enregistrement de la pièce jointe…</string>
+    <string name="upload_failed">Échec du traitement de la pièce jointe</string>
+    <string name="upload_in_progress_wait">Veuillez attendre la fin du traitement de la pièce jointe.</string>
     <string name="export_local_account">Exporter les données locales</string>
     <string name="local_export_success">Données locales exportées</string>
     <string name="local_export_failed">Échec de l\'exportation des données locales</string>

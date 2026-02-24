@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">keer</string>
+    <string name="default_card_content" translatable="false">It is what you do with the gift of life that determines who you are.      — Mewtwo</string>
     <string name="search">Suche</string>
     <string name="back">Zurück</string>
     <string name="memos">Memos</string>
@@ -26,6 +27,7 @@
     <string name="about">Über keer</string>
     <string name="add_account">Account hinzufügen</string>
     <string name="attachment">Anhang</string>
+    <string name="keer" translatable="false">keer</string>
     <string name="selected">Ausgewählt</string>
     <string name="username_and_password">Nutzername und Passwort</string>
     <string name="report_an_issue">Einen Fehler melden</string>
@@ -34,6 +36,7 @@
     <string name="sign_in_method">Anmeldemethode</string>
     <string name="address">Adresse</string>
     <string name="host">Host</string>
+    <string name="access_token" translatable="false">Access Token</string>
     <string name="edit">Bearbeiten</string>
     <string name="close">Schließen</string>
     <string name="add_task">Aufgabe hinzufügen</string>
@@ -46,6 +49,9 @@
     <string name="password">Passwort</string>
     <string name="email">Email</string>
     <string name="user_state_not_found">Benutzerdaten nicht gefunden</string>
+    <string name="memos_view_model_not_found" translatable="false">Memos view model not found</string>
+    <string name="archived_memo_list_view_model_not_found" translatable="false">Archived memo list view model not found</string>
+    <string name="nav_host_controller_not_found" translatable="false">nav host controller not found</string>
     <string name="cancel">Abbrechen</string>
     <string name="confirm">Bestätigen</string>
     <string name="delete_this_memo">Diese Memo löschen?</string>
@@ -88,7 +94,16 @@
     <string name="sync_status_unsynced">Nicht synchronisierte Änderungen</string>
     <string name="memo_sync_pending">Memo nicht synchronisiert</string>
     <string name="memo_sync_synced">Memo synchronisiert</string>
+    <string name="edit_gesture">Bearbeitungsgeste</string>
+    <string name="edit_gesture_none">Keine</string>
+    <string name="edit_gesture_single">Einmal tippen</string>
+    <string name="edit_gesture_double">Doppelt tippen</string>
+    <string name="edit_gesture_long">Lange tippen</string>
     <string name="failed_to_open_attachment">Anhang konnte nicht geöffnet werden</string>
+    <string name="upload_preparing">Anhang wird vorbereitet…</string>
+    <string name="uploading">Anhang wird gespeichert…</string>
+    <string name="upload_failed">Verarbeitung des Anhangs fehlgeschlagen</string>
+    <string name="upload_in_progress_wait">Bitte warten, bis die Verarbeitung des Anhangs abgeschlossen ist.</string>
     <string name="export_local_account">Lokale Daten exportieren</string>
     <string name="local_export_success">Lokale Daten exportiert</string>
     <string name="local_export_failed">Export lokaler Daten fehlgeschlagen</string>

@@ -27,7 +27,7 @@
     <string name="about">keer Hakkında</string>
     <string name="add_account">Giriş yap</string>
     <string name="attachment">Ek</string>
-    <string name="moe_memos" translatable="false">keer</string>
+    <string name="keer" translatable="false">keer</string>
     <string name="selected">Seçilen</string>
     <string name="username_and_password">Kullanıcı adı ve şifre</string>
     <string name="report_an_issue">Bir Sorun Bildir</string>
@@ -94,7 +94,16 @@
     <string name="sync_status_unsynced">Senkronize edilmemiş değişiklikler</string>
     <string name="memo_sync_pending">Not senkronize edilmedi</string>
     <string name="memo_sync_synced">Not senkronize edildi</string>
+    <string name="edit_gesture">Düzenleme hareketi</string>
+    <string name="edit_gesture_none">Yok</string>
+    <string name="edit_gesture_single">Tek dokunuş</string>
+    <string name="edit_gesture_double">Çift dokunuş</string>
+    <string name="edit_gesture_long">Uzun dokunuş</string>
     <string name="failed_to_open_attachment">Ek açılamadı</string>
+    <string name="upload_preparing">Ek hazırlanıyor…</string>
+    <string name="uploading">Ek kaydediliyor…</string>
+    <string name="upload_failed">Ek işlenemedi</string>
+    <string name="upload_in_progress_wait">Lütfen ek işleme tamamlanana kadar bekleyin.</string>
     <string name="export_local_account">Yerel verileri dışa aktar</string>
     <string name="local_export_success">Yerel veriler dışa aktarıldı</string>
     <string name="local_export_failed">Yerel veriler dışa aktarılamadı</string>

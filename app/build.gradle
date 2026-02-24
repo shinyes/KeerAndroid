@@ -74,7 +74,7 @@ android {
         }
     }
 
-    namespace = 'me.mudkip.moememos'
+    namespace = 'site.lcyk.keer'
 }
 
 dependencies {

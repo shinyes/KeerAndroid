@@ -27,6 +27,7 @@
     <string name="about">О keer</string>
     <string name="add_account">Войти в систему</string>
     <string name="attachment">Вложение</string>
+    <string name="keer" translatable="false">keer</string>
     <string name="selected">Выбрано</string>
     <string name="username_and_password">Имя пользователя и пароль</string>
     <string name="report_an_issue">Сообщить о проблеме</string>
@@ -35,6 +36,7 @@
     <string name="sign_in_method">Метод входа в систему</string>
     <string name="address">Адрес</string>
     <string name="host">Хост</string>
+    <string name="access_token" translatable="false">Access Token</string>
     <string name="edit">Редактировать</string>
     <string name="close">Закрыть</string>
     <string name="add_task">Добавить задачу</string>
@@ -93,7 +95,16 @@
     <string name="sync_status_unsynced">Несинхронизированные изменения</string>
     <string name="memo_sync_pending">Заметка не синхронизирована</string>
     <string name="memo_sync_synced">Заметка синхронизирована</string>
+    <string name="edit_gesture">Жест редактирования</string>
+    <string name="edit_gesture_none">Нет</string>
+    <string name="edit_gesture_single">Одинарное нажатие</string>
+    <string name="edit_gesture_double">Двойное нажатие</string>
+    <string name="edit_gesture_long">Долгое нажатие</string>
     <string name="failed_to_open_attachment">Не удалось открыть вложение</string>
+    <string name="upload_preparing">Подготовка вложения…</string>
+    <string name="uploading">Сохранение вложения…</string>
+    <string name="upload_failed">Не удалось обработать вложение</string>
+    <string name="upload_in_progress_wait">Дождитесь завершения обработки вложения.</string>
     <string name="export_local_account">Экспортировать локальные данные</string>
     <string name="local_export_success">Локальные данные экспортированы</string>
     <string name="local_export_failed">Не удалось экспортировать локальные данные</string>
