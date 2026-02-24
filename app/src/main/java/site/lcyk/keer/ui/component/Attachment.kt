@@ -61,9 +61,12 @@ fun Attachment(
         scope.launch {
             opening = true
             try {
+                val resolvedResource = (resource as? ResourceEntity)?.let { entity ->
+                    memosViewModel.getResourceById(entity.identifier) ?: resource
+                } ?: resource
                 val localFile = resolveAttachmentFile(
                     context = context,
-                    resource = resource,
+                    resource = resolvedResource,
                     okHttpClient = userStateViewModel.okHttpClient,
                     cacheCanonical = { resourceIdentifier, downloadedUri ->
                         val result = memosViewModel.cacheResourceFile(resourceIdentifier, downloadedUri)
@@ -80,12 +83,12 @@ fun Attachment(
                 }
                 val fileUri = KeerFileProvider.getFileUri(context, localFile)
                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                    type = resolveMimeType(resource, localFile)
+                    type = resolveMimeType(resolvedResource, localFile)
                     putExtra(Intent.EXTRA_STREAM, fileUri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     clipData = ClipData.newUri(
                         context.contentResolver,
-                        resource.filename.ifBlank { "attachment" },
+                        resolvedResource.filename.ifBlank { "attachment" },
                         fileUri
                     )
                 }

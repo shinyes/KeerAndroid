@@ -3,6 +3,10 @@ package site.lcyk.keer.ui.component
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -10,6 +14,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import com.skydoves.sandwich.ApiResponse
@@ -19,6 +25,7 @@ import coil3.compose.AsyncImage
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import kotlinx.coroutines.launch
 import site.lcyk.keer.KeerFileProvider
+import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.ResourceRepresentable
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
@@ -50,18 +57,18 @@ fun MemoImage(
         resolveMemoImagePreviewUri(resource)
     }
 
-    AsyncImage(
-        model = previewModel,
-        imageLoader = imageLoader,
-        contentDescription = null,
+    Box(
         modifier = modifier.clickable(enabled = !opening) {
             if (opening) return@clickable
             scope.launch {
                 opening = true
                 try {
+                    val resolvedResource = (resource as? ResourceEntity)?.let { entity ->
+                        memosViewModel.getResourceById(entity.identifier) ?: resource
+                    } ?: resource
                     val localFile = resolveAttachmentFile(
                         context = context,
-                        resource = resource,
+                        resource = resolvedResource,
                         okHttpClient = userStateViewModel.okHttpClient,
                         cacheCanonical = { resourceIdentifier, downloadedUri ->
                             val result = memosViewModel.cacheResourceFile(resourceIdentifier, downloadedUri)
@@ -87,12 +94,30 @@ fun MemoImage(
                     opening = false
                 }
             }
-        },
-        contentScale = ContentScale.Crop,
-        onError = {
-            Timber.d("Failed to load memo image preview: %s", previewModel)
         }
-    )
+    ) {
+        AsyncImage(
+            model = previewModel,
+            imageLoader = imageLoader,
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop,
+            onError = {
+                Timber.d("Failed to load memo image preview: %s", previewModel)
+            }
+        )
+
+        if (opening) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.35f)),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+    }
 }
 
 private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String {
@@ -106,4 +131,3 @@ private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String 
     }
     return resource.uri
 }
-
