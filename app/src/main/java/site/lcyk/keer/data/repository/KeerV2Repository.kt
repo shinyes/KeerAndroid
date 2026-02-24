@@ -58,7 +58,8 @@ class KeerV2Repository(
             date = resource.createTime ?: Instant.now(),
             filename = resource.filename ?: "",
             uri = resource.uri(account.info.host).toString(),
-            mimeType = resource.type
+            mimeType = resource.type,
+            thumbnailUri = resource.thumbnailUri(account.info.host)?.toString()
         )
     }
 

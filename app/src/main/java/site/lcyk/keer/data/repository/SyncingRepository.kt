@@ -738,7 +738,8 @@ class SyncingRepository(
         val synced = resource.copy(
             remoteId = remoteResourceId(remoteResource),
             uri = remoteResource.uri,
-            localUri = resource.localUri ?: resource.uri
+            localUri = resource.localUri ?: resource.uri,
+            thumbnailUri = remoteResource.thumbnailUri ?: resource.thumbnailUri
         )
         memoDao.insertResource(synced)
         return synced
@@ -800,6 +801,7 @@ class SyncingRepository(
                     uri = resource.uri,
                     localUri = preferredLocalUri,
                     mimeType = resource.mimeType,
+                    thumbnailUri = resource.thumbnailUri,
                     memoId = localIdentifier
                 )
             )

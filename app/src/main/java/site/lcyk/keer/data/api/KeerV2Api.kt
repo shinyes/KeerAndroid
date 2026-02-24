@@ -144,6 +144,9 @@ data class KeerV2Resource(
     val externalLink: String? = null,
     val type: String? = null,
     val size: String? = null,
+    val thumbnailName: String? = null,
+    val thumbnailFilename: String? = null,
+    val thumbnailType: String? = null,
     val memo: String? = null
 ) {
     fun uri(host: String): Uri {
@@ -152,6 +155,20 @@ data class KeerV2Resource(
         }
         return host.toUri()
             .buildUpon().appendPath("file").appendEncodedPath(name ?: "").appendPath(filename ?: "").build()
+    }
+
+    fun thumbnailUri(host: String): Uri? {
+        val resolvedName = thumbnailName?.trim().orEmpty()
+        val resolvedFilename = thumbnailFilename?.trim().orEmpty()
+        if (resolvedName.isEmpty() || resolvedFilename.isEmpty()) {
+            return null
+        }
+        return host.toUri()
+            .buildUpon()
+            .appendPath("file")
+            .appendEncodedPath(resolvedName)
+            .appendPath(resolvedFilename)
+            .build()
     }
 }
 

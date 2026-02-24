@@ -9,6 +9,7 @@ interface ResourceRepresentable {
     val mimeType: String?
     val uri: String
     val localUri: String?
+    val thumbnailUri: String?
 }
 
 interface MemoRepresentable {

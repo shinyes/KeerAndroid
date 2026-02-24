@@ -9,4 +9,5 @@ data class Resource(
     override val mimeType: String? = null,
     override val uri: String,
     override val localUri: String? = null,
+    override val thumbnailUri: String? = null,
 ) : ResourceRepresentable
