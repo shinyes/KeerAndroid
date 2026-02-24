@@ -34,5 +34,6 @@ data class ResourceEntity(
     override val localUri: String? = null,
     override val mimeType: String?,
     override val thumbnailUri: String? = null,
+    override val thumbnailLocalUri: String? = null,
     val memoId: String? = null
 ) : ResourceRepresentable

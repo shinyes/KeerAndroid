@@ -194,6 +194,10 @@ class MemosViewModel @Inject constructor(
         memoService.getRepository().cacheResourceFile(resourceIdentifier, downloadedUri)
     }
 
+    suspend fun cacheResourceThumbnail(resourceIdentifier: String, downloadedUri: Uri): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+        memoService.getRepository().cacheResourceThumbnail(resourceIdentifier, downloadedUri)
+    }
+
     suspend fun getResourceById(resourceIdentifier: String): ResourceEntity? = withContext(viewModelScope.coroutineContext) {
         when (val response = memoService.getRepository().listResources()) {
             is ApiResponse.Success -> response.data.firstOrNull { it.identifier == resourceIdentifier }

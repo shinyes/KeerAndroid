@@ -10,6 +10,7 @@ interface ResourceRepresentable {
     val uri: String
     val localUri: String?
     val thumbnailUri: String?
+    val thumbnailLocalUri: String?
 }
 
 interface MemoRepresentable {

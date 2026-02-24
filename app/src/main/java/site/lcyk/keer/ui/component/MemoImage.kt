@@ -2,12 +2,14 @@ package site.lcyk.keer.ui.component
 
 import android.content.Intent
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,13 +25,18 @@ import coil3.ImageLoader
 import coil3.annotation.ExperimentalCoilApi
 import coil3.compose.AsyncImage
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.ResourceRepresentable
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import timber.log.Timber
+import java.io.File
 
 @OptIn(ExperimentalCoilApi::class)
 @Composable
@@ -53,8 +60,40 @@ fun MemoImage(
             }
             .build()
     }
-    val previewModel = remember(resource.thumbnailUri, resource.localUri, resource.uri) {
+    val previewModel = remember(resource.thumbnailLocalUri, resource.thumbnailUri, resource.localUri, resource.uri) {
         resolveMemoImagePreviewUri(resource)
+    }
+
+    LaunchedEffect(resource.remoteId, resource.thumbnailUri, resource.thumbnailLocalUri) {
+        val resourceEntity = resource as? ResourceEntity ?: return@LaunchedEffect
+        val localThumbnail = resourceEntity.thumbnailLocalUri?.trim().orEmpty()
+        if (localThumbnail.isNotEmpty()) {
+            return@LaunchedEffect
+        }
+
+        val remoteThumbnail = resourceEntity.thumbnailUri?.trim().orEmpty()
+        if (remoteThumbnail.isEmpty()) {
+            return@LaunchedEffect
+        }
+        val thumbnailUri = remoteThumbnail.toUri()
+        if (thumbnailUri.scheme != "http" && thumbnailUri.scheme != "https") {
+            return@LaunchedEffect
+        }
+
+        val downloaded = downloadThumbnailToTemp(
+            context = context,
+            okHttpClient = userStateViewModel.okHttpClient,
+            url = remoteThumbnail,
+            filename = resourceEntity.filename
+        ) ?: return@LaunchedEffect
+
+        try {
+            memosViewModel.cacheResourceThumbnail(resourceEntity.identifier, downloaded.toUri())
+        } catch (e: Throwable) {
+            Timber.d(e)
+        } finally {
+            downloaded.delete()
+        }
     }
 
     Box(
@@ -121,6 +160,10 @@ fun MemoImage(
 }
 
 private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String {
+    val localThumbnail = resource.thumbnailLocalUri?.trim().orEmpty()
+    if (localThumbnail.isNotEmpty()) {
+        return localThumbnail
+    }
     val thumbnail = resource.thumbnailUri?.trim().orEmpty()
     if (thumbnail.isNotEmpty()) {
         return thumbnail
@@ -130,4 +173,32 @@ private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String 
         return local
     }
     return resource.uri
+}
+
+private suspend fun downloadThumbnailToTemp(
+    context: android.content.Context,
+    okHttpClient: OkHttpClient,
+    url: String,
+    filename: String
+): File? = withContext(Dispatchers.IO) {
+    val request = Request.Builder().url(url).get().build()
+    okHttpClient.newCall(request).execute().use { response ->
+        if (!response.isSuccessful) {
+            return@withContext null
+        }
+        val body = response.body
+        val dir = File(context.cacheDir, "thumbnail_cache").also { it.mkdirs() }
+        val suffix = "_${sanitizeThumbnailFilename(filename.ifBlank { "thumbnail" })}"
+        val target = File.createTempFile("thumb_", suffix, dir)
+        body.byteStream().use { input ->
+            target.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        }
+        target
+    }
+}
+
+private fun sanitizeThumbnailFilename(filename: String): String {
+    return filename.replace(Regex("[^A-Za-z0-9._-]"), "_")
 }

@@ -275,12 +275,21 @@ class SyncingRepository(
         onProgress: (uploadedBytes: Long, totalBytes: Long) -> Unit
     ): ApiResponse<ResourceEntity> {
         return try {
-            val localUri = fileStorage.saveFileFromUri(
+            val localUri = fileStorage.savePersistentFileFromUri(
                 accountKey = accountKey,
                 sourceUri = sourceUri,
                 filename = UUID.randomUUID().toString() + "_" + filename,
                 onProgress = onProgress
             )
+            val thumbnailLocalUri = if (type.isImageMimeType()) {
+                fileStorage.saveImageThumbnailFromUri(
+                    accountKey = accountKey,
+                    sourceUri = sourceUri,
+                    filename = "thumb_${UUID.randomUUID()}.jpg"
+                )?.toString()
+            } else {
+                null
+            }
 
             val resource = ResourceEntity(
                 identifier = UUID.randomUUID().toString(),
@@ -291,6 +300,7 @@ class SyncingRepository(
                 uri = localUri.toString(),
                 localUri = localUri.toString(),
                 mimeType = type?.toString(),
+                thumbnailLocalUri = thumbnailLocalUri,
                 memoId = memoIdentifier
             )
             memoDao.insertResource(resource)
@@ -365,6 +375,39 @@ class SyncingRepository(
                 resource.copy(
                     uri = updatedUri,
                     localUri = canonical
+                )
+            )
+            ApiResponse.Success(Unit)
+        } catch (e: Exception) {
+            ApiResponse.Failure.Exception(e)
+        }
+    }
+
+    override suspend fun cacheResourceThumbnail(identifier: String, downloadedUri: Uri): ApiResponse<Unit> {
+        return try {
+            val resource = memoDao.getResourceById(identifier, accountKey)
+                ?: return ApiResponse.Failure.Exception(Exception("Resource not found"))
+            val existingLocal = existingThumbnailLocalUri(resource)
+            if (existingLocal != null) {
+                return ApiResponse.Success(Unit)
+            }
+
+            val canonical = fileStorage.saveThumbnailFromUri(
+                accountKey = accountKey,
+                sourceUri = downloadedUri,
+                filename = "thumb_${resource.identifier}_${resource.filename}"
+            ).toString()
+
+            resource.thumbnailLocalUri?.takeIf { it != canonical }?.let { oldLocal ->
+                val oldUri = oldLocal.toUri()
+                if (oldUri.scheme == "file") {
+                    fileStorage.deleteFile(oldUri)
+                }
+            }
+
+            memoDao.insertResource(
+                resource.copy(
+                    thumbnailLocalUri = canonical
                 )
             )
             ApiResponse.Success(Unit)
@@ -735,10 +778,11 @@ class SyncingRepository(
         )
 
         val remoteResource = uploaded.getOrNull() ?: return null
+        val cachedLocalUri = moveLocalFileToCache(resource, file)
         val synced = resource.copy(
             remoteId = remoteResourceId(remoteResource),
             uri = remoteResource.uri,
-            localUri = resource.localUri ?: resource.uri,
+            localUri = cachedLocalUri ?: resource.localUri ?: resource.uri,
             thumbnailUri = remoteResource.thumbnailUri ?: resource.thumbnailUri
         )
         memoDao.insertResource(synced)
@@ -791,6 +835,11 @@ class SyncingRepository(
                 existing != null && existing.uri.toUri().scheme == "file" && File(existing.uri.toUri().path ?: "").exists() -> existing.uri
                 else -> null
             }
+            val preferredThumbnailLocalUri = existing?.thumbnailLocalUri
+                ?.takeIf { local ->
+                    val localUri = local.toUri()
+                    localUri.scheme == "file" && File(localUri.path ?: "").exists()
+                }
             memoDao.insertResource(
                 ResourceEntity(
                     identifier = localResourceIdentifier,
@@ -802,6 +851,7 @@ class SyncingRepository(
                     localUri = preferredLocalUri,
                     mimeType = resource.mimeType,
                     thumbnailUri = resource.thumbnailUri,
+                    thumbnailLocalUri = preferredThumbnailLocalUri,
                     memoId = localIdentifier
                 )
             )
@@ -1021,11 +1071,42 @@ class SyncingRepository(
         return if (uri.scheme == "file" && File(uri.path ?: "").exists()) uri else null
     }
 
+    private fun existingThumbnailLocalUri(resource: ResourceEntity): Uri? {
+        val local = resource.thumbnailLocalUri ?: return null
+        val uri = local.toUri()
+        return if (uri.scheme == "file" && File(uri.path ?: "").exists()) uri else null
+    }
+
+    private fun moveLocalFileToCache(resource: ResourceEntity, sourceFile: File): String? {
+        if (!sourceFile.exists()) {
+            return null
+        }
+        return try {
+            val localPath = resource.localUri ?: resource.uri
+            val localUri = localPath.toUri()
+            val cachedUri = fileStorage.copyFileToCache(
+                accountKey = accountKey,
+                sourceFile = sourceFile,
+                filename = "${resource.identifier}_${resource.filename}"
+            )
+            if (localUri.scheme == "file" && localUri.path != cachedUri.path) {
+                fileStorage.deleteFile(localUri)
+            }
+            cachedUri.toString()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun deleteLocalFile(resource: ResourceEntity) {
         val uri = resource.localUri?.toUri()
             ?: resource.uri.toUri().takeIf { it.scheme == "file" }
         if (uri != null) {
             fileStorage.deleteFile(uri)
+        }
+        val thumbnailUri = resource.thumbnailLocalUri?.toUri()
+        if (thumbnailUri?.scheme == "file") {
+            fileStorage.deleteFile(thumbnailUri)
         }
     }
 
@@ -1056,6 +1137,10 @@ class SyncingRepository(
             "Failed to upload one or more attachments during sync"
     }
 
+}
+
+private fun MediaType?.isImageMimeType(): Boolean {
+    return this?.type.equals("image", ignoreCase = true)
 }
 
 private fun MemoWithResources.toMemoEntity(): MemoEntity {

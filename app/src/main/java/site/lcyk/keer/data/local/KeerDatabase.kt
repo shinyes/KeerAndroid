@@ -13,7 +13,7 @@ import site.lcyk.keer.data.local.entity.ResourceEntity
 
 @Database(
     entities = [MemoEntity::class, ResourceEntity::class],
-    version = 2
+    version = 3
 )
 @TypeConverters(Converters::class)
 abstract class KeerDatabase : RoomDatabase() {
@@ -31,6 +31,7 @@ abstract class KeerDatabase : RoomDatabase() {
                     "Keer_database_localfirst"
                 )
                     .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_2_3)
                     .build()
                 INSTANCE = instance
                 instance
@@ -40,6 +41,12 @@ abstract class KeerDatabase : RoomDatabase() {
         private val MIGRATION_1_2: Migration = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE resources ADD COLUMN thumbnailUri TEXT")
+            }
+        }
+
+        private val MIGRATION_2_3: Migration = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE resources ADD COLUMN thumbnailLocalUri TEXT")
             }
         }
     }

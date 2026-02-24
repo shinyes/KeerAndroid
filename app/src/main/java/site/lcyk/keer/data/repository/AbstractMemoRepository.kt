@@ -46,6 +46,10 @@ abstract class AbstractMemoRepository {
         return ApiResponse.Success(Unit)
     }
 
+    open suspend fun cacheResourceThumbnail(identifier: String, downloadedUri: Uri): ApiResponse<Unit> {
+        return ApiResponse.Success(Unit)
+    }
+
     open suspend fun sync(): ApiResponse<Unit> {
         return ApiResponse.Success(Unit)
     }

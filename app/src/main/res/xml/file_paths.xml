@@ -13,6 +13,9 @@
         name="image_cache"
         path="image_cache/" />
     <cache-path
+        name="cache_resources"
+        path="resources/" />
+    <cache-path
         name="coil3_disk_cache"
         path="coil3_disk_cache/" />
 </paths>

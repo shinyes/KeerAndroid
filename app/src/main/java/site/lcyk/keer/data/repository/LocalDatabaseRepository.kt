@@ -15,6 +15,7 @@ import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.User
 import site.lcyk.keer.util.extractCustomTags
 import okhttp3.MediaType
+import java.io.File
 import java.time.Instant
 import java.util.UUID
 
@@ -220,12 +221,21 @@ class LocalDatabaseRepository(
         onProgress: (uploadedBytes: Long, totalBytes: Long) -> Unit
     ): ApiResponse<ResourceEntity> {
         return try {
-            val uri = fileStorage.saveFileFromUri(
+            val uri = fileStorage.savePersistentFileFromUri(
                 accountKey = accountKey,
                 sourceUri = sourceUri,
                 filename = UUID.randomUUID().toString() + "_" + filename,
                 onProgress = onProgress
             )
+            val thumbnailLocalUri = if (type.isImageMimeType()) {
+                fileStorage.saveImageThumbnailFromUri(
+                    accountKey = accountKey,
+                    sourceUri = sourceUri,
+                    filename = "thumb_${UUID.randomUUID()}.jpg"
+                )?.toString()
+            } else {
+                null
+            }
             val resource = ResourceEntity(
                 identifier = UUID.randomUUID().toString(),
                 remoteId = null,
@@ -235,10 +245,46 @@ class LocalDatabaseRepository(
                 uri = uri.toString(),
                 localUri = uri.toString(),
                 mimeType = type?.toString(),
+                thumbnailLocalUri = thumbnailLocalUri,
                 memoId = memoIdentifier
             )
             memoDao.insertResource(resource)
             ApiResponse.Success(resource)
+        } catch (e: Exception) {
+            ApiResponse.Failure.Exception(e)
+        }
+    }
+
+    override suspend fun cacheResourceThumbnail(identifier: String, downloadedUri: Uri): ApiResponse<Unit> {
+        return try {
+            val resource = memoDao.getResourceById(identifier, accountKey)
+                ?: return ApiResponse.Failure.Exception(Exception("Resource not found"))
+            val existing = resource.thumbnailLocalUri
+                ?.toUri()
+                ?.takeIf { it.scheme == "file" }
+                ?.path
+                ?.let(::File)
+                ?.takeIf { it.exists() }
+            if (existing != null) {
+                return ApiResponse.Success(Unit)
+            }
+
+            val canonical = fileStorage.saveThumbnailFromUri(
+                accountKey = accountKey,
+                sourceUri = downloadedUri,
+                filename = "thumb_${resource.identifier}_${resource.filename}"
+            ).toString()
+
+            resource.thumbnailLocalUri
+                ?.takeIf { it != canonical }
+                ?.toUri()
+                ?.takeIf { it.scheme == "file" }
+                ?.let(fileStorage::deleteFile)
+
+            memoDao.insertResource(
+                resource.copy(thumbnailLocalUri = canonical)
+            )
+            ApiResponse.Success(Unit)
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
         }
@@ -271,8 +317,16 @@ class LocalDatabaseRepository(
         if (localUri.scheme == "file") {
             fileStorage.deleteFile(localUri)
         }
+        val thumbnailLocalUri = resource.thumbnailLocalUri?.toUri()
+        if (thumbnailLocalUri?.scheme == "file") {
+            fileStorage.deleteFile(thumbnailLocalUri)
+        }
     }
 
+}
+
+private fun MediaType?.isImageMimeType(): Boolean {
+    return this?.type.equals("image", ignoreCase = true)
 }
 
 private fun MemoWithResources.toMemoEntity(): MemoEntity {

@@ -10,4 +10,5 @@ data class Resource(
     override val uri: String,
     override val localUri: String? = null,
     override val thumbnailUri: String? = null,
+    override val thumbnailLocalUri: String? = null,
 ) : ResourceRepresentable
