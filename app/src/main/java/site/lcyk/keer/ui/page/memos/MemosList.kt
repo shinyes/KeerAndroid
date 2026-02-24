@@ -112,6 +112,7 @@ fun MemosList(
             }
         },
         state = refreshState,
+        indicator = {},
         modifier = Modifier.padding(contentPadding)
     ) {
         LazyColumn(
