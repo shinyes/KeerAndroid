@@ -166,6 +166,12 @@ fun SettingsPage(
             }
 
             item {
+                SettingItem(icon = Icons.Outlined.BugReport, text = R.string.debug_logs.string) {
+                    navController.navigate(RouteName.DEBUG_LOGS)
+                }
+            }
+
+            item {
                 Text(
                     R.string.about.string,
                     modifier = Modifier

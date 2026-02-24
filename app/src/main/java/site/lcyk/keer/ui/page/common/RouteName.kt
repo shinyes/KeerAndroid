@@ -15,4 +15,5 @@ object RouteName {
     const val SHARE = "share"
     const val EXPLORE = "explore"
     const val ACCOUNT = "account"
+    const val DEBUG_LOGS = "debug-logs"
 }

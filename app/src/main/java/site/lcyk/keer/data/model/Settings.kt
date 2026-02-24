@@ -6,4 +6,6 @@ import kotlinx.serialization.Serializable
 data class Settings(
     val usersList: List<UserData> = emptyList(),
     val currentUser: String = "",
+    val appDebugLogEnabled: Boolean = false,
+    val httpDebugLogEnabled: Boolean = false,
 )

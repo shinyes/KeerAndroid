@@ -107,6 +107,11 @@
     <string name="export_local_account">Export Local Data</string>
     <string name="local_export_success">Local data exported</string>
     <string name="local_export_failed">Failed to export local data</string>
+    <string name="debug_logs">Debug Logs</string>
+    <string name="enable_app_debug_logs">Enable app logs</string>
+    <string name="enable_http_debug_logs">Enable HTTP logs</string>
+    <string name="clear_logs">Clear logs</string>
+    <string name="debug_logs_empty">No logs yet. Enable switches above to start recording.</string>
     
     <!-- Widget strings -->
     <string name="memos_widget_title">Memos</string>
