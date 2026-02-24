@@ -1,8 +1,7 @@
-﻿package site.lcyk.keer.ui.component
+package site.lcyk.keer.ui.component
 
+import android.content.Context
 import android.net.Uri
-import android.widget.MediaController
-import android.widget.VideoView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -19,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,15 +26,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.net.toUri
-import androidx.compose.runtime.collectAsState
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.PlayerView
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.ResourceRepresentable
+import site.lcyk.keer.data.service.VideoPlayerCache
 import site.lcyk.keer.viewmodel.LocalUserState
 
 @Composable
@@ -74,6 +85,7 @@ private fun MemoVideoPlayerDialog(
     resource: ResourceRepresentable,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState(initial = null)
     val sourceUri = remember(resource.localUri, resource.uri) {
@@ -91,13 +103,31 @@ private fun MemoVideoPlayerDialog(
         }
         if (accessToken.isBlank()) null else "Bearer $accessToken"
     }
+    val canStartPlayback = !isRemoteSource || !authHeaderValue.isNullOrBlank()
     var playbackError by remember(sourceUri) { mutableStateOf(false) }
-    var videoViewRef by remember { mutableStateOf<VideoView?>(null) }
 
-    DisposableEffect(Unit) {
+    val player = remember(sourceUri, authHeaderValue, canStartPlayback) {
+        if (!canStartPlayback) {
+            null
+        } else {
+            buildVideoPlayer(context, sourceUri, authHeaderValue)
+        }
+    }
+
+    DisposableEffect(player) {
+        val safePlayer = player ?: return@DisposableEffect onDispose {}
+        playbackError = false
+        val listener = object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                playbackError = true
+            }
+        }
+        safePlayer.addListener(listener)
+        safePlayer.prepare()
+        safePlayer.playWhenReady = true
         onDispose {
-            videoViewRef?.stopPlayback()
-            videoViewRef = null
+            safePlayer.removeListener(listener)
+            safePlayer.release()
         }
     }
 
@@ -110,28 +140,33 @@ private fun MemoVideoPlayerDialog(
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            AndroidView(
-                factory = { playerContext ->
-                    VideoView(playerContext).apply {
-                        val mediaController = MediaController(playerContext)
-                        mediaController.setAnchorView(this)
-                        setMediaController(mediaController)
-                        setOnPreparedListener { start() }
-                        setOnErrorListener { _, _, _ ->
-                            playbackError = true
-                            true
+            if (player != null) {
+                AndroidView(
+                    factory = { playerContext ->
+                        PlayerView(playerContext).apply {
+                            useController = true
+                            keepScreenOn = true
+                            setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                            this.player = player
                         }
-                        openVideo(sourceUri, isRemoteSource, authHeaderValue)
-                        videoViewRef = this
-                    }
-                },
-                update = { view ->
-                    if (videoViewRef !== view) {
-                        videoViewRef = view
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+                    },
+                    update = { view ->
+                        if (view.player !== player) {
+                            view.player = player
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Text(
+                    text = "正在准备播放...",
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 24.dp)
+                )
+            }
 
             if (playbackError) {
                 Text(
@@ -160,14 +195,42 @@ private fun MemoVideoPlayerDialog(
     }
 }
 
-private fun VideoView.openVideo(
+private fun buildVideoPlayer(
+    context: Context,
     sourceUri: Uri,
-    isRemoteSource: Boolean,
     authHeaderValue: String?
-) {
-    if (isRemoteSource && !authHeaderValue.isNullOrBlank()) {
-        setVideoURI(sourceUri, mapOf("Authorization" to authHeaderValue))
-    } else {
-        setVideoURI(sourceUri)
+): ExoPlayer {
+    val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+        .setAllowCrossProtocolRedirects(true)
+        .setConnectTimeoutMs(15_000)
+        .setReadTimeoutMs(30_000)
+        .setUserAgent("keer-android")
+    if (!authHeaderValue.isNullOrBlank()) {
+        httpDataSourceFactory.setDefaultRequestProperties(
+            mapOf("Authorization" to authHeaderValue)
+        )
     }
+
+    val upstreamFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
+    val cacheDataSourceFactory = CacheDataSource.Factory()
+        .setCache(VideoPlayerCache.get(context))
+        .setUpstreamDataSourceFactory(upstreamFactory)
+        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+    val mediaSourceFactory = DefaultMediaSourceFactory(cacheDataSourceFactory)
+    val loadControl = DefaultLoadControl.Builder()
+        .setBufferDurationsMs(
+            20_000,
+            120_000,
+            1_000,
+            2_000
+        )
+        .build()
+
+    return ExoPlayer.Builder(context)
+        .setLoadControl(loadControl)
+        .setMediaSourceFactory(mediaSourceFactory)
+        .build()
+        .apply {
+            setMediaItem(MediaItem.fromUri(sourceUri))
+        }
 }
