@@ -16,7 +16,8 @@ import site.lcyk.keer.viewmodel.LocalUserState
 @Composable
 fun MemosNavigation(
     drawerState: DrawerState? = null,
-    navController: NavHostController
+    navController: NavHostController,
+    onMenuButtonOpenRequested: (() -> Unit)? = null
 ) {
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
@@ -32,6 +33,7 @@ fun MemosNavigation(
             MemosHomePage(
                 drawerState = drawerState,
                 navController = navController,
+                onMenuButtonOpenRequested = onMenuButtonOpenRequested
             )
         }
 
@@ -39,7 +41,8 @@ fun MemosNavigation(
             RouteName.ARCHIVED
         ) {
             ArchivedMemoPage(
-                drawerState = drawerState
+                drawerState = drawerState,
+                onMenuButtonOpenRequested = onMenuButtonOpenRequested
             )
         }
 
@@ -49,7 +52,8 @@ fun MemosNavigation(
             TagMemoPage(
                 drawerState = drawerState,
                 tag = entry.arguments?.getString("tag")?.let(Uri::decode) ?: "",
-                navController = navController
+                navController = navController,
+                onMenuButtonOpenRequested = onMenuButtonOpenRequested
             )
         }
 
@@ -58,7 +62,8 @@ fun MemosNavigation(
         ) {
             if (hasExplore) {
                 ExplorePage(
-                    drawerState = drawerState
+                    drawerState = drawerState,
+                    onMenuButtonOpenRequested = onMenuButtonOpenRequested
                 )
             } else {
                 LaunchedEffect(Unit) {

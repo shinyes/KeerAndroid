@@ -42,7 +42,8 @@ import java.net.URLEncoder
 @Composable
 fun MemosHomePage(
     drawerState: DrawerState? = null,
-    navController: NavHostController
+    navController: NavHostController,
+    onMenuButtonOpenRequested: (() -> Unit)? = null
 ) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -80,6 +81,7 @@ fun MemosHomePage(
                 navigationIcon = {
                     if (drawerState != null) {
                         IconButton(onClick = {
+                            onMenuButtonOpenRequested?.invoke()
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                             scope.launch { drawerState.open() }
                         }) {

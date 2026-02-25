@@ -25,7 +25,8 @@ import site.lcyk.keer.ui.page.common.RouteName
 fun TagMemoPage(
     drawerState: DrawerState? = null,
     tag: String,
-    navController: NavHostController
+    navController: NavHostController,
+    onMenuButtonOpenRequested: (() -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     val normalizedCurrentTag = remember(tag) { normalizeTag(tag) }
@@ -38,6 +39,7 @@ fun TagMemoPage(
                 navigationIcon = {
                     if (drawerState != null) {
                         IconButton(onClick = {
+                            onMenuButtonOpenRequested?.invoke()
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                             scope.launch { drawerState.open() }
                         }) {

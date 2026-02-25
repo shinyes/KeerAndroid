@@ -20,7 +20,8 @@ import site.lcyk.keer.ext.string
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExplorePage(
-    drawerState: DrawerState? = null
+    drawerState: DrawerState? = null,
+    onMenuButtonOpenRequested: (() -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
@@ -32,6 +33,7 @@ fun ExplorePage(
                 navigationIcon = {
                     if (drawerState != null) {
                         IconButton(onClick = {
+                            onMenuButtonOpenRequested?.invoke()
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                             scope.launch { drawerState.open() }
                         }) {
