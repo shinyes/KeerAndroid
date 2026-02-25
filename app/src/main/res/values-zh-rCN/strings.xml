@@ -68,6 +68,10 @@
     <string name="nav_host_controller_not_found" translatable="false">nav host controller not found</string>
     <string name="cancel">取消</string>
     <string name="confirm">确认</string>
+    <string name="save_changes_title">保存更改？</string>
+    <string name="save_changes_message">退出前是否保存本次更改？</string>
+    <string name="save">保存</string>
+    <string name="discard">放弃</string>
     <string name="delete_this_memo">确认删除这条 MEMO 吗？</string>
     <string name="delete">删除</string>
     <string name="restore">恢复</string>

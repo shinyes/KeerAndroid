@@ -67,6 +67,10 @@
     <string name="nav_host_controller_not_found" translatable="false">nav host controller not found</string>
     <string name="cancel">Cancel</string>
     <string name="confirm">Confirm</string>
+    <string name="save_changes_title">Save changes?</string>
+    <string name="save_changes_message">Do you want to save changes before exiting?</string>
+    <string name="save">Save</string>
+    <string name="discard">Discard</string>
     <string name="delete_this_memo">Delete this memo?</string>
     <string name="delete">Delete</string>
     <string name="restore">Restore</string>

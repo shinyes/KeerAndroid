@@ -800,16 +800,16 @@ internal fun SaveChangesDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Save Changes?") },
-        text = { Text("Do you want to save changes before exiting?") },
+        title = { Text(R.string.save_changes_title.string) },
+        text = { Text(R.string.save_changes_message.string) },
         confirmButton = {
             Button(onClick = onSave) {
-                Text("Save")
+                Text(R.string.save.string)
             }
         },
         dismissButton = {
             Button(onClick = onDiscard) {
-                Text("Discard")
+                Text(R.string.discard.string)
             }
         }
     )
