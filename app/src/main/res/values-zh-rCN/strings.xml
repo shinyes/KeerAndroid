@@ -18,6 +18,17 @@
     <string name="tags">标签</string>
     <string name="memo">灵感</string>
     <string name="tag">标签</string>
+    <string name="tag_actions">标签操作</string>
+    <string name="rename_tag">重命名标签</string>
+    <string name="delete_tag">删除标签</string>
+    <string name="new_tag_name">新标签名</string>
+    <string name="invalid_tag_name">标签名无效</string>
+    <string name="delete_tag_choice_prompt">请选择如何删除“%1$s”。</string>
+    <string name="delete_tag_only">仅删除标签</string>
+    <string name="delete_tag_and_memos">删除标签并删除关联 MEMO</string>
+    <string name="delete_tag_and_memos_confirm_hint">请输入 %1$s 以确认删除标签及其关联 MEMO。</string>
+    <string name="delete_tag_and_memos_confirm_label">输入标签名确认</string>
+    <string name="tag_action_failed">标签操作失败</string>
     <string name="fill_login_form">请填写所有字段</string>
     <string name="acknowledgements">致谢</string>
     <string name="privacy_policy">隐私政策</string>

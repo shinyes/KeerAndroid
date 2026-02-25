@@ -17,6 +17,17 @@
     <string name="tags">Tags</string>
     <string name="memo">Memo</string>
     <string name="tag">Tag</string>
+    <string name="tag_actions">Tag Actions</string>
+    <string name="rename_tag">Rename Tag</string>
+    <string name="delete_tag">Delete Tag</string>
+    <string name="new_tag_name">New tag name</string>
+    <string name="invalid_tag_name">Invalid tag name</string>
+    <string name="delete_tag_choice_prompt">Choose how to delete \"%1$s\".</string>
+    <string name="delete_tag_only">Delete tag only</string>
+    <string name="delete_tag_and_memos">Delete tag and related memos</string>
+    <string name="delete_tag_and_memos_confirm_hint">Type %1$s to confirm deleting this tag and all related memos.</string>
+    <string name="delete_tag_and_memos_confirm_label">Tag name</string>
+    <string name="tag_action_failed">Tag action failed</string>
     <string name="day">Day</string>
     <string name="fill_login_form">Please fill the login form.</string>
     <string name="acknowledgements">Acknowledgements</string>

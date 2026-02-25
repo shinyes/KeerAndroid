@@ -18,6 +18,17 @@
     <string name="tags">標籤</string>
     <string name="memo">靈感</string>
     <string name="tag">標籤</string>
+    <string name="tag_actions">標籤操作</string>
+    <string name="rename_tag">重新命名標籤</string>
+    <string name="delete_tag">刪除標籤</string>
+    <string name="new_tag_name">新標籤名稱</string>
+    <string name="invalid_tag_name">標籤名稱無效</string>
+    <string name="delete_tag_choice_prompt">請選擇如何刪除「%1$s」。</string>
+    <string name="delete_tag_only">僅刪除標籤</string>
+    <string name="delete_tag_and_memos">刪除標籤並刪除關聯 MEMO</string>
+    <string name="delete_tag_and_memos_confirm_hint">請輸入 %1$s 以確認刪除標籤及其關聯 MEMO。</string>
+    <string name="delete_tag_and_memos_confirm_label">輸入標籤名稱確認</string>
+    <string name="tag_action_failed">標籤操作失敗</string>
     <string name="fill_login_form">請填寫所有欄位</string>
     <string name="acknowledgements">致謝</string>
     <string name="privacy_policy">隱私政策</string>

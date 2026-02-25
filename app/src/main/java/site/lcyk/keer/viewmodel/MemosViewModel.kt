@@ -158,6 +158,32 @@ class MemosViewModel @Inject constructor(
         }
     }
 
+    suspend fun renameTag(oldTag: String, newTag: String): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+        val response = memoService.getRepository().renameTag(oldTag, newTag)
+        if (response is ApiResponse.Success) {
+            loadMemosSnapshot()
+            memoService.getRepository().listTags().suspendOnSuccess {
+                tags.clear()
+                tags.addAll(data)
+            }
+            WidgetUpdater.updateWidgets(appContext)
+        }
+        response
+    }
+
+    suspend fun deleteTag(tag: String, deleteAssociatedMemos: Boolean): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+        val response = memoService.getRepository().deleteTag(tag, deleteAssociatedMemos)
+        if (response is ApiResponse.Success) {
+            loadMemosSnapshot()
+            memoService.getRepository().listTags().suspendOnSuccess {
+                tags.clear()
+                tags.addAll(data)
+            }
+            WidgetUpdater.updateWidgets(appContext)
+        }
+        response
+    }
+
     suspend fun updateMemoPinned(memoIdentifier: String, pinned: Boolean) = withContext(viewModelScope.coroutineContext) {
         memoService.getRepository().updateMemo(memoIdentifier, pinned = pinned).suspendOnSuccess {
             updateMemo(data)

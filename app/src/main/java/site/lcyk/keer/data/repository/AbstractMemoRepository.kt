@@ -27,6 +27,8 @@ abstract class AbstractMemoRepository {
     abstract suspend fun restoreMemo(identifier: String): ApiResponse<Unit>
 
     abstract suspend fun listTags(): ApiResponse<List<String>>
+    abstract suspend fun renameTag(oldTag: String, newTag: String): ApiResponse<Unit>
+    abstract suspend fun deleteTag(tag: String, deleteAssociatedMemos: Boolean): ApiResponse<Unit>
 
     abstract suspend fun listResources(): ApiResponse<List<ResourceEntity>>
     abstract suspend fun createResource(

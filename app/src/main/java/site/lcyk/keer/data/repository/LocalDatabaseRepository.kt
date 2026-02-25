@@ -12,6 +12,8 @@ import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.User
+import site.lcyk.keer.util.isValidTagName
+import site.lcyk.keer.util.normalizeTagName
 import okhttp3.MediaType
 import java.io.File
 import java.time.Instant
@@ -210,6 +212,95 @@ class LocalDatabaseRepository(
         }
     }
 
+    override suspend fun renameTag(oldTag: String, newTag: String): ApiResponse<Unit> {
+        return try {
+            val normalizedOldTag = normalizeTagName(oldTag)
+            val normalizedNewTag = normalizeTagName(newTag)
+            if (normalizedOldTag.isEmpty() || normalizedNewTag.isEmpty()) {
+                return ApiResponse.Failure.Exception(IllegalArgumentException("Tag name cannot be empty"))
+            }
+            if (!isValidTagName(normalizedNewTag)) {
+                return ApiResponse.Failure.Exception(IllegalArgumentException("Invalid tag name"))
+            }
+            if (normalizedOldTag == normalizedNewTag) {
+                return ApiResponse.Success(Unit)
+            }
+
+            val now = Instant.now()
+            val memoIds = memoDao.listMemoIdsByTagPrefix(
+                accountKey = accountKey,
+                tag = normalizedOldTag,
+                tagPrefix = "$normalizedOldTag/%"
+            )
+
+            memoIds.forEach { memoId ->
+                val memo = memoDao.getMemoById(memoId, accountKey) ?: return@forEach
+                val updatedTags = memoDao.getMemoTags(memoId, accountKey)
+                    .map { renameTagWithPrefix(it, normalizedOldTag, normalizedNewTag) }
+                    .distinct()
+                memoDao.replaceMemoTags(memoId, accountKey, updatedTags)
+                memoDao.insertMemo(
+                    memo.copy(
+                        lastModified = now,
+                        lastSyncedAt = now,
+                        needsSync = false,
+                        isDeleted = false
+                    )
+                )
+            }
+            memoDao.pruneUnusedTags(accountKey)
+            ApiResponse.Success(Unit)
+        } catch (e: Exception) {
+            ApiResponse.Failure.Exception(e)
+        }
+    }
+
+    override suspend fun deleteTag(tag: String, deleteAssociatedMemos: Boolean): ApiResponse<Unit> {
+        return try {
+            val normalizedTag = normalizeTagName(tag)
+            if (normalizedTag.isEmpty()) {
+                return ApiResponse.Failure.Exception(IllegalArgumentException("Tag name cannot be empty"))
+            }
+
+            val memoIds = memoDao.listMemoIdsByTagPrefix(
+                accountKey = accountKey,
+                tag = normalizedTag,
+                tagPrefix = "$normalizedTag/%"
+            )
+
+            if (deleteAssociatedMemos) {
+                memoIds.forEach { memoId ->
+                    val deleteResult = deleteMemo(memoId)
+                    if (deleteResult !is ApiResponse.Success) {
+                        return deleteResult
+                    }
+                }
+                memoDao.pruneUnusedTags(accountKey)
+                return ApiResponse.Success(Unit)
+            }
+
+            val now = Instant.now()
+            memoIds.forEach { memoId ->
+                val memo = memoDao.getMemoById(memoId, accountKey) ?: return@forEach
+                val updatedTags = memoDao.getMemoTags(memoId, accountKey)
+                    .filterNot { matchesTagOrDescendant(it, normalizedTag) }
+                memoDao.replaceMemoTags(memoId, accountKey, updatedTags)
+                memoDao.insertMemo(
+                    memo.copy(
+                        lastModified = now,
+                        lastSyncedAt = now,
+                        needsSync = false,
+                        isDeleted = false
+                    )
+                )
+            }
+            memoDao.pruneUnusedTags(accountKey)
+            ApiResponse.Success(Unit)
+        } catch (e: Exception) {
+            ApiResponse.Failure.Exception(e)
+        }
+    }
+
     override suspend fun listResources(): ApiResponse<List<ResourceEntity>> {
         return try {
             val resources = memoDao.getAllResources(accountKey)
@@ -347,4 +438,16 @@ private fun MediaType?.isImageMimeType(): Boolean {
 
 private fun MediaType?.isVideoMimeType(): Boolean {
     return this?.type.equals("video", ignoreCase = true)
+}
+
+private fun renameTagWithPrefix(tag: String, oldPrefix: String, newPrefix: String): String {
+    return when {
+        tag == oldPrefix -> newPrefix
+        tag.startsWith("$oldPrefix/") -> "$newPrefix/${tag.removePrefix("$oldPrefix/")}"
+        else -> tag
+    }
+}
+
+private fun matchesTagOrDescendant(tag: String, rootTag: String): Boolean {
+    return tag == rootTag || tag.startsWith("$rootTag/")
 }

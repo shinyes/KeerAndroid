@@ -32,6 +32,8 @@ import site.lcyk.keer.data.model.Resource
 import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.data.model.User
 import site.lcyk.keer.ext.getErrorMessage
+import site.lcyk.keer.util.isValidTagName
+import site.lcyk.keer.util.normalizeTagName
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import java.io.File
@@ -260,6 +262,108 @@ class SyncingRepository(
                 since = Instant.now().minusSeconds(30L * 24L * 60L * 60L)
             )
             ApiResponse.Success(tags)
+        } catch (e: Exception) {
+            ApiResponse.Failure.Exception(e)
+        }
+    }
+
+    override suspend fun renameTag(oldTag: String, newTag: String): ApiResponse<Unit> {
+        return try {
+            val normalizedOldTag = normalizeTagName(oldTag)
+            val normalizedNewTag = normalizeTagName(newTag)
+            if (normalizedOldTag.isEmpty() || normalizedNewTag.isEmpty()) {
+                return ApiResponse.Failure.Exception(IllegalArgumentException("Tag name cannot be empty"))
+            }
+            if (!isValidTagName(normalizedNewTag)) {
+                return ApiResponse.Failure.Exception(IllegalArgumentException("Invalid tag name"))
+            }
+            if (normalizedOldTag == normalizedNewTag) {
+                return ApiResponse.Success(Unit)
+            }
+
+            operationMutex.withLock {
+                val now = Instant.now()
+                val memoIds = memoDao.listMemoIdsByTagPrefix(
+                    accountKey = accountKey,
+                    tag = normalizedOldTag,
+                    tagPrefix = "$normalizedOldTag/%"
+                )
+
+                memoIds.forEach { memoId ->
+                    val memo = memoDao.getMemoById(memoId, accountKey) ?: return@forEach
+                    if (memo.isDeleted) {
+                        return@forEach
+                    }
+                    val updatedTags = memoDao.getMemoTags(memoId, accountKey)
+                        .map { renameTagWithPrefix(it, normalizedOldTag, normalizedNewTag) }
+                        .distinct()
+                    memoDao.replaceMemoTags(memoId, accountKey, updatedTags)
+                    memoDao.insertMemo(
+                        memo.copy(
+                            needsSync = true,
+                            isDeleted = false,
+                            lastModified = now
+                        )
+                    )
+                    enqueuePushMemo(memoId)
+                }
+                memoDao.pruneUnusedTags(accountKey)
+                refreshUnsyncedCount()
+            }
+            ApiResponse.Success(Unit)
+        } catch (e: Exception) {
+            ApiResponse.Failure.Exception(e)
+        }
+    }
+
+    override suspend fun deleteTag(tag: String, deleteAssociatedMemos: Boolean): ApiResponse<Unit> {
+        return try {
+            val normalizedTag = normalizeTagName(tag)
+            if (normalizedTag.isEmpty()) {
+                return ApiResponse.Failure.Exception(IllegalArgumentException("Tag name cannot be empty"))
+            }
+
+            operationMutex.withLock {
+                val memoIds = memoDao.listMemoIdsByTagPrefix(
+                    accountKey = accountKey,
+                    tag = normalizedTag,
+                    tagPrefix = "$normalizedTag/%"
+                )
+
+                if (deleteAssociatedMemos) {
+                    memoIds.forEach { memoId ->
+                        val result = deleteMemo(memoId)
+                        if (result !is ApiResponse.Success) {
+                            return result
+                        }
+                    }
+                    memoDao.pruneUnusedTags(accountKey)
+                    refreshUnsyncedCount()
+                    return ApiResponse.Success(Unit)
+                }
+
+                val now = Instant.now()
+                memoIds.forEach { memoId ->
+                    val memo = memoDao.getMemoById(memoId, accountKey) ?: return@forEach
+                    if (memo.isDeleted) {
+                        return@forEach
+                    }
+                    val updatedTags = memoDao.getMemoTags(memoId, accountKey)
+                        .filterNot { matchesTagOrDescendant(it, normalizedTag) }
+                    memoDao.replaceMemoTags(memoId, accountKey, updatedTags)
+                    memoDao.insertMemo(
+                        memo.copy(
+                            needsSync = true,
+                            isDeleted = false,
+                            lastModified = now
+                        )
+                    )
+                    enqueuePushMemo(memoId)
+                }
+                memoDao.pruneUnusedTags(accountKey)
+                refreshUnsyncedCount()
+            }
+            ApiResponse.Success(Unit)
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
         }
@@ -1282,4 +1386,16 @@ private fun MediaType?.isImageMimeType(): Boolean {
 
 private fun MediaType?.isVideoMimeType(): Boolean {
     return this?.type.equals("video", ignoreCase = true)
+}
+
+private fun renameTagWithPrefix(tag: String, oldPrefix: String, newPrefix: String): String {
+    return when {
+        tag == oldPrefix -> newPrefix
+        tag.startsWith("$oldPrefix/") -> "$newPrefix/${tag.removePrefix("$oldPrefix/")}"
+        else -> tag
+    }
+}
+
+private fun matchesTagOrDescendant(tag: String, rootTag: String): Boolean {
+    return tag == rootTag || tag.startsWith("$rootTag/")
 }

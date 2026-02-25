@@ -59,6 +59,16 @@ interface MemoDao {
     @Query("SELECT tagName FROM memo_tags WHERE memoId = :memoId AND accountKey = :accountKey ORDER BY tagName COLLATE NOCASE ASC")
     suspend fun getMemoTags(memoId: String, accountKey: String): List<String>
 
+    @Query(
+        """
+        SELECT DISTINCT memoId
+        FROM memo_tags
+        WHERE accountKey = :accountKey
+          AND (tagName = :tag OR tagName LIKE :tagPrefix)
+    """
+    )
+    suspend fun listMemoIdsByTagPrefix(accountKey: String, tag: String, tagPrefix: String): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertResource(resource: ResourceEntity)
 
