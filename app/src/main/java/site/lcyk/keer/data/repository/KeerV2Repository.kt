@@ -1,5 +1,6 @@
 package site.lcyk.keer.data.repository
 
+import android.content.Context
 import com.skydoves.sandwich.ApiResponse
 import com.skydoves.sandwich.getOrNull
 import com.skydoves.sandwich.mapSuccess
@@ -35,6 +36,7 @@ import okhttp3.Response
 import okio.BufferedSink
 import java.io.File
 import java.io.RandomAccessFile
+import java.security.MessageDigest
 import java.time.Instant
 import kotlin.math.min
 
@@ -42,6 +44,9 @@ private const val PAGE_SIZE = 200
 private const val uploadChunkSizeBytes = 8L * 1024L * 1024L
 private const val maxChunkRetryCount = 6
 private const val retryDelayMillis = 500L
+private const val uploadCheckpointTTLMillis = 24L * 60L * 60L * 1000L
+private const val uploadCheckpointCleanupIntervalMillis = 15L * 60L * 1000L
+private const val uploadCheckpointMaxEntries = 256
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 private val uploadChunkMediaType = "application/offset+octet-stream".toMediaType()
 private val uploadJson = Json {
@@ -53,8 +58,18 @@ private val uploadJson = Json {
 class KeerV2Repository(
     private val memosApi: KeerV2Api,
     private val account: Account.KeerV2,
-    private val okHttpClient: OkHttpClient
+    private val okHttpClient: OkHttpClient,
+    appContext: Context
 ): RemoteRepository() {
+    private val uploadCheckpointStore = ResumableUploadCheckpointStore(
+        File(
+            File(appContext.filesDir, "resumable_uploads"),
+            "${sha256Hex(account.accountKey())}.json"
+        )
+    )
+    @Volatile
+    private var lastCheckpointCleanupAtMillis: Long = 0L
+
     private fun convertResource(resource: KeerV2Resource): Resource {
         return Resource(
             remoteId = requireNotNull(resource.name),
@@ -214,75 +229,111 @@ class KeerV2Repository(
         }
 
         val baseUrl = account.info.host.trimEnd('/')
-        val createRequestBody = runCatching {
-            uploadJson.encodeToString(
-                ResumableUploadCreateRequest.serializer(),
-                ResumableUploadCreateRequest(
-                    filename = filename,
-                    type = type?.toString() ?: "application/octet-stream",
-                    size = totalBytes,
-                    memo = memoRemoteId?.let { getName(it) },
-                    thumbnail = thumbnail?.let {
-                        ResumableUploadThumbnailRequest(
-                            filename = it.filename,
-                            type = it.type,
-                            content = it.content
-                        )
-                    }
-                )
-            )
-        }.getOrElse { throwable ->
-            return@withContext failure("prepare upload", "serialize create payload failed", throwable)
-        }
-
-        val createURL = "$baseUrl/api/v1/attachments/uploads"
-        val createRequest = runCatching {
-            Request.Builder()
-                .url(createURL)
-                .post(createRequestBody.toRequestBody(jsonMediaType))
-                .build()
-        }.getOrElse { throwable ->
-            return@withContext failure("prepare upload", "build create request failed ($createURL)", throwable)
-        }
-
-        val createResponse = try {
-            okHttpClient.newCall(createRequest).execute()
-        } catch (e: Throwable) {
-            return@withContext failure("create upload", "request execution failed ($createURL)", e)
-        }
-
-        var createFailure: ApiResponse.Failure.Exception? = null
-        var session: ResumableUploadCreateResponse? = null
-        createResponse.use { response ->
-            if (!response.isSuccessful) {
-                createFailure = httpFailure("create upload", response)
-                return@use
-            }
-            val body = response.body.string()
-            if (body.isBlank()) {
-                createFailure = failure("create upload", "response empty")
-                return@use
-            }
-            try {
-                session = uploadJson.decodeFromString(ResumableUploadCreateResponse.serializer(), body)
-            } catch (e: Throwable) {
-                createFailure = failure("create upload", "decode response failed", e)
-            }
-        }
-        val resolvedCreateFailure = createFailure
-        if (resolvedCreateFailure != null) {
-            return@withContext resolvedCreateFailure
-        }
-        val resolvedSession = session ?: return@withContext failure(
-            "create upload",
-            "missing upload session in response"
+        maybeCleanupStaleUploadCheckpoints(baseUrl)
+        val checkpointKey = buildUploadCheckpointKey(
+            filename = filename,
+            type = type,
+            file = file,
+            memoRemoteId = memoRemoteId,
+            thumbnail = thumbnail
         )
 
-        var offset = resolvedSession.uploadedSize.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
-        val uploadId = resolvedSession.uploadId
+        var uploadId = ""
+        var offset = 0L
+
+        val resumedSession = resolveExistingUploadSession(baseUrl, checkpointKey, totalBytes)
+        if (resumedSession != null) {
+            uploadId = resumedSession.uploadId
+            offset = resumedSession.offset
+            onProgress(offset.coerceAtMost(totalBytes), totalBytes)
+        }
+
+        if (uploadId.isEmpty()) {
+            val createRequestBody = runCatching {
+                uploadJson.encodeToString(
+                    ResumableUploadCreateRequest.serializer(),
+                    ResumableUploadCreateRequest(
+                        filename = filename,
+                        type = type?.toString() ?: "application/octet-stream",
+                        size = totalBytes,
+                        memo = memoRemoteId?.let { getName(it) },
+                        thumbnail = thumbnail?.let {
+                            ResumableUploadThumbnailRequest(
+                                filename = it.filename,
+                                type = it.type,
+                                content = it.content
+                            )
+                        }
+                    )
+                )
+            }.getOrElse { throwable ->
+                return@withContext failure("prepare upload", "serialize create payload failed", throwable)
+            }
+
+            val createURL = "$baseUrl/api/v1/attachments/uploads"
+            val createRequest = runCatching {
+                Request.Builder()
+                    .url(createURL)
+                    .post(createRequestBody.toRequestBody(jsonMediaType))
+                    .build()
+            }.getOrElse { throwable ->
+                return@withContext failure("prepare upload", "build create request failed ($createURL)", throwable)
+            }
+
+            val createResponse = try {
+                okHttpClient.newCall(createRequest).execute()
+            } catch (e: Throwable) {
+                return@withContext failure("create upload", "request execution failed ($createURL)", e)
+            }
+
+            var createFailure: ApiResponse.Failure.Exception? = null
+            var session: ResumableUploadCreateResponse? = null
+            createResponse.use { response ->
+                if (!response.isSuccessful) {
+                    createFailure = httpFailure("create upload", response)
+                    return@use
+                }
+                val body = response.body.string()
+                if (body.isBlank()) {
+                    createFailure = failure("create upload", "response empty")
+                    return@use
+                }
+                try {
+                    session = uploadJson.decodeFromString(ResumableUploadCreateResponse.serializer(), body)
+                } catch (e: Throwable) {
+                    createFailure = failure("create upload", "decode response failed", e)
+                }
+            }
+            val resolvedCreateFailure = createFailure
+            if (resolvedCreateFailure != null) {
+                return@withContext resolvedCreateFailure
+            }
+            val resolvedSession = session ?: return@withContext failure(
+                "create upload",
+                "missing upload session in response"
+            )
+            val resolvedUploadID = resolvedSession.uploadId.trim()
+            if (resolvedUploadID.isEmpty()) {
+                return@withContext failure("create upload", "missing upload id")
+            }
+
+            uploadId = resolvedUploadID
+            offset = (resolvedSession.uploadedSize.toLongOrNull() ?: 0L).coerceIn(0L, totalBytes)
+            uploadCheckpointStore.upsert(
+                checkpointKey,
+                UploadCheckpoint(
+                    uploadId = resolvedUploadID,
+                    totalBytes = totalBytes,
+                    uploadedBytes = offset,
+                    updatedAtMillis = System.currentTimeMillis()
+                )
+            )
+        }
+
         if (uploadId.isBlank()) {
             return@withContext failure("create upload", "missing upload id")
         }
+        val resolvedUploadId = uploadId
 
         var retryCount = 0
         while (offset < totalBytes) {
@@ -297,7 +348,7 @@ class KeerV2Repository(
                 }
             )
             val patchRequest = Request.Builder()
-                .url("$baseUrl/api/v1/attachments/uploads/$uploadId")
+                .url("$baseUrl/api/v1/attachments/uploads/$resolvedUploadId")
                 .patch(chunkBody)
                 .header("Upload-Offset", offset.toString())
                 .build()
@@ -309,9 +360,10 @@ class KeerV2Repository(
                 if (retryCount > maxChunkRetryCount) {
                     return@withContext failure("upload chunk", "request execution failed after retries", e)
                 }
-                val latestOffset = queryUploadOffset(baseUrl, uploadId)
+                val latestOffset = queryUploadOffset(baseUrl, resolvedUploadId)
                 if (latestOffset >= 0L) {
-                    offset = latestOffset
+                    offset = latestOffset.coerceIn(0L, totalBytes)
+                    uploadCheckpointStore.updateProgress(checkpointKey, offset)
                 }
                 delay(retryDelayMillis)
                 continue
@@ -321,7 +373,8 @@ class KeerV2Repository(
             val handled = patchResponse.use { response ->
                 if (response.isSuccessful) {
                     val nextOffset = response.header("Upload-Offset")?.toLongOrNull()
-                    offset = nextOffset ?: (offset + chunkLength)
+                    offset = (nextOffset ?: (offset + chunkLength)).coerceIn(0L, totalBytes)
+                    uploadCheckpointStore.updateProgress(checkpointKey, offset)
                     onProgress(offset.coerceAtMost(totalBytes), totalBytes)
                     retryCount = 0
                     true
@@ -329,13 +382,17 @@ class KeerV2Repository(
                     val isConflict = response.code == 409 || response.code == 412
                     if (isConflict) {
                         val latestOffset = response.header("Upload-Offset")?.toLongOrNull()
-                            ?: queryUploadOffset(baseUrl, uploadId)
+                            ?: queryUploadOffset(baseUrl, resolvedUploadId)
                         if (latestOffset >= 0L) {
-                            offset = latestOffset
+                            offset = latestOffset.coerceIn(0L, totalBytes)
+                            uploadCheckpointStore.updateProgress(checkpointKey, offset)
                         }
                         retryCount += 1
                         false
                     } else {
+                        if (response.code == 404 || response.code == 410) {
+                            uploadCheckpointStore.remove(checkpointKey)
+                        }
                         chunkFatal = httpFailure("upload chunk", response)
                         false
                     }
@@ -354,7 +411,7 @@ class KeerV2Repository(
         }
 
         val completeRequest = Request.Builder()
-            .url("$baseUrl/api/v1/attachments/uploads/$uploadId/complete")
+            .url("$baseUrl/api/v1/attachments/uploads/$resolvedUploadId/complete")
             .post(ByteArray(0).toRequestBody(null))
             .build()
         val completeResponse = try {
@@ -367,6 +424,9 @@ class KeerV2Repository(
         var uploadedResource: KeerV2Resource? = null
         completeResponse.use { response ->
             if (!response.isSuccessful) {
+                if (response.code == 404 || response.code == 410) {
+                    uploadCheckpointStore.remove(checkpointKey)
+                }
                 completeFailure = httpFailure("complete upload", response)
                 return@use
             }
@@ -389,11 +449,121 @@ class KeerV2Repository(
             "complete upload",
             "missing attachment in response"
         )
+        uploadCheckpointStore.remove(checkpointKey)
 
         return@withContext ApiResponse.Success(convertResource(resolvedResource))
     }
 
+    private fun maybeCleanupStaleUploadCheckpoints(baseUrl: String) {
+        val now = System.currentTimeMillis()
+        val shouldRun = synchronized(this) {
+            if (now - lastCheckpointCleanupAtMillis < uploadCheckpointCleanupIntervalMillis) {
+                false
+            } else {
+                lastCheckpointCleanupAtMillis = now
+                true
+            }
+        }
+        if (!shouldRun) {
+            return
+        }
+        val removed = uploadCheckpointStore.prune(
+            now = now,
+            maxAgeMillis = uploadCheckpointTTLMillis,
+            maxEntries = uploadCheckpointMaxEntries
+        )
+        removed
+            .asSequence()
+            .map { it.uploadId }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .forEach { staleUploadId ->
+                cancelUploadSession(baseUrl, staleUploadId)
+            }
+    }
+
+    private fun resolveExistingUploadSession(
+        baseUrl: String,
+        checkpointKey: String,
+        totalBytes: Long
+    ): UploadSessionState? {
+        val checkpoint = uploadCheckpointStore.get(checkpointKey) ?: return null
+        if (checkpoint.totalBytes != totalBytes || checkpoint.uploadId.isBlank()) {
+            uploadCheckpointStore.remove(checkpointKey)
+            return null
+        }
+
+        val queryResult = queryUploadOffsetWithStatus(baseUrl, checkpoint.uploadId)
+        val resolvedOffset = when (queryResult.status) {
+            UploadOffsetQueryStatus.SUCCESS -> queryResult.offset
+            UploadOffsetQueryStatus.NOT_FOUND -> {
+                uploadCheckpointStore.remove(checkpointKey)
+                return null
+            }
+            UploadOffsetQueryStatus.ERROR -> checkpoint.uploadedBytes
+        }.coerceIn(0L, totalBytes)
+
+        uploadCheckpointStore.updateProgress(checkpointKey, resolvedOffset)
+        return UploadSessionState(
+            uploadId = checkpoint.uploadId,
+            offset = resolvedOffset
+        )
+    }
+
+    private fun cancelUploadSession(baseUrl: String, uploadId: String) {
+        if (uploadId.isBlank()) {
+            return
+        }
+        val request = Request.Builder()
+            .url("$baseUrl/api/v1/attachments/uploads/$uploadId")
+            .delete()
+            .build()
+        runCatching {
+            okHttpClient.newCall(request).execute().use { }
+        }
+    }
+
+    private fun buildUploadCheckpointKey(
+        filename: String,
+        type: MediaType?,
+        file: File,
+        memoRemoteId: String?,
+        thumbnail: ResourceUploadThumbnail?
+    ): String {
+        val raw = buildString {
+            append(account.accountKey())
+            append('\n')
+            append(file.absolutePath)
+            append('\n')
+            append(file.length())
+            append('\n')
+            append(file.lastModified())
+            append('\n')
+            append(filename.trim())
+            append('\n')
+            append(type?.toString().orEmpty())
+            append('\n')
+            append(memoRemoteId?.let(::getName).orEmpty())
+            append('\n')
+            append(thumbnail?.filename.orEmpty())
+            append('\n')
+            append(thumbnail?.type.orEmpty())
+            append('\n')
+            append(thumbnail?.content?.let(::sha256Hex).orEmpty())
+        }
+        return sha256Hex(raw)
+    }
+
     private fun queryUploadOffset(baseUrl: String, uploadId: String): Long {
+        val result = queryUploadOffsetWithStatus(baseUrl, uploadId)
+        return if (result.status == UploadOffsetQueryStatus.SUCCESS) {
+            result.offset
+        } else {
+            -1L
+        }
+    }
+
+    private fun queryUploadOffsetWithStatus(baseUrl: String, uploadId: String): UploadOffsetQueryResult {
         val request = Request.Builder()
             .url("$baseUrl/api/v1/attachments/uploads/$uploadId")
             .head()
@@ -401,13 +571,18 @@ class KeerV2Repository(
         val response = try {
             okHttpClient.newCall(request).execute()
         } catch (_: Throwable) {
-            return -1L
+            return UploadOffsetQueryResult(UploadOffsetQueryStatus.ERROR, -1L)
         }
         return response.use {
             if (!response.isSuccessful) {
-                return -1L
+                if (response.code == 404 || response.code == 410) {
+                    return UploadOffsetQueryResult(UploadOffsetQueryStatus.NOT_FOUND, -1L)
+                }
+                return UploadOffsetQueryResult(UploadOffsetQueryStatus.ERROR, -1L)
             }
-            response.header("Upload-Offset")?.toLongOrNull() ?: -1L
+            val offset = response.header("Upload-Offset")?.toLongOrNull()
+                ?: return UploadOffsetQueryResult(UploadOffsetQueryStatus.ERROR, -1L)
+            UploadOffsetQueryResult(UploadOffsetQueryStatus.SUCCESS, offset)
         }
     }
 
@@ -493,6 +668,133 @@ private data class ResumableUploadCreateResponse(
     val size: String? = null
 )
 
+private data class UploadSessionState(
+    val uploadId: String,
+    val offset: Long
+)
+
+private enum class UploadOffsetQueryStatus {
+    SUCCESS,
+    NOT_FOUND,
+    ERROR
+}
+
+private data class UploadOffsetQueryResult(
+    val status: UploadOffsetQueryStatus,
+    val offset: Long
+)
+
+@Serializable
+private data class UploadCheckpoint(
+    val uploadId: String,
+    val totalBytes: Long,
+    val uploadedBytes: Long = 0L,
+    val updatedAtMillis: Long
+)
+
+@Serializable
+private data class UploadCheckpointSnapshot(
+    val entries: Map<String, UploadCheckpoint> = emptyMap()
+)
+
+private class ResumableUploadCheckpointStore(
+    private val file: File
+) {
+    private val lock = Any()
+    private val json = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+        explicitNulls = false
+    }
+
+    fun get(key: String): UploadCheckpoint? = synchronized(lock) {
+        readSnapshot().entries[key]
+    }
+
+    fun upsert(key: String, checkpoint: UploadCheckpoint) = synchronized(lock) {
+        val entries = readSnapshot().entries.toMutableMap()
+        entries[key] = checkpoint
+        writeSnapshot(UploadCheckpointSnapshot(entries))
+    }
+
+    fun updateProgress(key: String, uploadedBytes: Long) = synchronized(lock) {
+        val snapshot = readSnapshot()
+        val current = snapshot.entries[key] ?: return@synchronized
+        val next = current.copy(
+            uploadedBytes = uploadedBytes.coerceIn(0L, current.totalBytes),
+            updatedAtMillis = System.currentTimeMillis()
+        )
+        val entries = snapshot.entries.toMutableMap()
+        entries[key] = next
+        writeSnapshot(UploadCheckpointSnapshot(entries))
+    }
+
+    fun remove(key: String): UploadCheckpoint? = synchronized(lock) {
+        val entries = readSnapshot().entries.toMutableMap()
+        val removed = entries.remove(key) ?: return@synchronized null
+        writeSnapshot(UploadCheckpointSnapshot(entries))
+        removed
+    }
+
+    fun prune(now: Long, maxAgeMillis: Long, maxEntries: Int): List<UploadCheckpoint> = synchronized(lock) {
+        val snapshot = readSnapshot()
+        if (snapshot.entries.isEmpty()) {
+            return@synchronized emptyList()
+        }
+        val entries = snapshot.entries.toMutableMap()
+        val removed = mutableListOf<UploadCheckpoint>()
+        val expireBefore = now - maxAgeMillis
+
+        val expiredKeys = entries
+            .filterValues { it.updatedAtMillis < expireBefore }
+            .keys
+        expiredKeys.forEach { key ->
+            entries.remove(key)?.let(removed::add)
+        }
+
+        if (entries.size > maxEntries) {
+            val overflowKeys = entries.entries
+                .sortedBy { it.value.updatedAtMillis }
+                .take(entries.size - maxEntries)
+                .map { it.key }
+            overflowKeys.forEach { key ->
+                entries.remove(key)?.let(removed::add)
+            }
+        }
+
+        if (removed.isNotEmpty()) {
+            writeSnapshot(UploadCheckpointSnapshot(entries))
+        }
+        removed
+    }
+
+    private fun readSnapshot(): UploadCheckpointSnapshot {
+        if (!file.exists()) {
+            return UploadCheckpointSnapshot()
+        }
+        return runCatching {
+            val raw = file.readText()
+            if (raw.isBlank()) {
+                UploadCheckpointSnapshot()
+            } else {
+                json.decodeFromString(UploadCheckpointSnapshot.serializer(), raw)
+            }
+        }.getOrElse {
+            UploadCheckpointSnapshot()
+        }
+    }
+
+    private fun writeSnapshot(snapshot: UploadCheckpointSnapshot) {
+        file.parentFile?.mkdirs()
+        val tmp = File(file.parentFile, "${file.name}.tmp")
+        tmp.writeText(json.encodeToString(UploadCheckpointSnapshot.serializer(), snapshot))
+        if (!tmp.renameTo(file)) {
+            tmp.copyTo(file, overwrite = true)
+            tmp.delete()
+        }
+    }
+}
+
 private class ChunkFileRequestBody(
     private val file: File,
     private val offset: Long,
@@ -520,6 +822,18 @@ private class ChunkFileRequestBody(
                 written += read
                 onProgress(written, length)
             }
+        }
+    }
+}
+
+private fun sha256Hex(input: String): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    val bytes = digest.digest(input.toByteArray())
+    return buildString(bytes.size * 2) {
+        for (byte in bytes) {
+            val v = byte.toInt() and 0xFF
+            append("0123456789abcdef"[v ushr 4])
+            append("0123456789abcdef"[v and 0x0F])
         }
     }
 }

@@ -135,7 +135,7 @@ class AccountService @Inject constructor(
             }
             is Account.KeerV2 -> {
                 val (client, memosApi) = createKeerV2Client(account.info.host, account.info.accessToken)
-                val remote = KeerV2Repository(memosApi, account, client)
+                val remote = KeerV2Repository(memosApi, account, client, context.applicationContext)
                 this.repository = SyncingRepository(
                     database.memoDao(),
                     fileStorage,
