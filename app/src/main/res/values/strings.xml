@@ -29,6 +29,8 @@
     <string name="attachment">Attachment</string>
     <string name="keer" translatable="false">keer</string>
     <string name="selected">Selected</string>
+    <string name="create_new_tag">Create new tag</string>
+    <string name="create_parent_tag_first">Create parent tag first: %1$s</string>
     <string name="username_and_password">Username and password</string>
     <string name="report_an_issue">Report an Issue</string>
     <string name="unpin">Unpin</string>

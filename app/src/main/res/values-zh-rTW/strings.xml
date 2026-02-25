@@ -29,6 +29,8 @@
     <string name="attachment">附件</string>
     <string name="keer" translatable="false">keer</string>
     <string name="selected">已選中</string>
+    <string name="create_new_tag">建立新標籤</string>
+    <string name="create_parent_tag_first">請先建立父標籤：%1$s</string>
     <string name="username_and_password">使用者名稱與密碼</string>
     <string name="report_an_issue">反饋 Bug</string>
     <string name="unpin">取消置頂</string>

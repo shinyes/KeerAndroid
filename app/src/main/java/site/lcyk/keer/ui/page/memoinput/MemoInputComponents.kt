@@ -2,6 +2,7 @@ package site.lcyk.keer.ui.page.memoinput
 
 import android.content.ClipData
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.horizontalScroll
@@ -16,15 +17,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.outlined.Attachment
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckBox
@@ -55,9 +60,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.mimeTypes
@@ -282,20 +289,20 @@ internal fun MemoTagSelectorDialog(
     onDismiss: () -> Unit
 ) {
     val queryState = remember { mutableStateOf("") }
+    val expandedTagNodes = remember { mutableStateMapOf<String, Boolean>() }
     val normalizedSelectedTags = remember(selectedTags) { normalizeTagList(selectedTags) }
     val normalizedTags = remember(availableTags, normalizedSelectedTags) {
         normalizeTagList(availableTags + normalizedSelectedTags)
     }
+    val tagTree = remember(normalizedTags) { buildMemoTagTree(normalizedTags) }
     val query = normalizeTagName(queryState.value)
-    val filteredTags = remember(normalizedTags, query) {
-        if (query.isEmpty()) {
-            normalizedTags
-        } else {
-            normalizedTags.filter { it.contains(query, ignoreCase = true) }
-        }
-    }
+    val visibleTagEntries = flattenMemoTagTree(tagTree, expandedTagNodes, query)
+    val parentTag = query.substringBeforeLast("/", "")
+    val parentExists = parentTag.isEmpty() || normalizedTags.any { it.equals(parentTag, ignoreCase = true) }
+    val showMissingParentHint = query.contains("/") && query.isNotEmpty() && !parentExists
     val canCreateTag = query.isNotEmpty() &&
             isValidTagName(query) &&
+            parentExists &&
             normalizedTags.none { it.equals(query, ignoreCase = true) }
 
     fun toggleTag(tag: String) {
@@ -325,47 +332,155 @@ internal fun MemoTagSelectorDialog(
                     label = { Text(R.string.search.string) },
                     singleLine = true
                 )
+
+                if (normalizedSelectedTags.isNotEmpty()) {
+                    Text(
+                        text = R.string.selected.string,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(normalizedSelectedTags, key = { it }) { tag ->
+                            KeerRemovableTagChip(
+                                tag = tag,
+                                onRemove = { toggleTag(tag) }
+                            )
+                        }
+                    }
+                }
+
+                if (showMissingParentHint) {
+                    Text(
+                        text = stringResource(R.string.create_parent_tag_first, parentTag),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 280.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     if (canCreateTag) {
                         item("create_$query") {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                                     .clickable {
                                         toggleTag(query)
                                         queryState.value = ""
                                     }
-                                    .padding(vertical = 8.dp),
+                                    .padding(horizontal = 10.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(Icons.Outlined.Tag, contentDescription = null)
                                 Spacer(modifier = Modifier.size(8.dp))
-                                Text(text = "+ $query")
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = query,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.create_new_tag),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Text(
+                                    text = "+",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             }
                         }
                     }
-                    items(filteredTags, key = { it }) { tag ->
-                        val selected = normalizedSelectedTags.contains(tag)
+
+                    items(visibleTagEntries, key = { it.fullPath }) { entry ->
+                        val selected = normalizedSelectedTags.any { it.equals(entry.fullPath, ignoreCase = true) }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { toggleTag(tag) }
-                                .padding(vertical = 4.dp),
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(
+                                        alpha = if (selected) 0.65f else 0f
+                                    )
+                                )
+                                .clickable(
+                                    enabled = entry.selectable
+                                ) { toggleTag(entry.fullPath) }
+                                .padding(horizontal = 6.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Checkbox(
-                                checked = selected,
-                                onCheckedChange = { toggleTag(tag) }
+                            if (entry.expandable) {
+                                IconButton(
+                                    onClick = {
+                                        expandedTagNodes[entry.fullPath] = !entry.expanded
+                                    },
+                                    modifier = Modifier.size(30.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (entry.expanded) {
+                                            Icons.Filled.ExpandMore
+                                        } else {
+                                            Icons.AutoMirrored.Filled.KeyboardArrowRight
+                                        },
+                                        contentDescription = null
+                                    )
+                                }
+                            } else {
+                                Spacer(modifier = Modifier.size(30.dp))
+                            }
+                            Spacer(modifier = Modifier.width((entry.depth * 10).dp))
+                            Icon(
+                                imageVector = Icons.Outlined.Tag,
+                                contentDescription = null,
+                                tint = if (selected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.size(16.dp)
                             )
-                            Text(
-                                text = tag,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
+                            Spacer(modifier = Modifier.size(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = entry.displayName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (entry.selectable) {
+                                        MaterialTheme.colorScheme.onSurface
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                                )
+                                if (entry.parentPath.isNotEmpty()) {
+                                    Text(
+                                        text = entry.parentPath,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            if (entry.selectable) {
+                                Checkbox(
+                                    checked = selected,
+                                    onCheckedChange = { toggleTag(entry.fullPath) }
+                                )
+                            } else {
+                                Spacer(modifier = Modifier.size(24.dp))
+                            }
                         }
                     }
                 }
@@ -382,6 +497,114 @@ internal fun MemoTagSelectorDialog(
             }
         }
     )
+}
+
+private data class MemoTagTreeNode(
+    val segment: String,
+    val fullPath: String,
+    var isRealTag: Boolean = false,
+    val children: LinkedHashMap<String, MemoTagTreeNode> = linkedMapOf()
+)
+
+private data class MemoTagListEntry(
+    val fullPath: String,
+    val displayName: String,
+    val parentPath: String,
+    val depth: Int,
+    val selectable: Boolean,
+    val expandable: Boolean,
+    val expanded: Boolean
+)
+
+private fun buildMemoTagTree(tags: List<String>): List<MemoTagTreeNode> {
+    val roots = linkedMapOf<String, MemoTagTreeNode>()
+
+    tags.forEach { rawTag ->
+        val normalizedTag = normalizeTagName(rawTag)
+        if (normalizedTag.isEmpty()) {
+            return@forEach
+        }
+        val segments = normalizedTag
+            .split("/")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        if (segments.isEmpty()) {
+            return@forEach
+        }
+
+        var currentMap = roots
+        var currentPath = ""
+        var lastNode: MemoTagTreeNode? = null
+
+        segments.forEach { segment ->
+            currentPath = if (currentPath.isEmpty()) segment else "$currentPath/$segment"
+            val node = currentMap.getOrPut(segment) {
+                MemoTagTreeNode(
+                    segment = segment,
+                    fullPath = currentPath
+                )
+            }
+            currentMap = node.children
+            lastNode = node
+        }
+        lastNode?.isRealTag = true
+    }
+
+    return roots.values.toList()
+}
+
+private fun flattenMemoTagTree(
+    roots: List<MemoTagTreeNode>,
+    expandedState: Map<String, Boolean>,
+    query: String
+): List<MemoTagListEntry> {
+    val result = mutableListOf<MemoTagListEntry>()
+
+    fun nodeOrChildrenMatch(node: MemoTagTreeNode): Boolean {
+        if (query.isEmpty()) {
+            return true
+        }
+        if (node.fullPath.contains(query, ignoreCase = true)) {
+            return true
+        }
+        return node.children.values.any(::nodeOrChildrenMatch)
+    }
+
+    fun visit(node: MemoTagTreeNode, depth: Int) {
+        if (!nodeOrChildrenMatch(node)) {
+            return
+        }
+
+        val hasChildren = node.children.isNotEmpty()
+        val expanded = if (query.isNotEmpty()) {
+            true
+        } else {
+            expandedState[node.fullPath] ?: true
+        }
+        val parentPath = node.fullPath.substringBeforeLast("/", "")
+
+        result += MemoTagListEntry(
+            fullPath = node.fullPath,
+            displayName = node.segment,
+            parentPath = parentPath,
+            depth = depth,
+            selectable = node.isRealTag,
+            expandable = hasChildren,
+            expanded = expanded
+        )
+
+        if (hasChildren && expanded) {
+            node.children.values.forEach { child ->
+                visit(child, depth + 1)
+            }
+        }
+    }
+
+    roots.forEach { root ->
+        visit(root, 0)
+    }
+
+    return result
 }
 
 @OptIn(ExperimentalFoundationApi::class)

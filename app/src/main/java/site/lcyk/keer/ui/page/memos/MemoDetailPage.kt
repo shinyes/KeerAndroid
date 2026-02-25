@@ -1,13 +1,17 @@
 package site.lcyk.keer.ui.page.memos
 
 import android.text.format.DateUtils
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -42,10 +46,14 @@ import site.lcyk.keer.ext.icon
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.titleResource
+import site.lcyk.keer.ui.component.KeerTagChip
 import site.lcyk.keer.ui.component.MemoContent
 import site.lcyk.keer.ui.component.MemosCardActionButton
+import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
+import java.net.URLEncoder
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +69,7 @@ fun MemoDetailPage(
     val memo = remember(memosViewModel.memos.toList(), memoIdentifier) {
         memosViewModel.memos.firstOrNull { it.identifier == memoIdentifier }
     }
+    val displayTags = remember(memo?.tags) { normalizeTagList(memo?.tags ?: emptyList()) }
     var hadMemo by rememberSaveable(memoIdentifier) { mutableStateOf(false) }
 
     LaunchedEffect(memo?.identifier) {
@@ -118,6 +127,29 @@ fun MemoDetailPage(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.outline
                 )
+                if (displayTags.isNotEmpty()) {
+                    LazyRow(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 8.dp, end = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        items(displayTags, key = { it }) { tag ->
+                            KeerTagChip(
+                                tag = tag,
+                                onClick = {
+                                    navController.navigate("${RouteName.TAG}/${URLEncoder.encode(tag, "UTF-8")}") {
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            )
+                        }
+                    }
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
                 if (currentAccount !is Account.Local && memo.needsSync) {
                     Icon(
                         imageVector = Icons.Outlined.CloudOff,
