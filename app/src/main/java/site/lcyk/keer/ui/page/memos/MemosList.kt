@@ -85,8 +85,9 @@ fun MemosList(
 
         tag?.let { tag ->
             fullList = fullList.filter { memo ->
-                memo.content.contains("#$tag") ||
-                        memo.content.contains("#$tag/")
+                memo.tags.any { memoTag ->
+                    memoTag == tag || memoTag.startsWith("$tag/")
+                }
             }
         }
 

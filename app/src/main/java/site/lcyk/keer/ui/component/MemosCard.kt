@@ -6,6 +6,7 @@ import android.content.Intent
 import android.text.format.DateUtils
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Archive
@@ -60,6 +63,7 @@ import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.titleResource
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 
@@ -75,6 +79,7 @@ fun MemosCard(
     val memosViewModel = LocalMemos.current
     val rootNavController = LocalRootNavController.current
     val scope = rememberCoroutineScope()
+    val displayTags = remember(memo.tags) { normalizeTagList(memo.tags) }
 
     val cardModifier = Modifier
         .padding(horizontal = 15.dp, vertical = 10.dp)
@@ -127,6 +132,24 @@ fun MemosCard(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.outline
                 )
+                if (displayTags.isNotEmpty()) {
+                    LazyRow(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 8.dp, end = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        items(displayTags, key = { it }) { tag ->
+                            KeerTagChip(
+                                tag = tag,
+                                onClick = { onTagClick?.invoke(tag) }
+                            )
+                        }
+                    }
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
                 if (showSyncStatus && memo.needsSync) {
                     Icon(
                         imageVector = Icons.Outlined.CloudOff,
@@ -147,7 +170,6 @@ fun MemosCard(
                         tint = MaterialTheme.colorScheme.outline
                     )
                 }
-                Spacer(modifier = Modifier.weight(1f))
                 MemosCardActionButton(memo)
             }
 

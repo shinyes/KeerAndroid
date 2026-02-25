@@ -41,7 +41,8 @@ import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.suspendOnErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.LocalRootNavController
-import site.lcyk.keer.util.extractCustomTags
+import site.lcyk.keer.util.normalizeTagList
+import site.lcyk.keer.util.normalizeTagName
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.MemoInputViewModel
@@ -62,13 +63,16 @@ fun MemoInputPage(
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val memo = remember { memosViewModel.memos.toList().find { it.identifier == memoIdentifier } }
     var initialContent by remember { mutableStateOf(memo?.content ?: "") }
+    var initialTags by remember { mutableStateOf(normalizeTagList(memo?.tags ?: emptyList())) }
     var text by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(memo?.content ?: "", TextRange(memo?.content?.length ?: 0)))
     }
+    var selectedTags by rememberSaveable { mutableStateOf(normalizeTagList(memo?.tags ?: emptyList())) }
     var visibilityMenuExpanded by remember { mutableStateOf(false) }
-    var tagMenuExpanded by remember { mutableStateOf(false) }
+    var showTagSelector by remember { mutableStateOf(false) }
     var photoImageUri by remember { mutableStateOf<Uri?>(null) }
     var showExitConfirmation by remember { mutableStateOf(false) }
+    val normalizedSelectedTags = remember(selectedTags) { normalizeTagList(selectedTags) }
 
     val defaultVisibility = userStateViewModel.currentUser?.defaultVisibility ?: MemoVisibility.PRIVATE
     var currentVisibility by remember { mutableStateOf(memo?.visibility ?: defaultVisibility) }
@@ -82,10 +86,9 @@ fun MemoInputPage(
             snackbarState.showSnackbar(R.string.upload_in_progress_wait.string)
             return@launch
         }
-        val tags = extractCustomTags(text.text)
 
         memo?.let {
-            viewModel.editMemo(memo.identifier, text.text, currentVisibility, tags.toList()).suspendOnSuccess {
+            viewModel.editMemo(memo.identifier, text.text, currentVisibility, normalizedSelectedTags).suspendOnSuccess {
                 memosViewModel.refreshLocalSnapshot()
                 navController.popBackStack()
             }.suspendOnErrorMessage { message ->
@@ -94,8 +97,9 @@ fun MemoInputPage(
             return@launch
         }
 
-        viewModel.createMemo(text.text, currentVisibility, tags.toList()).suspendOnSuccess {
+        viewModel.createMemo(text.text, currentVisibility, normalizedSelectedTags).suspendOnSuccess {
             text = TextFieldValue("")
+            selectedTags = emptyList()
             viewModel.updateDraft("")
             memosViewModel.refreshLocalSnapshot()
             navController.popBackStack()
@@ -111,7 +115,7 @@ fun MemoInputPage(
             }
             return
         }
-        if (text.text != initialContent || viewModel.uploadResources.size != (memo?.resources?.size ?: 0)) {
+        if (text.text != initialContent || normalizedSelectedTags != initialTags || viewModel.uploadResources.size != (memo?.resources?.size ?: 0)) {
             showExitConfirmation = true
         } else {
             navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
@@ -168,14 +172,16 @@ fun MemoInputPage(
                 visibilityMenuExpanded = visibilityMenuExpanded,
                 onVisibilityExpandedChange = { visibilityMenuExpanded = it },
                 onVisibilitySelected = { currentVisibility = it },
-                tags = memosViewModel.tags.toList(),
-                tagMenuExpanded = tagMenuExpanded,
-                onTagExpandedChange = { tagMenuExpanded = it },
-                onHashTagClick = {
-                    text = replaceSelection(text, "#")
+                selectedTags = selectedTags,
+                selectedTagCount = normalizedSelectedTags.size,
+                onTagSelectorClick = {
+                    showTagSelector = true
                 },
-                onTagSelected = { tag ->
-                    text = replaceSelection(text, "#$tag ")
+                onTagRemove = { tagToRemove ->
+                    val normalizedTagToRemove = normalizeTagName(tagToRemove)
+                    selectedTags = normalizeTagList(
+                        selectedTags.filterNot { normalizeTagName(it) == normalizedTagToRemove }
+                    )
                 },
                 onToggleTodoItem = {
                     text = toggleTodoItemInText(text)
@@ -237,6 +243,15 @@ fun MemoInputPage(
         )
     }
 
+    if (showTagSelector) {
+        MemoTagSelectorDialog(
+            availableTags = memosViewModel.tags.toList(),
+            selectedTags = selectedTags,
+            onSelectedTagsChange = { selectedTags = normalizeTagList(it) },
+            onDismiss = { showTagSelector = false }
+        )
+    }
+
     if (showExitConfirmation) {
         SaveChangesDialog(
             onSave = {
@@ -257,10 +272,13 @@ fun MemoInputPage(
     LaunchedEffect(Unit) {
         viewModel.uploadResources.clear()
         viewModel.uploadTasks.clear()
+        memosViewModel.loadTags()
         when {
             memo != null -> {
                 viewModel.uploadResources.addAll(memo.resources)
                 initialContent = memo.content
+                initialTags = normalizeTagList(memo.tags)
+                selectedTags = normalizeTagList(memo.tags)
             }
 
             shareContent != null -> {

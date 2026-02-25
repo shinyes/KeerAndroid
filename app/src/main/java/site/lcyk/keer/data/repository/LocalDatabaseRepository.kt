@@ -8,12 +8,10 @@ import kotlinx.coroutines.flow.map
 import site.lcyk.keer.data.local.FileStorage
 import site.lcyk.keer.data.local.dao.MemoDao
 import site.lcyk.keer.data.local.entity.MemoEntity
-import site.lcyk.keer.data.local.entity.MemoWithResources
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.User
-import site.lcyk.keer.util.extractCustomTags
 import okhttp3.MediaType
 import java.io.File
 import java.time.Instant
@@ -28,7 +26,12 @@ class LocalDatabaseRepository(
 
     override fun observeMemos(): Flow<List<MemoEntity>> {
         return memoDao.observeAllMemos(accountKey).map { memos ->
-            memos.map { it.toMemoEntity() }
+            memos.map { item ->
+                item.memo.copy().also {
+                    it.resources = item.resources
+                    it.tags = memoDao.getMemoTags(item.memo.identifier, accountKey)
+                }
+            }
         }
     }
 
@@ -72,6 +75,7 @@ class LocalDatabaseRepository(
                 lastSyncedAt = now
             )
             memoDao.insertMemo(memo)
+            memoDao.replaceMemoTags(memo.identifier, accountKey, tags.orEmpty())
 
             resources.forEach { resource ->
                 memoDao.insertResource(
@@ -111,6 +115,9 @@ class LocalDatabaseRepository(
                 isDeleted = false
             )
             memoDao.insertMemo(updatedMemo)
+            if (tags != null) {
+                memoDao.replaceMemoTags(identifier, accountKey, tags)
+            }
 
             if (resources != null) {
                 val existingResources = memoDao.getMemoResources(identifier, accountKey)
@@ -146,6 +153,7 @@ class LocalDatabaseRepository(
                 memoDao.deleteResource(resource)
             }
             memoDao.deleteMemo(memo)
+            memoDao.pruneUnusedTags(accountKey)
             ApiResponse.Success(Unit)
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
@@ -192,12 +200,10 @@ class LocalDatabaseRepository(
 
     override suspend fun listTags(): ApiResponse<List<String>> {
         return try {
-            val tags = memoDao.getAllMemos(accountKey)
-                .asSequence()
-                .flatMap { extractCustomTags(it.content).asSequence() }
-                .filter { it.isNotBlank() }
-                .toSet()
-                .sorted()
+            val tags = memoDao.listTagsByRecentUsage(
+                accountKey = accountKey,
+                since = Instant.now().minusSeconds(30L * 24L * 60L * 60L)
+            )
             ApiResponse.Success(tags)
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
@@ -314,7 +320,11 @@ class LocalDatabaseRepository(
 
     private suspend fun withResources(memo: MemoEntity): MemoEntity {
         val resources = memoDao.getMemoResources(memo.identifier, accountKey)
-        return memo.copy().also { it.resources = resources }
+        val tags = memoDao.getMemoTags(memo.identifier, accountKey)
+        return memo.copy().also {
+            it.resources = resources
+            it.tags = tags
+        }
     }
 
     private fun deleteLocalFile(resource: ResourceEntity) {
@@ -337,8 +347,4 @@ private fun MediaType?.isImageMimeType(): Boolean {
 
 private fun MediaType?.isVideoMimeType(): Boolean {
     return this?.type.equals("video", ignoreCase = true)
-}
-
-private fun MemoWithResources.toMemoEntity(): MemoEntity {
-    return memo.copy().also { it.resources = resources }
 }

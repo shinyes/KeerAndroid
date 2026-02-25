@@ -74,7 +74,7 @@ class KeerV2Repository(
             pinned = memo.pinned ?: false,
             visibility = memo.visibility?.toMemoVisibility() ?: MemoVisibility.PRIVATE,
             resources = memo.attachments?.map { convertResource(it) } ?: emptyList(),
-            tags = emptyList(),
+            tags = memo.tags ?: emptyList(),
             archived = memo.state == KeerV2State.ARCHIVED,
             updatedAt = memo.updateTime
         )
@@ -157,6 +157,7 @@ class KeerV2Repository(
                 content = content,
                 visibility = MemosVisibility.fromMemoVisibility(visibility),
                 attachments = resourceRemoteIds.map { KeerV2Resource(name = getName(it)) },
+                tags = tags,
                 createTime = createdAt
             )
         )
@@ -178,6 +179,7 @@ class KeerV2Repository(
             visibility = visibility?.let { MemosVisibility.fromMemoVisibility(it) },
             pinned = pinned,
             state = archived?.let { isArchived -> if (isArchived) KeerV2State.ARCHIVED else KeerV2State.NORMAL },
+            tags = tags,
             updateTime = Instant.now(),
             attachments = resourceRemoteIds?.map { KeerV2Resource(name = getName(it)) }
         )).mapSuccess { convertMemo(this) }

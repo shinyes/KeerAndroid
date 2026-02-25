@@ -23,7 +23,6 @@ import kotlinx.coroutines.withContext
 import site.lcyk.keer.data.local.FileStorage
 import site.lcyk.keer.data.local.dao.MemoDao
 import site.lcyk.keer.data.local.entity.MemoEntity
-import site.lcyk.keer.data.local.entity.MemoWithResources
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.constant.KeerException
 import site.lcyk.keer.data.model.Account
@@ -33,7 +32,6 @@ import site.lcyk.keer.data.model.Resource
 import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.data.model.User
 import site.lcyk.keer.ext.getErrorMessage
-import site.lcyk.keer.util.extractCustomTags
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import java.io.File
@@ -75,7 +73,12 @@ class SyncingRepository(
 
     override fun observeMemos(): Flow<List<MemoEntity>> {
         return memoDao.observeAllMemos(accountKey).map { memos ->
-            memos.map { it.toMemoEntity() }
+            memos.map { item ->
+                item.memo.copy().also {
+                    it.resources = item.resources
+                    it.tags = memoDao.getMemoTags(item.memo.identifier, accountKey)
+                }
+            }
         }
     }
 
@@ -122,6 +125,7 @@ class SyncingRepository(
                 lastSyncedAt = null
             )
             memoDao.insertMemo(localMemo)
+            memoDao.replaceMemoTags(localMemo.identifier, accountKey, tags.orEmpty())
 
             resources.forEach { resource ->
                 memoDao.insertResource(
@@ -161,6 +165,9 @@ class SyncingRepository(
                 lastModified = Instant.now()
             )
             memoDao.insertMemo(updatedMemo)
+            if (tags != null) {
+                memoDao.replaceMemoTags(identifier, accountKey, tags)
+            }
 
             if (resources != null) {
                 val existingResources = memoDao.getMemoResources(identifier, accountKey)
@@ -248,12 +255,10 @@ class SyncingRepository(
 
     override suspend fun listTags(): ApiResponse<List<String>> {
         return try {
-            val tags = memoDao.getAllMemos(accountKey)
-                .asSequence()
-                .flatMap { extractCustomTags(it.content).asSequence() }
-                .filter { it.isNotBlank() }
-                .toSet()
-                .sorted()
+            val tags = memoDao.listTagsByRecentUsage(
+                accountKey = accountKey,
+                since = Instant.now().minusSeconds(30L * 24L * 60L * 60L)
+            )
             ApiResponse.Success(tags)
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
@@ -610,6 +615,7 @@ class SyncingRepository(
     private suspend fun pushLocalMemo(identifier: String, forceCreate: Boolean = false): Boolean {
         pendingDetailedSyncError = null
         val local = memoDao.getMemoById(identifier, accountKey) ?: return true
+        val localTags = memoDao.getMemoTags(local.identifier, accountKey)
 
         if (local.isDeleted) {
             return if (local.remoteId != null) {
@@ -641,6 +647,7 @@ class SyncingRepository(
                 content = local.content,
                 resourceRemoteIds = remoteResourceIds,
                 visibility = local.visibility,
+                tags = localTags,
                 pinned = local.pinned,
                 archived = local.archived
             )
@@ -658,7 +665,7 @@ class SyncingRepository(
                 content = local.content,
                 visibility = local.visibility,
                 resourceRemoteIds = remoteResourceIds,
-                tags = null,
+                tags = localTags,
                 createdAt = local.date
             )
             if (created !is ApiResponse.Success) {
@@ -678,6 +685,7 @@ class SyncingRepository(
     }
 
     private suspend fun duplicateConflict(local: MemoEntity, remoteMemo: Memo): Boolean {
+        val localTags = memoDao.getMemoTags(local.identifier, accountKey)
         val duplicateLocal = local.copy(
             identifier = UUID.randomUUID().toString(),
             remoteId = null,
@@ -688,6 +696,7 @@ class SyncingRepository(
         )
 
         memoDao.insertMemo(duplicateLocal)
+        memoDao.replaceMemoTags(duplicateLocal.identifier, accountKey, localTags)
         memoDao.getMemoResources(local.identifier, accountKey).forEach { resource ->
             memoDao.insertResource(
                 resource.copy(
@@ -859,6 +868,7 @@ class SyncingRepository(
                 lastSyncedAt = remoteUpdatedAt
             )
         )
+        memoDao.replaceMemoTags(localIdentifier, accountKey, remoteMemo.tags)
 
         val currentResources = memoDao.getMemoResources(localIdentifier, accountKey)
         val remoteResourceIds = remoteMemo.resources.mapTo(hashSetOf()) { remoteResourceId(it) }
@@ -911,6 +921,7 @@ class SyncingRepository(
                 lastSyncedAt = remoteMemo.updatedAt ?: remoteMemo.date
             )
         )
+        memoDao.replaceMemoTags(local.identifier, accountKey, remoteMemo.tags)
     }
 
     private suspend fun memoEquivalent(local: MemoEntity, remote: Memo): Boolean {
@@ -924,6 +935,10 @@ class SyncingRepository(
             return false
         }
         if (local.archived != remote.archived) {
+            return false
+        }
+        val localTags = memoDao.getMemoTags(local.identifier, accountKey)
+        if (tagSignature(localTags) != tagSignature(remote.tags)) {
             return false
         }
 
@@ -947,6 +962,16 @@ class SyncingRepository(
         return resources.map { resource ->
             resource.remoteId
         }.sorted()
+    }
+
+    private fun tagSignature(tags: List<String>): List<String> {
+        return tags
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .sorted()
+            .toList()
     }
 
     private suspend fun pushLocalResource(identifier: String): Boolean {
@@ -1088,7 +1113,11 @@ class SyncingRepository(
 
     private suspend fun withResources(memo: MemoEntity): MemoEntity {
         val resources = memoDao.getMemoResources(memo.identifier, accountKey)
-        return memo.copy().also { it.resources = resources }
+        val tags = memoDao.getMemoTags(memo.identifier, accountKey)
+        return memo.copy().also {
+            it.resources = resources
+            it.tags = tags
+        }
     }
 
     private suspend fun permanentlyDeleteMemo(identifier: String) {
@@ -1097,6 +1126,7 @@ class SyncingRepository(
                 deleteLocalFile(resource)
             }
             memoDao.deleteMemo(memo)
+            memoDao.pruneUnusedTags(accountKey)
         }
     }
 
@@ -1252,8 +1282,4 @@ private fun MediaType?.isImageMimeType(): Boolean {
 
 private fun MediaType?.isVideoMimeType(): Boolean {
     return this?.type.equals("video", ignoreCase = true)
-}
-
-private fun MemoWithResources.toMemoEntity(): MemoEntity {
-    return memo.copy().also { it.resources = resources }
 }

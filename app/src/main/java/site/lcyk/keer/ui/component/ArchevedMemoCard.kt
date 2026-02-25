@@ -1,6 +1,7 @@
 package site.lcyk.keer.ui.component
 
 import android.text.format.DateUtils
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Delete
@@ -40,6 +43,7 @@ import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.viewmodel.LocalArchivedMemos
 import site.lcyk.keer.viewmodel.LocalMemos
 
@@ -47,6 +51,8 @@ import site.lcyk.keer.viewmodel.LocalMemos
 fun ArchivedMemoCard(
     memo: MemoEntity
 ) {
+    val displayTags = remember(memo.tags) { normalizeTagList(memo.tags) }
+
     Card(
         modifier = Modifier
             .padding(horizontal = 15.dp, vertical = 10.dp)
@@ -62,7 +68,21 @@ fun ArchivedMemoCard(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.outline
                 )
-                Spacer(modifier = Modifier.weight(1f))
+                if (displayTags.isNotEmpty()) {
+                    LazyRow(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 8.dp, end = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        items(displayTags, key = { it }) { tag ->
+                            KeerTagChip(tag = tag)
+                        }
+                    }
+                } else {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
                 ArchivedMemosCardActionButton(memo)
             }
 

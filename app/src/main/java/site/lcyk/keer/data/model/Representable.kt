@@ -20,5 +20,6 @@ interface MemoRepresentable {
     val pinned: Boolean
     val visibility: MemoVisibility
     val resources: List<ResourceRepresentable>
+    val tags: List<String>
     val archived: Boolean
 }

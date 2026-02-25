@@ -32,4 +32,7 @@ data class MemoEntity(
 ) : MemoRepresentable {
     @Ignore
     override var resources: List<ResourceEntity> = emptyList()
+
+    @Ignore
+    override var tags: List<String> = emptyList()
 }

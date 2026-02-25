@@ -2,6 +2,7 @@ package site.lcyk.keer.ui.page.memoinput
 
 import android.content.ClipData
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -12,8 +13,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -33,9 +36,12 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,8 +51,10 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +82,10 @@ import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.titleResource
 import site.lcyk.keer.ui.component.Attachment
 import site.lcyk.keer.ui.component.InputImage
+import site.lcyk.keer.ui.component.KeerRemovableTagChip
+import site.lcyk.keer.util.isValidTagName
+import site.lcyk.keer.util.normalizeTagList
+import site.lcyk.keer.util.normalizeTagName
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 import site.lcyk.keer.viewmodel.UploadTaskState
 import site.lcyk.keer.viewmodel.UploadTaskStatus
@@ -144,11 +156,10 @@ internal fun MemoInputBottomBar(
     visibilityMenuExpanded: Boolean,
     onVisibilityExpandedChange: (Boolean) -> Unit,
     onVisibilitySelected: (MemoVisibility) -> Unit,
-    tags: List<String>,
-    tagMenuExpanded: Boolean,
-    onTagExpandedChange: (Boolean) -> Unit,
-    onHashTagClick: () -> Unit,
-    onTagSelected: (String) -> Unit,
+    selectedTags: List<String>,
+    selectedTagCount: Int,
+    onTagSelectorClick: () -> Unit,
+    onTagRemove: (String) -> Unit,
     onToggleTodoItem: () -> Unit,
     onPickImage: () -> Unit,
     onPickAttachment: () -> Unit,
@@ -156,105 +167,221 @@ internal fun MemoInputBottomBar(
     onFormat: (MarkdownFormat) -> Unit,
 ) {
     val scrollState = rememberScrollState()
+    val normalizedSelectedTags = remember(selectedTags) { normalizeTagList(selectedTags) }
 
-    BottomAppBar {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    Column {
+        if (normalizedSelectedTags.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(normalizedSelectedTags, key = { it }) { tag ->
+                    KeerRemovableTagChip(
+                        tag = tag,
+                        onRemove = { onTagRemove(tag) }
+                    )
+                }
+            }
+        }
+        BottomAppBar {
             Row(
-                modifier = Modifier.horizontalScroll(scrollState),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (currentAccount !is Account.Local) {
-                    Box {
-                        DropdownMenu(
-                            expanded = visibilityMenuExpanded,
-                            onDismissRequest = { onVisibilityExpandedChange(false) },
-                            properties = PopupProperties(focusable = false)
-                        ) {
-                            enumValues<MemoVisibility>().forEach { visibility ->
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(visibility.titleResource)) },
-                                    onClick = {
-                                        onVisibilitySelected(visibility)
-                                        onVisibilityExpandedChange(false)
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            visibility.icon,
-                                            contentDescription = stringResource(visibility.titleResource)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.horizontalScroll(scrollState),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (currentAccount !is Account.Local) {
+                            Box {
+                                DropdownMenu(
+                                    expanded = visibilityMenuExpanded,
+                                    onDismissRequest = { onVisibilityExpandedChange(false) },
+                                    properties = PopupProperties(focusable = false)
+                                ) {
+                                    enumValues<MemoVisibility>().forEach { visibility ->
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(visibility.titleResource)) },
+                                            onClick = {
+                                                onVisibilitySelected(visibility)
+                                                onVisibilityExpandedChange(false)
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    visibility.icon,
+                                                    contentDescription = stringResource(visibility.titleResource)
+                                                )
+                                            },
+                                            trailingIcon = {
+                                                if (currentVisibility == visibility) {
+                                                    Icon(Icons.Outlined.Check, contentDescription = null)
+                                                }
+                                            }
                                         )
-                                    },
-                                    trailingIcon = {
-                                        if (currentVisibility == visibility) {
-                                            Icon(Icons.Outlined.Check, contentDescription = null)
-                                        }
                                     }
-                                )
+                                }
+                                IconButton(onClick = { onVisibilityExpandedChange(!visibilityMenuExpanded) }) {
+                                    Icon(
+                                        currentVisibility.icon,
+                                        contentDescription = stringResource(currentVisibility.titleResource)
+                                    )
+                                }
                             }
                         }
-                        IconButton(onClick = { onVisibilityExpandedChange(!visibilityMenuExpanded) }) {
-                            Icon(
-                                currentVisibility.icon,
-                                contentDescription = stringResource(currentVisibility.titleResource)
+
+                        IconButton(onClick = onTagSelectorClick) {
+                            BadgedBox(
+                                badge = {
+                                    if (selectedTagCount > 0) {
+                                        Badge {
+                                            Text(selectedTagCount.toString())
+                                        }
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.Outlined.Tag, contentDescription = stringResource(R.string.tag))
+                            }
+                        }
+
+                        IconButton(onClick = onToggleTodoItem) {
+                            Icon(Icons.Outlined.CheckBox, contentDescription = stringResource(R.string.add_task))
+                        }
+
+                        IconButton(onClick = onPickImage) {
+                            Icon(Icons.Outlined.Image, contentDescription = stringResource(R.string.add_image))
+                        }
+
+                        IconButton(onClick = onPickAttachment) {
+                            Icon(Icons.Outlined.Attachment, contentDescription = stringResource(R.string.attachment))
+                        }
+
+                        IconButton(onClick = onTakePhoto) {
+                            Icon(Icons.Outlined.PhotoCamera, contentDescription = stringResource(R.string.take_photo))
+                        }
+
+                        Spacer(modifier = Modifier.size(4.dp))
+
+                        FormattingButtons(onFormat = onFormat)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun MemoTagSelectorDialog(
+    availableTags: List<String>,
+    selectedTags: List<String>,
+    onSelectedTagsChange: (List<String>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val queryState = remember { mutableStateOf("") }
+    val normalizedSelectedTags = remember(selectedTags) { normalizeTagList(selectedTags) }
+    val normalizedTags = remember(availableTags, normalizedSelectedTags) {
+        normalizeTagList(availableTags + normalizedSelectedTags)
+    }
+    val query = normalizeTagName(queryState.value)
+    val filteredTags = remember(normalizedTags, query) {
+        if (query.isEmpty()) {
+            normalizedTags
+        } else {
+            normalizedTags.filter { it.contains(query, ignoreCase = true) }
+        }
+    }
+    val canCreateTag = query.isNotEmpty() &&
+            isValidTagName(query) &&
+            normalizedTags.none { it.equals(query, ignoreCase = true) }
+
+    fun toggleTag(tag: String) {
+        val normalizedTag = normalizeTagName(tag)
+        if (normalizedTag.isEmpty()) {
+            return
+        }
+        val next = normalizedSelectedTags.toMutableList()
+        val existingIndex = next.indexOfFirst { it.equals(normalizedTag, ignoreCase = false) }
+        if (existingIndex >= 0) {
+            next.removeAt(existingIndex)
+        } else {
+            next.add(normalizedTag)
+        }
+        onSelectedTagsChange(normalizeTagList(next))
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(R.string.tag.string) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = queryState.value,
+                    onValueChange = { queryState.value = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(R.string.search.string) },
+                    singleLine = true
+                )
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 280.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    if (canCreateTag) {
+                        item("create_$query") {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        toggleTag(query)
+                                        queryState.value = ""
+                                    }
+                                    .padding(vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Outlined.Tag, contentDescription = null)
+                                Spacer(modifier = Modifier.size(8.dp))
+                                Text(text = "+ $query")
+                            }
+                        }
+                    }
+                    items(filteredTags, key = { it }) { tag ->
+                        val selected = normalizedSelectedTags.contains(tag)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { toggleTag(tag) }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = selected,
+                                onCheckedChange = { toggleTag(tag) }
+                            )
+                            Text(
+                                text = tag,
+                                style = MaterialTheme.typography.bodyMedium
                             )
                         }
                     }
                 }
-
-                if (tags.isEmpty()) {
-                    IconButton(onClick = onHashTagClick) {
-                        Icon(Icons.Outlined.Tag, contentDescription = stringResource(R.string.tag))
-                    }
-                } else {
-                    Box {
-                        DropdownMenu(
-                            expanded = tagMenuExpanded,
-                            onDismissRequest = { onTagExpandedChange(false) },
-                            properties = PopupProperties(focusable = false)
-                        ) {
-                            tags.forEach { tag ->
-                                DropdownMenuItem(
-                                    text = { Text(tag) },
-                                    onClick = {
-                                        onTagSelected(tag)
-                                        onTagExpandedChange(false)
-                                    },
-                                    leadingIcon = {
-                                        Icon(Icons.Outlined.Tag, contentDescription = null)
-                                    }
-                                )
-                            }
-                        }
-                        IconButton(onClick = { onTagExpandedChange(!tagMenuExpanded) }) {
-                            Icon(Icons.Outlined.Tag, contentDescription = stringResource(R.string.tag))
-                        }
-                    }
-                }
-
-                IconButton(onClick = onToggleTodoItem) {
-                    Icon(Icons.Outlined.CheckBox, contentDescription = stringResource(R.string.add_task))
-                }
-
-                IconButton(onClick = onPickImage) {
-                    Icon(Icons.Outlined.Image, contentDescription = stringResource(R.string.add_image))
-                }
-
-                IconButton(onClick = onPickAttachment) {
-                    Icon(Icons.Outlined.Attachment, contentDescription = stringResource(R.string.attachment))
-                }
-
-                IconButton(onClick = onTakePhoto) {
-                    Icon(Icons.Outlined.PhotoCamera, contentDescription = stringResource(R.string.take_photo))
-                }
-
-                Spacer(modifier = Modifier.size(4.dp))
-
-                FormattingButtons(onFormat = onFormat)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(R.string.confirm.string)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(R.string.cancel.string)
             }
         }
-    }
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)

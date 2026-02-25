@@ -15,7 +15,7 @@ data class Memo(
     override val pinned: Boolean,
     override val visibility: MemoVisibility,
     override val resources: List<Resource>,
-    val tags: List<String>,
+    override val tags: List<String>,
     val creator: User? = null,
     override val archived: Boolean = false,
     val updatedAt: Instant? = null,

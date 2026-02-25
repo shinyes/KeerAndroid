@@ -47,9 +47,7 @@ fun MemosPage() {
         if (currentValue == lastDrawerValue) {
             return@LaunchedEffect
         }
-        if (currentValue == DrawerValue.Open) {
-            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-        } else if (currentValue == DrawerValue.Closed) {
+        if (currentValue == DrawerValue.Closed) {
             if (suppressNextCloseHaptic) {
                 suppressNextCloseHaptic = false
             } else {

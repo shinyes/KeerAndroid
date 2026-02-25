@@ -282,7 +282,9 @@ class AccountService @Inject constructor(
     private suspend fun purgeAccountData(accountKey: String) {
         val memoDao = database.memoDao()
         memoDao.deleteResourcesByAccount(accountKey)
+        memoDao.deleteMemoTagsByAccount(accountKey)
         memoDao.deleteMemosByAccount(accountKey)
+        memoDao.deleteTagsByAccount(accountKey)
         fileStorage.deleteAccountFiles(accountKey)
     }
 

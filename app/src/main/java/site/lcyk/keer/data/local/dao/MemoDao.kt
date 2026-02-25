@@ -8,9 +8,12 @@ import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
+import site.lcyk.keer.data.local.entity.MemoTagCrossRef
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.MemoWithResources
 import site.lcyk.keer.data.local.entity.ResourceEntity
+import site.lcyk.keer.data.local.entity.TagEntity
+import java.time.Instant
 
 @Dao
 interface MemoDao {
@@ -53,6 +56,9 @@ interface MemoDao {
     @Query("SELECT * FROM resources WHERE memoId = :memoId AND accountKey = :accountKey")
     suspend fun getMemoResources(memoId: String, accountKey: String): List<ResourceEntity>
 
+    @Query("SELECT tagName FROM memo_tags WHERE memoId = :memoId AND accountKey = :accountKey ORDER BY tagName COLLATE NOCASE ASC")
+    suspend fun getMemoTags(memoId: String, accountKey: String): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertResource(resource: ResourceEntity)
 
@@ -73,5 +79,77 @@ interface MemoDao {
 
     @Query("DELETE FROM memos WHERE accountKey = :accountKey")
     suspend fun deleteMemosByAccount(accountKey: String)
+
+    @Upsert
+    suspend fun insertTag(tag: TagEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMemoTagCrossRef(crossRef: MemoTagCrossRef)
+
+    @Query("DELETE FROM memo_tags WHERE memoId = :memoId AND accountKey = :accountKey")
+    suspend fun deleteMemoTagsForMemo(memoId: String, accountKey: String)
+
+    @Query("DELETE FROM memo_tags WHERE accountKey = :accountKey")
+    suspend fun deleteMemoTagsByAccount(accountKey: String)
+
+    @Query("DELETE FROM tags WHERE accountKey = :accountKey")
+    suspend fun deleteTagsByAccount(accountKey: String)
+
+    @Query("""
+        DELETE FROM tags
+        WHERE accountKey = :accountKey
+          AND name NOT IN (
+            SELECT tagName FROM memo_tags WHERE accountKey = :accountKey
+          )
+    """)
+    suspend fun pruneUnusedTags(accountKey: String)
+
+    @Query("""
+        SELECT t.name
+        FROM tags t
+        LEFT JOIN memo_tags mt
+          ON mt.accountKey = t.accountKey
+         AND mt.tagName = t.name
+        LEFT JOIN memos m
+          ON m.identifier = mt.memoId
+         AND m.accountKey = t.accountKey
+         AND m.isDeleted = 0
+         AND m.date >= :since
+        WHERE t.accountKey = :accountKey
+        GROUP BY t.name
+        ORDER BY COUNT(m.identifier) DESC, MAX(m.date) DESC, t.name COLLATE NOCASE ASC
+    """)
+    suspend fun listTagsByRecentUsage(accountKey: String, since: Instant): List<String>
+
+    @Transaction
+    suspend fun replaceMemoTags(memoId: String, accountKey: String, tags: List<String>) {
+        val now = Instant.now()
+        val normalizedTags = tags
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .toList()
+        deleteMemoTagsForMemo(memoId, accountKey)
+        normalizedTags.forEach { tag ->
+            insertTag(
+                TagEntity(
+                    accountKey = accountKey,
+                    name = tag,
+                    createdAt = now,
+                    updatedAt = now
+                )
+            )
+            insertMemoTagCrossRef(
+                MemoTagCrossRef(
+                    memoId = memoId,
+                    accountKey = accountKey,
+                    tagName = tag,
+                    createdAt = now
+                )
+            )
+        }
+        pruneUnusedTags(accountKey)
+    }
 
 }
