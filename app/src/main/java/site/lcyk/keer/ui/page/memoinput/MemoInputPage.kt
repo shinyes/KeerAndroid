@@ -9,14 +9,11 @@ import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
-import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -77,7 +74,6 @@ fun MemoInputPage(
     var photoImageUri by remember { mutableStateOf<Uri?>(null) }
     var videoUri by remember { mutableStateOf<Uri?>(null) }
     var showExitConfirmation by remember { mutableStateOf(false) }
-    var showCaptureOptionDialog by remember { mutableStateOf(false) }
     val normalizedSelectedTags = remember(selectedTags) { normalizeTagList(selectedTags) }
 
     val defaultVisibility = userStateViewModel.currentUser?.defaultVisibility ?: MemoVisibility.PRIVATE
@@ -229,7 +225,10 @@ fun MemoInputPage(
                     pickAttachment.launch(arrayOf("*/*"))
                 },
                 onTakePhoto = {
-                    showCaptureOptionDialog = true
+                    launchTakePhoto()
+                },
+                onTakeVideo = {
+                    launchCaptureVideo()
                 },
                 onFormat = { format ->
                     text = applyMarkdownFormatToText(text, format)
@@ -293,33 +292,6 @@ fun MemoInputPage(
             },
             onDismiss = {
                 showExitConfirmation = false
-            }
-        )
-    }
-
-    if (showCaptureOptionDialog) {
-        AlertDialog(
-            onDismissRequest = { showCaptureOptionDialog = false },
-            title = { Text(R.string.capture_media_title.string) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showCaptureOptionDialog = false
-                        launchTakePhoto()
-                    }
-                ) {
-                    Text(R.string.take_photo.string)
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showCaptureOptionDialog = false
-                        launchCaptureVideo()
-                    }
-                ) {
-                    Text(R.string.record_video.string)
-                }
             }
         )
     }

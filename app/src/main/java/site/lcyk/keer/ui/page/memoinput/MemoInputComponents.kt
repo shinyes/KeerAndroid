@@ -30,6 +30,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.outlined.Attachment
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckBox
@@ -171,6 +172,7 @@ internal fun MemoInputBottomBar(
     onPickImage: () -> Unit,
     onPickAttachment: () -> Unit,
     onTakePhoto: () -> Unit,
+    onTakeVideo: () -> Unit,
     onFormat: (MarkdownFormat) -> Unit,
 ) {
     val scrollState = rememberScrollState()
@@ -255,20 +257,28 @@ internal fun MemoInputBottomBar(
                             }
                         }
 
-                        IconButton(onClick = onToggleTodoItem) {
-                            Icon(Icons.Outlined.CheckBox, contentDescription = stringResource(R.string.add_task))
-                        }
-
                         IconButton(onClick = onPickImage) {
                             Icon(Icons.Outlined.Image, contentDescription = stringResource(R.string.add_media))
+                        }
+
+                        IconButton(onClick = onTakePhoto) {
+                            Icon(Icons.Outlined.PhotoCamera, contentDescription = stringResource(R.string.take_photo))
+                        }
+
+                        IconButton(onClick = onTakeVideo) {
+                            Icon(
+                                Icons.Filled.Videocam,
+                                contentDescription = stringResource(R.string.record_video),
+                                modifier = Modifier.size(26.dp)
+                            )
                         }
 
                         IconButton(onClick = onPickAttachment) {
                             Icon(Icons.Outlined.Attachment, contentDescription = stringResource(R.string.attachment))
                         }
 
-                        IconButton(onClick = onTakePhoto) {
-                            Icon(Icons.Outlined.PhotoCamera, contentDescription = stringResource(R.string.capture_media))
+                        IconButton(onClick = onToggleTodoItem) {
+                            Icon(Icons.Outlined.CheckBox, contentDescription = stringResource(R.string.add_task))
                         }
 
                         Spacer(modifier = Modifier.size(4.dp))
