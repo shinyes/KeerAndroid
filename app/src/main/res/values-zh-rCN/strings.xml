@@ -79,6 +79,7 @@
     <string name="invalid_server">无效的服务器。</string>
     <string name="access_token_invalid_relogin">你的 Access Token 无效，请创建一个永不过期的 Access Token 并重新登录。</string>
     <string name="sync_failed">同步失败</string>
+    <string name="sync_server_unreachable">无法连接服务器，请检查网络或服务器状态。</string>
     <string name="memos_supported_versions">keer 目前仅支持 keer_api_version 0.1。</string>
     <string name="unsupported_memos_version_title">不受支持的 API 版本</string>
     <string name="memos_login_version_higher_warning">当前服务器的 keer_api_version 与本应用不兼容。</string>

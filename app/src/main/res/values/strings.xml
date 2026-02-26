@@ -78,6 +78,7 @@
     <string name="invalid_server">Invalid server.</string>
     <string name="access_token_invalid_relogin">Your access token is invalid, please create a never expire access token and login again.</string>
     <string name="sync_failed">Sync Failed</string>
+    <string name="sync_server_unreachable">Cannot reach server. Please check network or server status.</string>
     <string name="memos_supported_versions">keer only supports keer_api_version 0.1.</string>
     <string name="unsupported_memos_version_title">Unsupported API Version</string>
     <string name="memos_login_version_higher_warning">Your keer_api_version is not supported by this app.</string>

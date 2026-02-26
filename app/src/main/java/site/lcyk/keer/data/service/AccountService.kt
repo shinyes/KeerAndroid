@@ -4,7 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import androidx.core.net.toUri
-import com.skydoves.sandwich.getOrNull
+import com.skydoves.sandwich.ApiResponse
 import com.skydoves.sandwich.getOrThrow
 import com.skydoves.sandwich.retrofit.adapters.ApiResponseCallAdapterFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import site.lcyk.keer.R
 import site.lcyk.keer.data.api.KeerV2Api
@@ -68,6 +69,7 @@ class AccountService @Inject constructor(
     sealed class SyncCompatibility {
         object Allowed : SyncCompatibility()
         data class Blocked(val message: String?) : SyncCompatibility()
+        data class Unavailable(val message: String?) : SyncCompatibility()
     }
 
     private val exportDateFormatter: DateTimeFormatter = DateTimeFormatter
@@ -355,11 +357,13 @@ class AccountService @Inject constructor(
         }
 
         val serverVersion = fetchKeerAPIVersionForAccount(account)
-            ?: return if (isAutomatic) {
-                SyncCompatibility.Blocked(null)
+        if (serverVersion == null) {
+            return if (isAutomatic) {
+                SyncCompatibility.Unavailable(null)
             } else {
-                SyncCompatibility.Blocked(R.string.memos_supported_versions.string)
+                SyncCompatibility.Unavailable(R.string.sync_server_unreachable.string)
             }
+        }
         if (!isCompatibleKeerAPIVersion(serverVersion)) {
             return if (isAutomatic) {
                 SyncCompatibility.Blocked(null)
@@ -390,13 +394,20 @@ class AccountService @Inject constructor(
     }
 
     private suspend fun fetchKeerAPIVersionForAccount(account: Account.KeerV2): String? {
-        return createKeerV2Client(account.info.host, account.info.accessToken)
-            .second
-            .getProfile()
-            .getOrNull()
-            ?.keerApiVersion
-            ?.trim()
-            ?.ifEmpty { null }
+        val profileResponse = withTimeoutOrNull(SYNC_COMPATIBILITY_TIMEOUT_MILLIS) {
+            createKeerV2Client(account.info.host, account.info.accessToken)
+                .second
+                .getProfile()
+        } ?: return null
+
+        return when (profileResponse) {
+            is ApiResponse.Success -> {
+                profileResponse.data.keerApiVersion.trim().ifEmpty { null }
+            }
+            else -> {
+                null
+            }
+        }
     }
 
     private fun parseAccountWithSecureToken(userData: UserData): Account? {
@@ -460,5 +471,6 @@ class AccountService @Inject constructor(
         private val KEER_API_MIN_VERSION = SemVer(0, 1, 0)
         private val KEER_API_MAX_VERSION = SemVer(0, 1, 0)
         private val TWO_SEGMENT_VERSION_REGEX = Regex("""^\d+\.\d+$""")
+        private const val SYNC_COMPATIBILITY_TIMEOUT_MILLIS = 3500L
     }
 }

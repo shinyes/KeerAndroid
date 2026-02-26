@@ -133,6 +133,11 @@ class MemosViewModel @Inject constructor(
                     compatibility.message ?: R.string.memos_supported_versions.string
                 )
             }
+            is AccountService.SyncCompatibility.Unavailable -> {
+                return@withContext ManualSyncResult.Failed(
+                    compatibility.message ?: R.string.sync_server_unreachable.string
+                )
+            }
             AccountService.SyncCompatibility.Allowed -> Unit
         }
 
