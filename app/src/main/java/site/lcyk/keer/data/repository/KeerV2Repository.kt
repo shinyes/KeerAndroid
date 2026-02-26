@@ -240,11 +240,18 @@ class KeerV2Repository(
 
         var uploadId = ""
         var offset = 0L
+        var useBackendChunkUpload = true
+        var multipartPartSizeBytes = 0L
 
         val resumedSession = resolveExistingUploadSession(baseUrl, checkpointKey, totalBytes)
         if (resumedSession != null) {
             uploadId = resumedSession.uploadId
             offset = resumedSession.offset
+            if (resumedSession.uploadMode.equals("DIRECT_MULTIPART", ignoreCase = true)) {
+                useBackendChunkUpload = false
+                multipartPartSizeBytes = (resumedSession.multipartPartSizeBytes
+                    ?: uploadChunkSizeBytes).coerceAtLeast(1L)
+            }
             onProgress(offset.coerceAtMost(totalBytes), totalBytes)
         }
 
@@ -318,16 +325,107 @@ class KeerV2Repository(
             }
 
             uploadId = resolvedUploadID
-            offset = (resolvedSession.uploadedSize.toLongOrNull() ?: 0L).coerceIn(0L, totalBytes)
-            uploadCheckpointStore.upsert(
-                checkpointKey,
-                UploadCheckpoint(
-                    uploadId = resolvedUploadID,
-                    totalBytes = totalBytes,
-                    uploadedBytes = offset,
-                    updatedAtMillis = System.currentTimeMillis()
+            val directUploadUrl = resolvedSession.directUploadUrl?.trim().orEmpty()
+            val uploadMode = resolvedSession.uploadMode?.trim().orEmpty()
+
+            if (directUploadUrl.isNotEmpty()) {
+                useBackendChunkUpload = false
+                val contentTypeValue = type?.toString() ?: "application/octet-stream"
+                val contentMediaType = contentTypeValue.toMediaType()
+                var attempt = 0
+                while (true) {
+                    val directBody = ChunkFileRequestBody(
+                        file = file,
+                        offset = 0L,
+                        length = totalBytes,
+                        mediaType = contentMediaType,
+                        onProgress = { sent, _ ->
+                            onProgress(sent.coerceAtMost(totalBytes), totalBytes)
+                        }
+                    )
+                    val directRequest = Request.Builder()
+                        .url(directUploadUrl)
+                        .put(directBody)
+                        .header("Content-Type", contentTypeValue)
+                        .build()
+
+                    val directResponse = try {
+                        okHttpClient.newCall(directRequest).execute()
+                    } catch (e: Throwable) {
+                        attempt += 1
+                        if (attempt > maxChunkRetryCount) {
+                            cancelUploadSession(baseUrl, uploadId)
+                            return@withContext failure(
+                                "direct upload",
+                                "request execution failed after retries",
+                                e
+                            )
+                        }
+                        delay(retryDelayMillis)
+                        continue
+                    }
+
+                    var shouldRetry = false
+                    var fatalFailure: ApiResponse.Failure.Exception? = null
+                    directResponse.use { response ->
+                        if (response.isSuccessful) {
+                            offset = totalBytes
+                            onProgress(totalBytes, totalBytes)
+                        } else if (response.code in 500..599 || response.code == 408 || response.code == 429) {
+                            shouldRetry = true
+                        } else {
+                            fatalFailure = httpFailure("direct upload", response)
+                        }
+                    }
+                    val resolvedFatalFailure = fatalFailure
+                    if (resolvedFatalFailure != null) {
+                        cancelUploadSession(baseUrl, uploadId)
+                        return@withContext resolvedFatalFailure
+                    }
+                    if (!shouldRetry) {
+                        break
+                    }
+
+                    attempt += 1
+                    if (attempt > maxChunkRetryCount) {
+                        cancelUploadSession(baseUrl, uploadId)
+                        return@withContext failure("direct upload", "request failed after retries")
+                    }
+                    delay(retryDelayMillis)
+                }
+                uploadCheckpointStore.remove(checkpointKey)
+            } else if (uploadMode.equals("DIRECT_MULTIPART", ignoreCase = true)) {
+                useBackendChunkUpload = false
+                multipartPartSizeBytes = (resolvedSession.multipartPartSize?.toLongOrNull()
+                    ?: uploadChunkSizeBytes).coerceAtLeast(1L)
+                offset = (resolvedSession.uploadedSize.toLongOrNull() ?: 0L).coerceIn(0L, totalBytes)
+                uploadCheckpointStore.upsert(
+                    checkpointKey,
+                    UploadCheckpoint(
+                        uploadId = resolvedUploadID,
+                        totalBytes = totalBytes,
+                        uploadedBytes = offset,
+                        updatedAtMillis = System.currentTimeMillis(),
+                        uploadMode = "DIRECT_MULTIPART",
+                        multipartPartSizeBytes = multipartPartSizeBytes
+                    )
                 )
-            )
+            } else {
+                if (uploadMode.equals("DIRECT_PRESIGNED_PUT", ignoreCase = true)) {
+                    return@withContext failure("create upload", "missing direct upload url")
+                }
+                offset = (resolvedSession.uploadedSize.toLongOrNull() ?: 0L).coerceIn(0L, totalBytes)
+                uploadCheckpointStore.upsert(
+                    checkpointKey,
+                    UploadCheckpoint(
+                        uploadId = resolvedUploadID,
+                        totalBytes = totalBytes,
+                        uploadedBytes = offset,
+                        updatedAtMillis = System.currentTimeMillis(),
+                        uploadMode = "RESUMABLE"
+                    )
+                )
+            }
         }
 
         if (uploadId.isBlank()) {
@@ -335,78 +433,197 @@ class KeerV2Repository(
         }
         val resolvedUploadId = uploadId
 
-        var retryCount = 0
-        while (offset < totalBytes) {
-            val chunkLength = min(uploadChunkSizeBytes, totalBytes - offset)
-            val chunkBody = ChunkFileRequestBody(
-                file = file,
-                offset = offset,
-                length = chunkLength,
-                mediaType = uploadChunkMediaType,
-                onProgress = { sent, _ ->
-                    onProgress((offset + sent).coerceAtMost(totalBytes), totalBytes)
-                }
-            )
-            val patchRequest = Request.Builder()
-                .url("$baseUrl/api/v1/attachments/uploads/$resolvedUploadId")
-                .patch(chunkBody)
-                .header("Upload-Offset", offset.toString())
-                .build()
+        if (useBackendChunkUpload) {
+            var retryCount = 0
+            while (offset < totalBytes) {
+                val chunkLength = min(uploadChunkSizeBytes, totalBytes - offset)
+                val chunkBody = ChunkFileRequestBody(
+                    file = file,
+                    offset = offset,
+                    length = chunkLength,
+                    mediaType = uploadChunkMediaType,
+                    onProgress = { sent, _ ->
+                        onProgress((offset + sent).coerceAtMost(totalBytes), totalBytes)
+                    }
+                )
+                val patchRequest = Request.Builder()
+                    .url("$baseUrl/api/v1/attachments/uploads/$resolvedUploadId")
+                    .patch(chunkBody)
+                    .header("Upload-Offset", offset.toString())
+                    .build()
 
-            val patchResponse = try {
-                okHttpClient.newCall(patchRequest).execute()
-            } catch (e: Throwable) {
-                retryCount += 1
-                if (retryCount > maxChunkRetryCount) {
-                    return@withContext failure("upload chunk", "request execution failed after retries", e)
+                val patchResponse = try {
+                    okHttpClient.newCall(patchRequest).execute()
+                } catch (e: Throwable) {
+                    retryCount += 1
+                    if (retryCount > maxChunkRetryCount) {
+                        return@withContext failure("upload chunk", "request execution failed after retries", e)
+                    }
+                    val latestOffset = queryUploadOffset(baseUrl, resolvedUploadId)
+                    if (latestOffset >= 0L) {
+                        offset = latestOffset.coerceIn(0L, totalBytes)
+                        uploadCheckpointStore.updateProgress(checkpointKey, offset)
+                    }
+                    delay(retryDelayMillis)
+                    continue
                 }
-                val latestOffset = queryUploadOffset(baseUrl, resolvedUploadId)
-                if (latestOffset >= 0L) {
-                    offset = latestOffset.coerceIn(0L, totalBytes)
-                    uploadCheckpointStore.updateProgress(checkpointKey, offset)
+
+                var chunkFatal: ApiResponse.Failure.Exception? = null
+                val handled = patchResponse.use { response ->
+                    if (response.isSuccessful) {
+                        val nextOffset = response.header("Upload-Offset")?.toLongOrNull()
+                        offset = (nextOffset ?: (offset + chunkLength)).coerceIn(0L, totalBytes)
+                        uploadCheckpointStore.updateProgress(checkpointKey, offset)
+                        onProgress(offset.coerceAtMost(totalBytes), totalBytes)
+                        retryCount = 0
+                        true
+                    } else {
+                        val isConflict = response.code == 409 || response.code == 412
+                        if (isConflict) {
+                            val latestOffset = response.header("Upload-Offset")?.toLongOrNull()
+                                ?: queryUploadOffset(baseUrl, resolvedUploadId)
+                            if (latestOffset >= 0L) {
+                                offset = latestOffset.coerceIn(0L, totalBytes)
+                                uploadCheckpointStore.updateProgress(checkpointKey, offset)
+                            }
+                            retryCount += 1
+                            false
+                        } else {
+                            if (response.code == 404 || response.code == 410) {
+                                uploadCheckpointStore.remove(checkpointKey)
+                            }
+                            chunkFatal = httpFailure("upload chunk", response)
+                            false
+                        }
+                    }
                 }
-                delay(retryDelayMillis)
-                continue
+                val resolvedChunkFatal = chunkFatal
+                if (resolvedChunkFatal != null) {
+                    return@withContext resolvedChunkFatal
+                }
+                if (!handled) {
+                    if (retryCount > maxChunkRetryCount) {
+                        return@withContext failure("upload chunk", "offset conflict after retries")
+                    }
+                    delay(retryDelayMillis)
+                }
             }
+        } else if (multipartPartSizeBytes > 0L) {
+            while (offset < totalBytes) {
+                val chunkLength = min(multipartPartSizeBytes, totalBytes - offset)
+                val partNumber = ((offset / multipartPartSizeBytes) + 1L).toInt()
+                var requestRetryCount = 0
+                var partUpload: MultipartPartUploadResponse? = null
+                var offsetChanged = false
+                while (partUpload == null) {
+                    partUpload = requestMultipartPartUploadURL(
+                        baseUrl = baseUrl,
+                        uploadId = resolvedUploadId,
+                        partNumber = partNumber,
+                        offset = offset,
+                        size = chunkLength
+                    )
+                    if (partUpload != null) {
+                        break
+                    }
+                    requestRetryCount += 1
+                    if (requestRetryCount > maxChunkRetryCount) {
+                        return@withContext failure(
+                            "upload multipart part",
+                            "failed to request multipart part upload url after retries"
+                        )
+                    }
+                    val latestOffset = queryUploadOffset(baseUrl, resolvedUploadId)
+                    if (latestOffset >= 0L) {
+                        val resolvedLatestOffset = latestOffset.coerceIn(0L, totalBytes)
+                        if (resolvedLatestOffset != offset) {
+                            offset = resolvedLatestOffset
+                            offsetChanged = true
+                        }
+                        uploadCheckpointStore.updateProgress(checkpointKey, offset)
+                        if (offset >= totalBytes) {
+                            break
+                        }
+                    }
+                    delay(retryDelayMillis)
+                }
+                if (offsetChanged) {
+                    continue
+                }
+                if (offset >= totalBytes) {
+                    break
+                }
+                val resolvedPartUpload = partUpload ?: return@withContext failure(
+                    "upload multipart part",
+                    "missing multipart upload url"
+                )
 
-            var chunkFatal: ApiResponse.Failure.Exception? = null
-            val handled = patchResponse.use { response ->
-                if (response.isSuccessful) {
-                    val nextOffset = response.header("Upload-Offset")?.toLongOrNull()
-                    offset = (nextOffset ?: (offset + chunkLength)).coerceIn(0L, totalBytes)
-                    uploadCheckpointStore.updateProgress(checkpointKey, offset)
-                    onProgress(offset.coerceAtMost(totalBytes), totalBytes)
-                    retryCount = 0
-                    true
-                } else {
-                    val isConflict = response.code == 409 || response.code == 412
-                    if (isConflict) {
-                        val latestOffset = response.header("Upload-Offset")?.toLongOrNull()
-                            ?: queryUploadOffset(baseUrl, resolvedUploadId)
+                var retryCount = 0
+                while (true) {
+                    val contentTypeValue = type?.toString() ?: "application/octet-stream"
+                    val chunkBody = ChunkFileRequestBody(
+                        file = file,
+                        offset = offset,
+                        length = chunkLength,
+                        mediaType = contentTypeValue.toMediaType(),
+                        onProgress = { sent, _ ->
+                            onProgress((offset + sent).coerceAtMost(totalBytes), totalBytes)
+                        }
+                    )
+                    val uploadRequest = Request.Builder()
+                        .url(resolvedPartUpload.uploadUrl)
+                        .put(chunkBody)
+                        .header("Content-Type", contentTypeValue)
+                        .build()
+
+                    val uploadResponse = try {
+                        okHttpClient.newCall(uploadRequest).execute()
+                    } catch (e: Throwable) {
+                        retryCount += 1
+                        if (retryCount > maxChunkRetryCount) {
+                            return@withContext failure("upload multipart part", "request execution failed after retries", e)
+                        }
+                        val latestOffset = queryUploadOffset(baseUrl, resolvedUploadId)
                         if (latestOffset >= 0L) {
                             offset = latestOffset.coerceIn(0L, totalBytes)
                             uploadCheckpointStore.updateProgress(checkpointKey, offset)
                         }
-                        retryCount += 1
-                        false
-                    } else {
-                        if (response.code == 404 || response.code == 410) {
-                            uploadCheckpointStore.remove(checkpointKey)
-                        }
-                        chunkFatal = httpFailure("upload chunk", response)
-                        false
+                        delay(retryDelayMillis)
+                        continue
                     }
+
+                    var shouldRetry = false
+                    var fatalFailure: ApiResponse.Failure.Exception? = null
+                    uploadResponse.use { response ->
+                        if (response.isSuccessful) {
+                            offset = (offset + chunkLength).coerceAtMost(totalBytes)
+                            uploadCheckpointStore.updateProgress(checkpointKey, offset)
+                            onProgress(offset.coerceAtMost(totalBytes), totalBytes)
+                        } else if (response.code in 500..599 || response.code == 408 || response.code == 429) {
+                            shouldRetry = true
+                        } else {
+                            fatalFailure = httpFailure("upload multipart part", response)
+                        }
+                    }
+                    val resolvedFatalFailure = fatalFailure
+                    if (resolvedFatalFailure != null) {
+                        return@withContext resolvedFatalFailure
+                    }
+                    if (!shouldRetry) {
+                        break
+                    }
+
+                    retryCount += 1
+                    if (retryCount > maxChunkRetryCount) {
+                        return@withContext failure("upload multipart part", "request failed after retries")
+                    }
+                    val latestOffset = queryUploadOffset(baseUrl, resolvedUploadId)
+                    if (latestOffset >= 0L) {
+                        offset = latestOffset.coerceIn(0L, totalBytes)
+                        uploadCheckpointStore.updateProgress(checkpointKey, offset)
+                    }
+                    delay(retryDelayMillis)
                 }
-            }
-            val resolvedChunkFatal = chunkFatal
-            if (resolvedChunkFatal != null) {
-                return@withContext resolvedChunkFatal
-            }
-            if (!handled) {
-                if (retryCount > maxChunkRetryCount) {
-                    return@withContext failure("upload chunk", "offset conflict after retries")
-                }
-                delay(retryDelayMillis)
             }
         }
 
@@ -500,13 +717,32 @@ class KeerV2Repository(
                 uploadCheckpointStore.remove(checkpointKey)
                 return null
             }
+            UploadOffsetQueryStatus.DIRECT_UNSUPPORTED -> {
+                uploadCheckpointStore.remove(checkpointKey)
+                cancelUploadSession(baseUrl, checkpoint.uploadId)
+                return null
+            }
             UploadOffsetQueryStatus.ERROR -> checkpoint.uploadedBytes
         }.coerceIn(0L, totalBytes)
 
         uploadCheckpointStore.updateProgress(checkpointKey, resolvedOffset)
+        val resolvedMode = when (queryResult.status) {
+            UploadOffsetQueryStatus.SUCCESS -> queryResult.uploadMode ?: checkpoint.uploadMode
+            UploadOffsetQueryStatus.ERROR -> checkpoint.uploadMode
+            UploadOffsetQueryStatus.NOT_FOUND,
+            UploadOffsetQueryStatus.DIRECT_UNSUPPORTED -> null
+        }
+        val resolvedMultipartPartSizeBytes = when (queryResult.status) {
+            UploadOffsetQueryStatus.SUCCESS -> queryResult.multipartPartSizeBytes ?: checkpoint.multipartPartSizeBytes
+            UploadOffsetQueryStatus.ERROR -> checkpoint.multipartPartSizeBytes
+            UploadOffsetQueryStatus.NOT_FOUND,
+            UploadOffsetQueryStatus.DIRECT_UNSUPPORTED -> null
+        }
         return UploadSessionState(
             uploadId = checkpoint.uploadId,
-            offset = resolvedOffset
+            offset = resolvedOffset,
+            uploadMode = resolvedMode,
+            multipartPartSizeBytes = resolvedMultipartPartSizeBytes
         )
     }
 
@@ -554,6 +790,37 @@ class KeerV2Repository(
         return sha256Hex(raw)
     }
 
+    private fun requestMultipartPartUploadURL(
+        baseUrl: String,
+        uploadId: String,
+        partNumber: Int,
+        offset: Long,
+        size: Long
+    ): MultipartPartUploadResponse? {
+        val url = "$baseUrl/api/v1/attachments/uploads/$uploadId/parts/$partNumber?offset=$offset&size=$size"
+        val request = Request.Builder()
+            .url(url)
+            .get()
+            .build()
+        val response = try {
+            okHttpClient.newCall(request).execute()
+        } catch (_: Throwable) {
+            return null
+        }
+        return response.use {
+            if (!response.isSuccessful) {
+                return null
+            }
+            val body = response.body.string()
+            if (body.isBlank()) {
+                return null
+            }
+            return runCatching {
+                uploadJson.decodeFromString(MultipartPartUploadResponse.serializer(), body)
+            }.getOrNull()
+        }
+    }
+
     private fun queryUploadOffset(baseUrl: String, uploadId: String): Long {
         val result = queryUploadOffsetWithStatus(baseUrl, uploadId)
         return if (result.status == UploadOffsetQueryStatus.SUCCESS) {
@@ -580,9 +847,21 @@ class KeerV2Repository(
                 }
                 return UploadOffsetQueryResult(UploadOffsetQueryStatus.ERROR, -1L)
             }
+            val uploadMode = response.header("Upload-Mode")?.trim().orEmpty()
+            if (uploadMode.equals("DIRECT_PRESIGNED_PUT", ignoreCase = true)) {
+                return UploadOffsetQueryResult(UploadOffsetQueryStatus.DIRECT_UNSUPPORTED, -1L)
+            }
             val offset = response.header("Upload-Offset")?.toLongOrNull()
                 ?: return UploadOffsetQueryResult(UploadOffsetQueryStatus.ERROR, -1L)
-            UploadOffsetQueryResult(UploadOffsetQueryStatus.SUCCESS, offset)
+            val multipartPartSizeBytes = response.header("Upload-Part-Size")
+                ?.toLongOrNull()
+                ?.takeIf { it > 0L }
+            UploadOffsetQueryResult(
+                status = UploadOffsetQueryStatus.SUCCESS,
+                offset = offset,
+                uploadMode = uploadMode.ifBlank { "RESUMABLE" },
+                multipartPartSizeBytes = multipartPartSizeBytes
+            )
         }
     }
 
@@ -665,23 +944,42 @@ private data class ResumableUploadThumbnailRequest(
 private data class ResumableUploadCreateResponse(
     val uploadId: String,
     val uploadedSize: String = "0",
-    val size: String? = null
+    val size: String? = null,
+    val uploadMode: String? = null,
+    val directUploadUrl: String? = null,
+    val directUploadMethod: String? = null,
+    val multipartPartSize: String? = null
+)
+
+@Serializable
+private data class MultipartPartUploadResponse(
+    val uploadId: String,
+    val partNumber: Int,
+    val offset: String,
+    val size: String,
+    val uploadUrl: String,
+    val method: String? = null
 )
 
 private data class UploadSessionState(
     val uploadId: String,
-    val offset: Long
+    val offset: Long,
+    val uploadMode: String? = null,
+    val multipartPartSizeBytes: Long? = null
 )
 
 private enum class UploadOffsetQueryStatus {
     SUCCESS,
     NOT_FOUND,
+    DIRECT_UNSUPPORTED,
     ERROR
 }
 
 private data class UploadOffsetQueryResult(
     val status: UploadOffsetQueryStatus,
-    val offset: Long
+    val offset: Long,
+    val uploadMode: String? = null,
+    val multipartPartSizeBytes: Long? = null
 )
 
 @Serializable
@@ -689,7 +987,9 @@ private data class UploadCheckpoint(
     val uploadId: String,
     val totalBytes: Long,
     val uploadedBytes: Long = 0L,
-    val updatedAtMillis: Long
+    val updatedAtMillis: Long,
+    val uploadMode: String? = null,
+    val multipartPartSizeBytes: Long? = null
 )
 
 @Serializable

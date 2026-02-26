@@ -147,6 +147,7 @@ data class KeerV2Resource(
     val type: String? = null,
     val size: String? = null,
     val thumbnailName: String? = null,
+    val thumbnailExternalLink: String? = null,
     val thumbnailFilename: String? = null,
     val thumbnailType: String? = null,
     val memo: String? = null
@@ -160,6 +161,10 @@ data class KeerV2Resource(
     }
 
     fun thumbnailUri(host: String): Uri? {
+        val directLink = thumbnailExternalLink?.trim().orEmpty()
+        if (directLink.isNotEmpty()) {
+            return directLink.toUri()
+        }
         val resolvedName = thumbnailName?.trim().orEmpty()
         val resolvedFilename = thumbnailFilename?.trim().orEmpty()
         if (resolvedName.isEmpty() || resolvedFilename.isEmpty()) {
