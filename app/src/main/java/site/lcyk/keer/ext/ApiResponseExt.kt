@@ -16,6 +16,9 @@ fun <T> ApiResponse<T>.getErrorMessage(): String {
         try {
             val errorMessage: ErrorMessage? = this.deserializeErrorBody(Json { ignoreUnknownKeys = true })
             if (errorMessage != null) {
+                if (!errorMessage.requestId.isNullOrBlank()) {
+                    Timber.w("request failed code=%s requestId=%s", errorMessage.code, errorMessage.requestId)
+                }
                 return errorMessage.message
             }
         } catch (e: Throwable) {

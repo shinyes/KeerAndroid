@@ -130,8 +130,6 @@ data class KeerV2Memo(
     val createTime: Instant? = null,
     @Serializable(with = Rfc3339InstantSerializer::class)
     val updateTime: Instant? = null,
-    @Serializable(with = Rfc3339InstantSerializer::class)
-    val displayTime: Instant? = null,
     val content: String? = null,
     val visibility: MemosVisibility? = null,
     val pinned: Boolean? = null,

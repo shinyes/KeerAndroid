@@ -367,6 +367,7 @@ fun MemosCardActionButton(
             confirmButton = {
                 TextButton(
                     onClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         scope.launch {
                             memosViewModel.deleteMemo(memo.identifier).suspendOnSuccess {
                                 showDeleteDialog = false

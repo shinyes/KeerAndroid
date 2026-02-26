@@ -154,6 +154,7 @@ fun ArchivedMemosCardActionButton(
             confirmButton = {
                 TextButton(
                     onClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         scope.launch {
                             archivedMemoListViewModel.deleteMemo(memo.identifier).suspendOnSuccess {
                                 showDeleteDialog = false
