@@ -19,6 +19,15 @@ class KeerFileProvider: FileProvider(
             return getUriForFile(context, authority, file)
         }
 
+        fun getVideoUri(context: Context): Uri {
+            val directory = File(context.cacheDir, "images")
+            directory.mkdirs()
+
+            val file = File.createTempFile("capture_video_", ".mp4", directory)
+            val authority = context.packageName + ".fileprovider"
+            return getUriForFile(context, authority, file)
+        }
+
         fun getFileUri(context: Context, file: File): Uri {
             val authority = context.packageName + ".fileprovider"
             return getUriForFile(context, authority, file)

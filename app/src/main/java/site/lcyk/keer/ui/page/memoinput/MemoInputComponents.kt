@@ -260,7 +260,7 @@ internal fun MemoInputBottomBar(
                         }
 
                         IconButton(onClick = onPickImage) {
-                            Icon(Icons.Outlined.Image, contentDescription = stringResource(R.string.add_image))
+                            Icon(Icons.Outlined.Image, contentDescription = stringResource(R.string.add_media))
                         }
 
                         IconButton(onClick = onPickAttachment) {
@@ -268,7 +268,7 @@ internal fun MemoInputBottomBar(
                         }
 
                         IconButton(onClick = onTakePhoto) {
-                            Icon(Icons.Outlined.PhotoCamera, contentDescription = stringResource(R.string.take_photo))
+                            Icon(Icons.Outlined.PhotoCamera, contentDescription = stringResource(R.string.capture_media))
                         }
 
                         Spacer(modifier = Modifier.size(4.dp))

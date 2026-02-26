@@ -54,7 +54,12 @@
     <string name="close">關閉</string>
     <string name="add_task">新增任務</string>
     <string name="add_image">新增圖片</string>
+    <string name="add_media">新增媒體</string>
     <string name="take_photo">拍照</string>
+    <string name="record_video">錄製影片</string>
+    <string name="capture_media">拍攝媒體</string>
+    <string name="capture_media_title">選擇拍攝方式</string>
+    <string name="unable_to_record_video">無法錄製影片。</string>
     <string name="post">記下</string>
     <string name="any_thoughts">任何想法…</string>
     <string name="input_login_information">請輸入您的 [✍️memos](https://github.com/usememos/memos) 伺服器的登入資訊。</string>

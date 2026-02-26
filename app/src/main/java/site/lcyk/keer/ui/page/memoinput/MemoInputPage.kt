@@ -5,14 +5,18 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
+import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -71,7 +75,9 @@ fun MemoInputPage(
     var visibilityMenuExpanded by remember { mutableStateOf(false) }
     var showTagSelector by remember { mutableStateOf(false) }
     var photoImageUri by remember { mutableStateOf<Uri?>(null) }
+    var videoUri by remember { mutableStateOf<Uri?>(null) }
     var showExitConfirmation by remember { mutableStateOf(false) }
+    var showCaptureOptionDialog by remember { mutableStateOf(false) }
     val normalizedSelectedTags = remember(selectedTags) { normalizeTagList(selectedTags) }
 
     val defaultVisibility = userStateViewModel.currentUser?.defaultVisibility ?: MemoVisibility.PRIVATE
@@ -122,7 +128,7 @@ fun MemoInputPage(
         }
     }
 
-    fun uploadImage(uri: Uri) = coroutineScope.launch {
+    fun uploadResource(uri: Uri) = coroutineScope.launch {
         viewModel.upload(uri, memo?.identifier).suspendOnSuccess {
             delay(300)
             focusRequester.requestFocus()
@@ -132,12 +138,42 @@ fun MemoInputPage(
     }
 
     val pickImage = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
-        uri?.let { uploadImage(it) }
+        uri?.let { uploadResource(it) }
     }
 
     val takePhoto = rememberLauncherForActivityResult(TakePicture()) { success ->
         if (success) {
-            photoImageUri?.let { uploadImage(it) }
+            photoImageUri?.let { uploadResource(it) }
+        }
+    }
+
+    val captureVideo = rememberLauncherForActivityResult(CaptureVideo()) { success ->
+        if (success) {
+            videoUri?.let { uploadResource(it) }
+        }
+    }
+
+    fun launchTakePhoto() {
+        try {
+            val uri = KeerFileProvider.getImageUri(navController.context)
+            photoImageUri = uri
+            takePhoto.launch(uri)
+        } catch (e: ActivityNotFoundException) {
+            coroutineScope.launch {
+                snackbarState.showSnackbar(e.localizedMessage ?: "Unable to take picture.")
+            }
+        }
+    }
+
+    fun launchCaptureVideo() {
+        try {
+            val uri = KeerFileProvider.getVideoUri(navController.context)
+            videoUri = uri
+            captureVideo.launch(uri)
+        } catch (e: ActivityNotFoundException) {
+            coroutineScope.launch {
+                snackbarState.showSnackbar(e.localizedMessage ?: R.string.unable_to_record_video.string)
+            }
         }
     }
 
@@ -187,21 +223,13 @@ fun MemoInputPage(
                     text = toggleTodoItemInText(text)
                 },
                 onPickImage = {
-                    pickImage.launch(PickVisualMediaRequest(PickVisualMedia.ImageOnly))
+                    pickImage.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
                 },
                 onPickAttachment = {
                     pickAttachment.launch(arrayOf("*/*"))
                 },
                 onTakePhoto = {
-                    try {
-                        val uri = KeerFileProvider.getImageUri(navController.context)
-                        photoImageUri = uri
-                        takePhoto.launch(uri)
-                    } catch (e: ActivityNotFoundException) {
-                        coroutineScope.launch {
-                            snackbarState.showSnackbar(e.localizedMessage ?: "Unable to take picture.")
-                        }
-                    }
+                    showCaptureOptionDialog = true
                 },
                 onFormat = { format ->
                     text = applyMarkdownFormatToText(text, format)
@@ -269,6 +297,33 @@ fun MemoInputPage(
         )
     }
 
+    if (showCaptureOptionDialog) {
+        AlertDialog(
+            onDismissRequest = { showCaptureOptionDialog = false },
+            title = { Text(R.string.capture_media_title.string) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCaptureOptionDialog = false
+                        launchTakePhoto()
+                    }
+                ) {
+                    Text(R.string.take_photo.string)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showCaptureOptionDialog = false
+                        launchCaptureVideo()
+                    }
+                ) {
+                    Text(R.string.record_video.string)
+                }
+            }
+        )
+    }
+
     LaunchedEffect(Unit) {
         viewModel.uploadResources.clear()
         viewModel.uploadTasks.clear()
@@ -284,7 +339,7 @@ fun MemoInputPage(
             shareContent != null -> {
                 text = TextFieldValue(shareContent.text, TextRange(shareContent.text.length))
                 for (item in shareContent.images) {
-                    uploadImage(item)
+                    uploadResource(item)
                 }
             }
 
