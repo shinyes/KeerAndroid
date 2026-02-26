@@ -16,6 +16,8 @@ data class Memo(
     override val visibility: MemoVisibility,
     override val resources: List<Resource>,
     override val tags: List<String>,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
     val creator: User? = null,
     override val archived: Boolean = false,
     val updatedAt: Instant? = null,

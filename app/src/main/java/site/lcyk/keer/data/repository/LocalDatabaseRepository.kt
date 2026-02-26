@@ -59,7 +59,9 @@ class LocalDatabaseRepository(
         content: String,
         visibility: MemoVisibility,
         resources: List<ResourceEntity>,
-        tags: List<String>?
+        tags: List<String>?,
+        latitude: Double?,
+        longitude: Double?
     ): ApiResponse<MemoEntity> {
         return try {
             val now = Instant.now()
@@ -71,6 +73,8 @@ class LocalDatabaseRepository(
                 visibility = visibility,
                 pinned = false,
                 archived = false,
+                latitude = latitude,
+                longitude = longitude,
                 needsSync = false,
                 isDeleted = false,
                 lastModified = now,

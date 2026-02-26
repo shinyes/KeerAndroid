@@ -25,7 +25,9 @@ abstract class RemoteRepository {
         visibility: MemoVisibility,
         resourceRemoteIds: List<String>,
         tags: List<String>? = null,
-        createdAt: Instant? = null
+        createdAt: Instant? = null,
+        latitude: Double? = null,
+        longitude: Double? = null
     ): ApiResponse<Memo>
 
     abstract suspend fun updateMemo(

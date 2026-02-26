@@ -90,6 +90,8 @@ class KeerV2Repository(
             visibility = memo.visibility?.toMemoVisibility() ?: MemoVisibility.PRIVATE,
             resources = memo.attachments?.map { convertResource(it) } ?: emptyList(),
             tags = memo.tags ?: emptyList(),
+            latitude = memo.latitude,
+            longitude = memo.longitude,
             archived = memo.state == KeerV2State.ARCHIVED,
             updatedAt = memo.updateTime
         )
@@ -165,7 +167,9 @@ class KeerV2Repository(
         visibility: MemoVisibility,
         resourceRemoteIds: List<String>,
         tags: List<String>?,
-        createdAt: Instant?
+        createdAt: Instant?,
+        latitude: Double?,
+        longitude: Double?
     ): ApiResponse<Memo> {
         val resp = memosApi.createMemo(
             KeerV2CreateMemoRequest(
@@ -173,6 +177,8 @@ class KeerV2Repository(
                 visibility = MemosVisibility.fromMemoVisibility(visibility),
                 attachments = resourceRemoteIds.map { KeerV2Resource(name = getName(it)) },
                 tags = tags,
+                latitude = latitude,
+                longitude = longitude,
                 createTime = createdAt
             )
         )

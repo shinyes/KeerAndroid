@@ -25,6 +25,8 @@ data class MemoEntity(
     override val visibility: MemoVisibility,
     override val pinned: Boolean,
     override val archived: Boolean = false,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
     val needsSync: Boolean = true,
     val isDeleted: Boolean = false,
     val lastModified: Instant = Instant.now(),

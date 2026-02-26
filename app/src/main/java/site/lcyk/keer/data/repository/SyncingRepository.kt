@@ -108,7 +108,9 @@ class SyncingRepository(
         content: String,
         visibility: MemoVisibility,
         resources: List<ResourceEntity>,
-        tags: List<String>?
+        tags: List<String>?,
+        latitude: Double?,
+        longitude: Double?
     ): ApiResponse<MemoEntity> {
         return try {
             val now = Instant.now()
@@ -121,6 +123,8 @@ class SyncingRepository(
                 visibility = visibility,
                 pinned = false,
                 archived = false,
+                latitude = latitude,
+                longitude = longitude,
                 needsSync = true,
                 isDeleted = false,
                 lastModified = now,
@@ -770,7 +774,9 @@ class SyncingRepository(
                 visibility = local.visibility,
                 resourceRemoteIds = remoteResourceIds,
                 tags = localTags,
-                createdAt = local.date
+                createdAt = local.date,
+                latitude = local.latitude,
+                longitude = local.longitude
             )
             if (created !is ApiResponse.Success) {
                 return false
@@ -966,6 +972,8 @@ class SyncingRepository(
                 visibility = remoteMemo.visibility,
                 pinned = remoteMemo.pinned,
                 archived = remoteMemo.archived,
+                latitude = remoteMemo.latitude ?: current?.latitude,
+                longitude = remoteMemo.longitude ?: current?.longitude,
                 needsSync = false,
                 isDeleted = false,
                 lastModified = remoteUpdatedAt,

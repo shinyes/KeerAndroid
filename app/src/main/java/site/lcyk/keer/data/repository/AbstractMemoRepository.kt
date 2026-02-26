@@ -20,7 +20,14 @@ abstract class AbstractMemoRepository {
 
     abstract suspend fun listMemos(): ApiResponse<List<MemoEntity>>
     abstract suspend fun listArchivedMemos(): ApiResponse<List<MemoEntity>>
-    abstract suspend fun createMemo(content: String, visibility: MemoVisibility, resources: List<ResourceEntity>, tags: List<String>? = null): ApiResponse<MemoEntity>
+    abstract suspend fun createMemo(
+        content: String,
+        visibility: MemoVisibility,
+        resources: List<ResourceEntity>,
+        tags: List<String>? = null,
+        latitude: Double? = null,
+        longitude: Double? = null
+    ): ApiResponse<MemoEntity>
     abstract suspend fun updateMemo(identifier: String, content: String? = null, resources: List<ResourceEntity>? = null, visibility: MemoVisibility? = null, tags: List<String>? = null, pinned: Boolean? = null): ApiResponse<MemoEntity>
     abstract suspend fun deleteMemo(identifier: String): ApiResponse<Unit>
     abstract suspend fun archiveMemo(identifier: String): ApiResponse<Unit>

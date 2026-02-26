@@ -54,8 +54,21 @@ class MemoInputViewModel @Inject constructor(
     var uploadResources = mutableStateListOf<ResourceEntity>()
     var uploadTasks = mutableStateListOf<UploadTaskState>()
 
-    suspend fun createMemo(content: String, visibility: MemoVisibility, tags: List<String>): ApiResponse<MemoEntity> = withContext(viewModelScope.coroutineContext) {
-        val response = memoService.getRepository().createMemo(content, visibility, uploadResources, tags)
+    suspend fun createMemo(
+        content: String,
+        visibility: MemoVisibility,
+        tags: List<String>,
+        latitude: Double? = null,
+        longitude: Double? = null
+    ): ApiResponse<MemoEntity> = withContext(viewModelScope.coroutineContext) {
+        val response = memoService.getRepository().createMemo(
+            content = content,
+            visibility = visibility,
+            resources = uploadResources,
+            tags = tags,
+            latitude = latitude,
+            longitude = longitude
+        )
         response.suspendOnSuccess {
             WidgetUpdater.updateWidgets(getApplication())
         }

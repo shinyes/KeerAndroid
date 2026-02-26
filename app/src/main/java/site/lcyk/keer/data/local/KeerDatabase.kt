@@ -15,7 +15,7 @@ import site.lcyk.keer.data.local.entity.TagEntity
 
 @Database(
     entities = [MemoEntity::class, ResourceEntity::class, TagEntity::class, MemoTagCrossRef::class],
-    version = 4
+    version = 5
 )
 @TypeConverters(Converters::class)
 abstract class KeerDatabase : RoomDatabase() {
@@ -35,6 +35,7 @@ abstract class KeerDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_1_2)
                     .addMigrations(MIGRATION_2_3)
                     .addMigrations(MIGRATION_3_4)
+                    .addMigrations(MIGRATION_4_5)
                     .build()
                 INSTANCE = instance
                 instance
@@ -84,6 +85,13 @@ abstract class KeerDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_memo_tags_memoId ON memo_tags(memoId)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_memo_tags_accountKey ON memo_tags(accountKey)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_memo_tags_accountKey_tagName ON memo_tags(accountKey, tagName)")
+            }
+        }
+
+        private val MIGRATION_4_5: Migration = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE memos ADD COLUMN latitude REAL")
+                db.execSQL("ALTER TABLE memos ADD COLUMN longitude REAL")
             }
         }
     }

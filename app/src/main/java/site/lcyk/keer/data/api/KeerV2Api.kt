@@ -84,6 +84,8 @@ data class KeerV2CreateMemoRequest(
     val visibility: MemosVisibility?,
     val attachments: List<KeerV2Resource>?,
     val tags: List<String>? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
     @Serializable(with = Rfc3339InstantSerializer::class)
     val createTime: Instant? = null
 )
@@ -133,6 +135,8 @@ data class KeerV2Memo(
     val content: String? = null,
     val visibility: MemosVisibility? = null,
     val pinned: Boolean? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
     val attachments: List<KeerV2Resource>? = null,
     val tags: List<String>? = null
 )
