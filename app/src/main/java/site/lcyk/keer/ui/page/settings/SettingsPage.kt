@@ -76,7 +76,7 @@ fun SettingsPage(
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             LargeTopAppBar(
-                title = { Text(text = R.string.settings.string) },
+                title = { Text(text = R.string.config.string) },
                 navigationIcon = {
                     IconButton(onClick = {
                         navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)

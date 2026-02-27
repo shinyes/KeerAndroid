@@ -2,6 +2,7 @@ package site.lcyk.keer.data.service
 
 import android.content.Context
 import android.net.Uri
+import android.util.Base64
 import android.webkit.MimeTypeMap
 import androidx.core.net.toUri
 import com.skydoves.sandwich.ApiResponse
@@ -18,9 +19,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import site.lcyk.keer.R
 import site.lcyk.keer.data.api.KeerV2Api
+import site.lcyk.keer.data.api.UpdateUserAvatarUpload
+import site.lcyk.keer.data.api.UpdateUserBody
+import site.lcyk.keer.data.api.UpdateUserRequest
 import site.lcyk.keer.data.local.FileStorage
 import site.lcyk.keer.data.local.KeerDatabase
 import site.lcyk.keer.data.local.entity.ResourceEntity
@@ -386,6 +391,104 @@ class AccountService @Inject constructor(
         mutex.withLock {
             return remoteRepository
         }
+    }
+
+    suspend fun uploadCurrentUserAvatar(uri: Uri): ApiResponse<Unit> = withContext(Dispatchers.IO) {
+        val account = currentAccount.first()
+        if (account !is Account.KeerV2) {
+            return@withContext ApiResponse.exception(IllegalStateException("Current account does not support avatar sync"))
+        }
+
+        val thumbnailUri = fileStorage.saveImageThumbnailFromUri(
+            accountKey = account.accountKey(),
+            sourceUri = uri,
+            filename = "avatar_${account.info.id}.jpg",
+            maxEdge = 320,
+            quality = 82
+        ) ?: return@withContext ApiResponse.exception(IllegalStateException("Cannot generate avatar thumbnail"))
+        val thumbnailFile = thumbnailUri.path?.let(::File)
+            ?: return@withContext ApiResponse.exception(IllegalStateException("Cannot resolve avatar thumbnail file"))
+        val thumbnailBytes = runCatching { thumbnailFile.readBytes() }
+            .getOrNull()
+            ?: return@withContext ApiResponse.exception(IllegalStateException("Cannot read avatar thumbnail"))
+        if (thumbnailBytes.isEmpty()) {
+            return@withContext ApiResponse.exception(IllegalStateException("Avatar thumbnail is empty"))
+        }
+        if (thumbnailBytes.size > 1024 * 1024) {
+            fileStorage.deleteFile(thumbnailUri)
+            return@withContext ApiResponse.exception(IllegalStateException("Avatar thumbnail is too large"))
+        }
+        val thumbnailContent = Base64.encodeToString(thumbnailBytes, Base64.NO_WRAP)
+        fileStorage.deleteFile(thumbnailUri)
+
+        val api = createKeerV2Client(account.info.host, account.info.accessToken).second
+        val response = api.updateUser(
+            account.info.id.toString(),
+            UpdateUserRequest(
+                user = UpdateUserBody(
+                    avatar = UpdateUserAvatarUpload(
+                        content = thumbnailContent,
+                        type = "image/jpeg"
+                    )
+                )
+            )
+        )
+        if (response !is ApiResponse.Success) {
+            return@withContext ApiResponse.exception(
+                IllegalStateException("upload avatar failed: $response")
+            )
+        }
+
+        val updatedUser = response.data
+        mutex.withLock {
+            context.settingsDataStore.updateData { settings ->
+                val users = settings.usersList.toMutableList()
+                val index = users.indexOfFirst { it.accountKey == account.accountKey() }
+                if (index == -1) {
+                    return@updateData settings
+                }
+                val existing = users[index]
+                val parsed = parseAccountWithSecureToken(existing) as? Account.KeerV2 ?: return@updateData settings
+                val updated = parsed.info.copy(avatarUrl = updatedUser.avatarUrl.orEmpty())
+                users[index] = Account.KeerV2(updated).toPersistedUserData(existing.settings)
+                settings.copy(usersList = users)
+            }
+        }
+        return@withContext ApiResponse.Success(Unit)
+    }
+
+    suspend fun setCurrentUserAvatarUrl(avatarUrl: String): ApiResponse<Unit> = withContext(Dispatchers.IO) {
+        val account = currentAccount.first()
+        if (account !is Account.KeerV2) {
+            return@withContext ApiResponse.exception(IllegalStateException("Current account does not support avatar sync"))
+        }
+        val api = createKeerV2Client(account.info.host, account.info.accessToken).second
+        val response = api.updateUser(
+            account.info.id.toString(),
+            UpdateUserRequest(user = UpdateUserBody(avatarUrl = avatarUrl))
+        )
+        if (response !is ApiResponse.Success) {
+            return@withContext ApiResponse.exception(
+                IllegalStateException("update avatar failed: $response")
+            )
+        }
+
+        val updatedUser = response.data
+        mutex.withLock {
+            context.settingsDataStore.updateData { settings ->
+                val users = settings.usersList.toMutableList()
+                val index = users.indexOfFirst { it.accountKey == account.accountKey() }
+                if (index == -1) {
+                    return@updateData settings
+                }
+                val existing = users[index]
+                val parsed = parseAccountWithSecureToken(existing) as? Account.KeerV2 ?: return@updateData settings
+                val updated = parsed.info.copy(avatarUrl = updatedUser.avatarUrl.orEmpty())
+                users[index] = Account.KeerV2(updated).toPersistedUserData(existing.settings)
+                settings.copy(usersList = users)
+            }
+        }
+        return@withContext ApiResponse.Success(Unit)
     }
 
     private suspend fun detectKeerAPIVersion(host: String): String? {

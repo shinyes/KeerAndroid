@@ -13,6 +13,7 @@
     <string name="image">Image</string>
     <string name="other">Other</string>
     <string name="archived">Archived</string>
+    <string name="config">Config</string>
     <string name="settings">Settings</string>
     <string name="tags">Tags</string>
     <string name="memo">Memo</string>
@@ -122,6 +123,10 @@
     <string name="edit_gesture_single">Single tap</string>
     <string name="edit_gesture_double">Double tap</string>
     <string name="edit_gesture_long">Long tap</string>
+    <string name="avatar">Avatar</string>
+    <string name="avatar_hint">Avatar is stored locally and can be changed anytime.</string>
+    <string name="set_avatar">Set avatar</string>
+    <string name="clear_avatar">Clear avatar</string>
     <string name="failed_to_open_attachment">Failed to open attachment</string>
     <string name="upload_preparing">Preparing attachment…</string>
     <string name="uploading">Saving attachment…</string>

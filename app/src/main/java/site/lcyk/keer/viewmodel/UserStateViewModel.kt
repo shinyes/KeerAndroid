@@ -1,5 +1,6 @@
 package site.lcyk.keer.viewmodel
 
+import android.net.Uri
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -134,6 +135,22 @@ class UserStateViewModel @Inject constructor(
         } catch (e: Throwable) {
             ApiResponse.exception(e)
         }
+    }
+
+    suspend fun uploadCurrentUserAvatar(uri: Uri): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+        val response = accountService.uploadCurrentUserAvatar(uri)
+        if (response is ApiResponse.Success) {
+            loadCurrentUser()
+        }
+        response
+    }
+
+    suspend fun clearCurrentUserAvatar(): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+        val response = accountService.setCurrentUserAvatarUrl("")
+        if (response is ApiResponse.Success) {
+            loadCurrentUser()
+        }
+        response
     }
 
     private fun getAccount(host: String, accessToken: String, user: KeerV2User): Account = Account.KeerV2(

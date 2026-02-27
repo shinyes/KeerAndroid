@@ -19,6 +19,7 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -256,6 +257,22 @@ fun SideDrawer(
                         onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
                         rootNavController.navigate(RouteName.SETTINGS)
+                    }
+                },
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+        }
+        item {
+            NavigationDrawerItem(
+                label = { Text(R.string.config.string) },
+                icon = { Icon(Icons.Outlined.Tune, contentDescription = null) },
+                selected = false,
+                onClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    scope.launch {
+                        onDrawerItemCloseRequested?.invoke()
+                        drawerState?.close()
+                        rootNavController.navigate(RouteName.CONFIG)
                     }
                 },
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)

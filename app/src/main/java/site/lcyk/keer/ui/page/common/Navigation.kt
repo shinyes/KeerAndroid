@@ -36,6 +36,7 @@ import site.lcyk.keer.ui.page.memos.MemosPage
 import site.lcyk.keer.ui.page.memos.SearchPage
 import site.lcyk.keer.ui.page.memos.TagMemoPage
 import site.lcyk.keer.ui.page.resource.ResourceListPage
+import site.lcyk.keer.ui.page.settings.AvatarSettingsPage
 import site.lcyk.keer.ui.page.settings.DebugLogPage
 import site.lcyk.keer.ui.page.settings.SettingsPage
 import site.lcyk.keer.ui.theme.KeerTheme
@@ -67,8 +68,12 @@ fun Navigation() {
                     MemosPage()
                 }
 
-                composable(RouteName.SETTINGS) {
+                composable(RouteName.CONFIG) {
                     SettingsPage(navController = navController)
+                }
+
+                composable(RouteName.SETTINGS) {
+                    AvatarSettingsPage(navController = navController)
                 }
 
                 composable(RouteName.DEBUG_LOGS) {

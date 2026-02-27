@@ -14,7 +14,8 @@
     <string name="image">图片</string>
     <string name="other">其他</string>
     <string name="archived">归档</string>
-    <string name="settings">设置</string>
+    <string name="config">配置页</string>
+    <string name="settings">设置页</string>
     <string name="tags">标签</string>
     <string name="memo">灵感</string>
     <string name="tag">标签</string>
@@ -123,6 +124,10 @@
     <string name="edit_gesture_single">单击</string>
     <string name="edit_gesture_double">双击</string>
     <string name="edit_gesture_long">长按</string>
+    <string name="avatar">头像</string>
+    <string name="avatar_hint">头像保存在本地，可随时修改。</string>
+    <string name="set_avatar">设置头像</string>
+    <string name="clear_avatar">清除头像</string>
     <string name="failed_to_open_attachment">无法打开附件</string>
     <string name="upload_preparing">正在准备附件…</string>
     <string name="uploading">正在保存附件…</string>

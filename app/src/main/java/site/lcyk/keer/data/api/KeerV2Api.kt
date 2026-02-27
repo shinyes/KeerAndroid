@@ -53,6 +53,9 @@ interface KeerV2Api {
     @GET("api/v1/users/{id}")
     suspend fun getUser(@Path("id") userId: String): ApiResponse<KeerV2User>
 
+    @PATCH("api/v1/users/{id}")
+    suspend fun updateUser(@Path("id") userId: String, @Body body: UpdateUserRequest): ApiResponse<KeerV2User>
+
     @GET("api/v1/users/{id}:getStats")
     suspend fun getUserStats(@Path("id") userId: String): ApiResponse<KeerV2Stats>
 }
@@ -88,6 +91,23 @@ data class KeerV2CreateMemoRequest(
     val longitude: Double? = null,
     @Serializable(with = Rfc3339InstantSerializer::class)
     val createTime: Instant? = null
+)
+
+@Serializable
+data class UpdateUserRequest(
+    val user: UpdateUserBody
+)
+
+@Serializable
+data class UpdateUserBody(
+    val avatarUrl: String? = null,
+    val avatar: UpdateUserAvatarUpload? = null
+)
+
+@Serializable
+data class UpdateUserAvatarUpload(
+    val content: String,
+    val type: String? = null
 )
 
 @Serializable

@@ -2,6 +2,7 @@ package site.lcyk.keer.ui.page.common
 
 object RouteName {
     const val MEMOS = "memos"
+    const val CONFIG = "config"
     const val SETTINGS = "settings"
     const val ADD_ACCOUNT = "add-account"
     const val LOGIN = "login"
