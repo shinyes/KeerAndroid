@@ -8,12 +8,20 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.skydoves.sandwich.ApiResponse
+import com.skydoves.sandwich.getOrNull
 import com.skydoves.sandwich.mapSuccess
 import com.skydoves.sandwich.suspendOnSuccess
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -21,19 +29,24 @@ import site.lcyk.keer.R
 import site.lcyk.keer.data.api.KeerV2User
 import site.lcyk.keer.data.constant.KeerException
 import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.data.model.CollaboratorProfile
 import site.lcyk.keer.data.model.LocalAccount
 import site.lcyk.keer.data.model.MemosAccount
 import site.lcyk.keer.data.model.User
 import site.lcyk.keer.data.service.AccountService
+import site.lcyk.keer.data.service.OfflineSyncTask
+import site.lcyk.keer.data.service.OfflineSyncTaskScheduler
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.suspendOnNotLogin
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import java.time.Instant
 import javax.inject.Inject
 
 @HiltViewModel
 class UserStateViewModel @Inject constructor(
-    private val accountService: AccountService
+    private val accountService: AccountService,
+    private val offlineSyncTaskScheduler: OfflineSyncTaskScheduler
 ) : ViewModel() {
 
     var currentUser: User? by mutableStateOf(null)
@@ -42,6 +55,9 @@ class UserStateViewModel @Inject constructor(
     var host: String = ""
         private set
     val okHttpClient: OkHttpClient get() = accountService.httpClient
+    private val collaboratorAvatarMutex = Mutex()
+    private val _collaboratorProfiles = MutableStateFlow<Map<String, CollaboratorProfile>>(emptyMap())
+    val collaboratorProfiles: StateFlow<Map<String, CollaboratorProfile>> = _collaboratorProfiles.asStateFlow()
     val accounts = accountService.accounts.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
     val currentAccount = accountService.currentAccount.stateIn(viewModelScope, SharingStarted.Lazily, null)
 
@@ -52,6 +68,7 @@ class UserStateViewModel @Inject constructor(
                     is Account.KeerV2 -> it.info.host
                     else -> ""
                 }
+                _collaboratorProfiles.value = emptyMap()
             }
         }
     }
@@ -59,6 +76,7 @@ class UserStateViewModel @Inject constructor(
     suspend fun loadCurrentUser(): ApiResponse<User> = withContext(viewModelScope.coroutineContext) {
         accountService.getRepository().getCurrentUser().suspendOnSuccess {
             currentUser = data
+            offlineSyncTaskScheduler.dispatch(OfflineSyncTask.AVATAR)
         }.suspendOnNotLogin {
             currentUser = null
         }
@@ -140,17 +158,72 @@ class UserStateViewModel @Inject constructor(
     suspend fun uploadCurrentUserAvatar(uri: Uri): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
         val response = accountService.uploadCurrentUserAvatar(uri)
         if (response is ApiResponse.Success) {
-            loadCurrentUser()
+            offlineSyncTaskScheduler.dispatch(OfflineSyncTask.AVATAR)
         }
+        loadCurrentUser()
         response
     }
 
-    suspend fun clearCurrentUserAvatar(): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
-        val response = accountService.setCurrentUserAvatarUrl("")
-        if (response is ApiResponse.Success) {
-            loadCurrentUser()
+    suspend fun prefetchCollaboratorAvatars(userIds: List<String>) = withContext(viewModelScope.coroutineContext) {
+        val account = currentAccount.first() as? Account.KeerV2 ?: return@withContext
+        val normalizedIds = userIds
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .map { it.substringAfterLast('/') }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .toList()
+        if (normalizedIds.isEmpty()) {
+            return@withContext
         }
-        response
+
+        val missingIds = collaboratorAvatarMutex.withLock {
+            normalizedIds.filterNot { _collaboratorProfiles.value.containsKey(it) }
+        }
+        if (missingIds.isEmpty()) {
+            return@withContext
+        }
+
+        val api = accountService.createKeerV2Client(account.info.host, account.info.accessToken).second
+        val fetched = kotlinx.coroutines.coroutineScope {
+            missingIds.map { userId ->
+                async {
+                    if (userId == account.info.id.toString()) {
+                        val current = currentUser
+                        userId to CollaboratorProfile(
+                            id = userId,
+                            name = current?.name?.takeIf { it.isNotBlank() }
+                                ?: account.info.name.ifBlank { userId },
+                            avatarUrl = resolveAvatarUrl(
+                                account.info.host,
+                                current?.avatarUrl.orEmpty().ifBlank { account.info.avatarUrl }
+                            )
+                        )
+                    } else {
+                        val user = api.getUser(userId).getOrNull()
+                        userId to CollaboratorProfile(
+                            id = userId,
+                            name = user?.displayName?.takeIf { it.isNotBlank() }
+                                ?: user?.username?.takeIf { it.isNotBlank() }
+                                ?: userId,
+                            avatarUrl = resolveAvatarUrl(account.info.host, user?.avatarUrl.orEmpty())
+                        )
+                    }
+                }
+            }.awaitAll()
+        }.toMap()
+
+        collaboratorAvatarMutex.withLock {
+            val merged = _collaboratorProfiles.value.toMutableMap()
+            missingIds.forEach { userId ->
+                val profile = fetched[userId]
+                if (profile != null) {
+                    merged[userId] = profile
+                }
+            }
+            _collaboratorProfiles.value = merged
+        }
     }
 
     private fun getAccount(host: String, accessToken: String, user: KeerV2User): Account = Account.KeerV2(
@@ -163,6 +236,19 @@ class UserStateViewModel @Inject constructor(
             startDateEpochSecond = user.createTime?.epochSecond ?: 0L,
         )
     )
+
+    private fun resolveAvatarUrl(host: String, avatarUrl: String): String? {
+        if (avatarUrl.isBlank()) {
+            return null
+        }
+        if (avatarUrl.toHttpUrlOrNull() != null || "://" in avatarUrl) {
+            return avatarUrl
+        }
+        val baseUrl = host.toHttpUrlOrNull() ?: return avatarUrl
+        return runCatching {
+            baseUrl.toUrl().toURI().resolve(avatarUrl).toString()
+        }.getOrDefault(avatarUrl)
+    }
 }
 
 sealed class LoginCompatibility {

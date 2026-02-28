@@ -31,7 +31,9 @@ import kotlinx.coroutines.launch
 import site.lcyk.keer.ui.component.SideDrawer
 
 @Composable
-fun MemosPage() {
+fun MemosPage(
+    startDestination: String = site.lcyk.keer.ui.page.common.RouteName.MEMOS
+) {
     val windowSizeClass = currentWindowAdaptiveInfo().windowSizeClass
     val isExpanded = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND)
     val drawerState = rememberDrawerState(DrawerValue.Closed)
@@ -91,7 +93,8 @@ fun MemosPage() {
             }
         ) {
             MemosNavigation(
-                navController = memosNavController
+                navController = memosNavController,
+                startDestination = startDestination
             )
         }
     } else {
@@ -114,7 +117,8 @@ fun MemosPage() {
                 navController = memosNavController,
                 onMenuButtonOpenRequested = {
                     suppressNextOpenHaptic = true
-                }
+                },
+                startDestination = startDestination
             )
         }
     }

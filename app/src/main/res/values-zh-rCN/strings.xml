@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">keer</string>
     <string name="default_card_content" translatable="false">It is what you do with the gift of life that determines who you are.      — Mewtwo</string>
@@ -14,8 +14,8 @@
     <string name="image">图片</string>
     <string name="other">其他</string>
     <string name="archived">归档</string>
-    <string name="config">配置页</string>
-    <string name="settings">设置页</string>
+    <string name="config">配置</string>
+    <string name="settings">管理</string>
     <string name="tags">标签</string>
     <string name="memo">灵感</string>
     <string name="tag">标签</string>
@@ -102,6 +102,38 @@
     <string name="memo_visibility_protected">本地用户可见</string>
     <string name="memo_visibility_private">仅自己可见</string>
     <string name="explore">发现</string>
+    <string name="group_management">群组管理</string>
+    <string name="join_group">加入群组</string>
+    <string name="create_group">创建群组</string>
+    <string name="edit_group">编辑群组</string>
+    <string name="delete_group">删除群组</string>
+    <string name="leave_group">退出群组</string>
+    <string name="group_chat">群聊</string>
+    <string name="group_all">全部群组</string>`r`n    <string name="select_group">选择群组</string>
+    <string name="group_name">群组名称</string>
+    <string name="group_description">群组简介</string>
+    <string name="group_error_name_required">群组名称不能为空</string>
+    <string name="group_error_id_required">群组 ID 不能为空</string>
+    <string name="group_error_invalid_update_request">群组更新请求无效</string>
+    <string name="group_error_account_not_support_group_memos">当前账号不支持群组 memo</string>
+    <string name="group_id">群组 ID</string>
+    <string name="group_creator_id">发起人 ID</string>
+    <string name="group_creator_name">发起人名称</string>
+    <string name="group_creator_label">发起人</string>
+    <string name="group_members_count">成员：%1$d</string>
+    <string name="group_not_found">未找到群组</string>
+    <string name="group_message_hint">输入群组 memo...</string>
+    <string name="open_group_chat">当前群组：%1$s</string>
+    <string name="unknown_user">未知用户</string>
+    <string name="created_group_memos">我创建的群组 memo</string>
+    <string name="co_created_memos">我参与共创的 memo</string>
+    <string name="collaborators">共创人</string>
+    <string name="collaborator_id">共创人 ID</string>
+    <string name="add_collaborator">添加共创人</string>
+    <string name="no_groups_joined">你还没有加入任何群组，先创建或加入一个群组。</string>
+    <string name="delete_group_confirm">仅群组发起人可删除，删除后不可恢复。</string>
+    <string name="leave_group_confirm">确认退出该群组吗？</string>
+    <string name="create">创建</string>
     <string name="delete_this_tag">删除这个标签？</string>
     <string name="expand">展开</string>
     <string name="collapse">收起</string>

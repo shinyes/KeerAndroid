@@ -17,6 +17,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,7 +32,9 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import site.lcyk.keer.R
 import site.lcyk.keer.data.api.MemosProfile
 import site.lcyk.keer.data.model.MemosAccount
+import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ui.component.MemosIcon
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -47,9 +51,20 @@ fun MemosAccountPage(
     onSignOut: () -> Unit
 ) {
     val context = LocalContext.current
+    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
     val accountHost = account.host.toHttpUrlOrNull()?.host.orEmpty()
     val accountName = account.name.ifBlank { accountHost }
-    val accountAvatarUrl = resolveAvatarUrl(account.host, account.avatarUrl)
+    val accountKey = "memos:${account.host}:${account.id}"
+    val localAvatarUri = settings.usersList
+        .firstOrNull { user -> user.accountKey == accountKey }
+        ?.settings
+        ?.avatarUri
+        .orEmpty()
+    val accountAvatarUrl = if (localAvatarUri.isNotBlank()) {
+        localAvatarUri
+    } else {
+        resolveAvatarUrl(account.host, account.avatarUrl)
+    }
     val imageLoader = remember(context, okHttpClient) {
         ImageLoader.Builder(context)
             .components {

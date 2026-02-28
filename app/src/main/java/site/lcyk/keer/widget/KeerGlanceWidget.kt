@@ -43,7 +43,6 @@ import kotlinx.coroutines.withContext
 import site.lcyk.keer.MainActivity
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
-import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.service.MemoService
 import java.time.Instant
 
@@ -226,15 +225,6 @@ class KeerGlanceWidget : GlanceAppWidget() {
                             fontSize = 12.sp
                         )
                     )
-                    
-                    if (memo.visibility != MemoVisibility.PUBLIC){
-                        Spacer(modifier = GlanceModifier.width(4.dp))
-                        Image(
-                            provider = ImageProvider(android.R.drawable.ic_lock_lock),
-                            contentDescription = "Private",
-                            modifier = GlanceModifier.size(14.dp)
-                        )
-                    }
                     
                     // Pinned indicator
                     if (memo.pinned) {

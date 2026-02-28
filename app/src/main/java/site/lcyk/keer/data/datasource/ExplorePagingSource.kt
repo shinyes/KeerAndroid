@@ -10,7 +10,8 @@ import site.lcyk.keer.data.repository.RemoteRepository
 const val EXPLORE_PAGE_SIZE = 20
 
 class ExplorePagingSource(
-    private val remoteRepository: RemoteRepository
+    private val remoteRepository: RemoteRepository,
+    private val filter: String? = null
 ) : PagingSource<String, Memo>() {
 
     override fun getRefreshKey(state: PagingState<String, Memo>): String? {
@@ -18,7 +19,7 @@ class ExplorePagingSource(
     }
 
     override suspend fun load(params: LoadParams<String>): LoadResult<String, Memo> {
-        val response = remoteRepository.listWorkspaceMemos(EXPLORE_PAGE_SIZE, params.key)
+        val response = remoteRepository.listWorkspaceMemos(EXPLORE_PAGE_SIZE, params.key, filter)
 
         return try {
             response.mapSuccess {

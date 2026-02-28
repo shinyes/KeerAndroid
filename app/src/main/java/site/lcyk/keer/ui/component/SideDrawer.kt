@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Inventory2
@@ -46,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -56,7 +58,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.getErrorMessage
+import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.RouteName
@@ -78,6 +82,7 @@ fun SideDrawer(
     drawerState: DrawerState? = null,
     onDrawerItemCloseRequested: (() -> Unit)? = null
 ) {
+    val context = LocalContext.current
     val weekDays = remember {
         val day = WeekFields.of(Locale.getDefault()).firstDayOfWeek
         List(DayOfWeek.entries.size) { index ->
@@ -92,6 +97,12 @@ fun SideDrawer(
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val hasExplore = currentAccount !is Account.Local
+    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
+    val currentUserSettings = settings.usersList
+        .firstOrNull { it.accountKey == settings.currentUser }
+        ?.settings
+    val joinedGroups = currentUserSettings?.groups.orEmpty()
+    val groupIdAliases = currentUserSettings?.groupIdAliases.orEmpty()
     val rootNavController = LocalRootNavController.current
     val navBackStackEntry by memosNavController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -114,6 +125,17 @@ fun SideDrawer(
             ?.getString("tag")
             ?.let(Uri::decode)
             ?.let(::normalizeTagName)
+    }
+    val currentSelectedGroupId = remember(navBackStackEntry, groupIdAliases) {
+        val selected = navBackStackEntry
+            ?.arguments
+            ?.getString("groupId")
+            ?.let(Uri::decode)
+        if (selected.isNullOrBlank()) {
+            null
+        } else {
+            groupIdAliases.firstOrNull { it.localId == selected }?.remoteId ?: selected
+        }
     }
     val visibleTagEntries = flattenTagTree(tagTree, expandedTagNodes)
 
@@ -209,6 +231,28 @@ fun SideDrawer(
                     },
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
+            }
+            joinedGroups.forEach { group ->
+                item("drawer_group_${group.id}") {
+                    NavigationDrawerItem(
+                        label = { Text(group.name) },
+                        icon = { Icon(Icons.Outlined.Group, contentDescription = null) },
+                        selected = isSelected("${RouteName.GROUP_CHAT}?groupId={groupId}") &&
+                                currentSelectedGroupId == group.id,
+                        onClick = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            scope.launch {
+                                memosNavController.navigate("${RouteName.GROUP_CHAT}?groupId=${Uri.encode(group.id)}") {
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                                onDrawerItemCloseRequested?.invoke()
+                                drawerState?.close()
+                            }
+                        },
+                        modifier = Modifier.padding(start = 30.dp, end = 8.dp)
+                    )
+                }
             }
         }
         item {

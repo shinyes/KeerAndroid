@@ -20,8 +20,10 @@ import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.service.MemoService
+import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.settingsDataStore
+import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.widget.WidgetUpdater
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import java.util.UUID
@@ -61,24 +63,34 @@ class MemoInputViewModel @Inject constructor(
         latitude: Double? = null,
         longitude: Double? = null
     ): ApiResponse<MemoEntity> = withContext(viewModelScope.coroutineContext) {
+        val resolvedTags = normalizeTagList(tags)
         val response = memoService.getRepository().createMemo(
             content = content,
             visibility = visibility,
             resources = uploadResources,
-            tags = tags,
+            tags = resolvedTags,
             latitude = latitude,
             longitude = longitude
         )
         response.suspendOnSuccess {
             WidgetUpdater.updateWidgets(getApplication())
+            memoService.requestSync(trigger = SyncTrigger.MUTATION, force = false)
         }
         response
     }
 
     suspend fun editMemo(identifier: String, content: String, visibility: MemoVisibility, tags: List<String>): ApiResponse<MemoEntity> = withContext(viewModelScope.coroutineContext) {
-        val response = memoService.getRepository().updateMemo(identifier, content, uploadResources, visibility, tags)
+        val resolvedTags = normalizeTagList(tags)
+        val response = memoService.getRepository().updateMemo(
+            identifier,
+            content,
+            uploadResources,
+            visibility,
+            resolvedTags
+        )
         response.suspendOnSuccess {
             WidgetUpdater.updateWidgets(getApplication())
+            memoService.requestSync(trigger = SyncTrigger.MUTATION, force = false)
         }
         response
     }

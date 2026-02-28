@@ -10,6 +10,9 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.ui.page.group.GroupChatPage
+import site.lcyk.keer.ui.page.group.GroupManagementPage
+import site.lcyk.keer.ui.page.group.GroupMemoInputPage
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.viewmodel.LocalUserState
 
@@ -17,7 +20,8 @@ import site.lcyk.keer.viewmodel.LocalUserState
 fun MemosNavigation(
     drawerState: DrawerState? = null,
     navController: NavHostController,
-    onMenuButtonOpenRequested: (() -> Unit)? = null
+    onMenuButtonOpenRequested: (() -> Unit)? = null,
+    startDestination: String = RouteName.MEMOS
 ) {
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
@@ -25,7 +29,7 @@ fun MemosNavigation(
 
     NavHost(
         navController = navController,
-        startDestination = RouteName.MEMOS
+        startDestination = startDestination
     ) {
         composable(
             RouteName.MEMOS,
@@ -79,6 +83,33 @@ fun MemosNavigation(
 
         composable(RouteName.SEARCH) {
             SearchPage(navController = navController)
+        }
+
+        composable(RouteName.GROUP_MANAGEMENT) {
+            GroupManagementPage(
+                drawerState = drawerState,
+                navController = navController,
+                onMenuButtonOpenRequested = onMenuButtonOpenRequested
+            )
+        }
+
+        composable("${RouteName.GROUP_CHAT}?groupId={groupId}") { entry ->
+            val groupId = entry.arguments?.getString("groupId")?.let(Uri::decode)
+            if (!groupId.isNullOrBlank()) {
+                GroupChatPage(
+                    drawerState = drawerState,
+                    navController = navController,
+                    groupId = groupId,
+                    onMenuButtonOpenRequested = onMenuButtonOpenRequested
+                )
+            }
+        }
+
+        composable("${RouteName.GROUP_INPUT}?groupId={groupId}") { entry ->
+            val groupId = entry.arguments?.getString("groupId")?.let(Uri::decode)
+            if (!groupId.isNullOrBlank()) {
+                GroupMemoInputPage(navController = navController, groupId = groupId)
+            }
         }
     }
 }

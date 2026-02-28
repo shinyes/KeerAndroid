@@ -46,6 +46,8 @@ class SyncingRepository(
     private val fileStorage: FileStorage,
     private val remoteRepository: RemoteRepository,
     private val account: Account,
+    private val readMemoSyncAnchor: suspend () -> Instant? = { null },
+    private val writeMemoSyncAnchor: suspend (Instant) -> Unit = {},
     private val onUserSynced: suspend (User) -> Unit = {},
 ) : AbstractMemoRepository() {
     private data class UploadedResourcesResult(
@@ -573,17 +575,52 @@ class SyncingRepository(
             return currentUserSync
         }
 
-        val remoteNormal = remoteRepository.listMemos()
-        if (remoteNormal !is ApiResponse.Success) {
-            return remoteNormal.mapFailureToUnit()
+        val since = readMemoSyncAnchor() ?: Instant.EPOCH
+        val now = Instant.now()
+
+        var remoteMemos: List<Memo> = emptyList()
+        var remoteDeletedIds: Set<String> = emptySet()
+        var nextSyncAnchor = now
+        var treatMissingRemoteAsDeleted = false
+
+        when (val memoChanges = remoteRepository.listMemoChanges(since)) {
+            is ApiResponse.Success -> {
+                remoteMemos = memoChanges.data.memos
+                remoteDeletedIds = memoChanges.data.deletedMemoRemoteIds
+                    .asSequence()
+                    .filter { remoteId -> remoteId.isNotBlank() }
+                    .toSet()
+                nextSyncAnchor = memoChanges.data.syncAnchor
+            }
+            is ApiResponse.Failure.Error -> {
+                val shouldFallbackToFullSync = memoChanges.statusCode == StatusCode.NotFound ||
+                    memoChanges.statusCode == StatusCode.BadRequest
+                if (!shouldFallbackToFullSync) {
+                    return memoChanges.mapFailureToUnit()
+                }
+
+                val remoteNormal = remoteRepository.listMemos()
+                if (remoteNormal !is ApiResponse.Success) {
+                    return remoteNormal.mapFailureToUnit()
+                }
+                val remoteArchived = remoteRepository.listArchivedMemos()
+                if (remoteArchived !is ApiResponse.Success) {
+                    return remoteArchived.mapFailureToUnit()
+                }
+
+                remoteMemos = remoteNormal.data + remoteArchived.data
+                remoteDeletedIds = emptySet()
+                nextSyncAnchor = Instant.now()
+                treatMissingRemoteAsDeleted = true
+            }
+            is ApiResponse.Failure.Exception -> {
+                return memoChanges.mapFailureToUnit()
+            }
         }
 
-        val remoteArchived = remoteRepository.listArchivedMemos()
-        if (remoteArchived !is ApiResponse.Success) {
-            return remoteArchived.mapFailureToUnit()
+        if (nextSyncAnchor.isBefore(since)) {
+            nextSyncAnchor = now
         }
-
-        val remoteMemos = remoteNormal.data + remoteArchived.data
         val remoteById = remoteMemos.associateBy { remoteMemoId(it) }
 
         var hadErrors = false
@@ -653,6 +690,19 @@ class SyncingRepository(
             }
         }
 
+        for (deletedRemoteID in remoteDeletedIds) {
+            val local = localByRemoteId[deletedRemoteID] ?: continue
+            when {
+                local.isDeleted -> permanentlyDeleteMemo(local.identifier)
+                local.needsSync -> {
+                    if (!pushLocalMemo(local.identifier, forceCreate = true)) {
+                        recordFailure()
+                    }
+                }
+                else -> permanentlyDeleteMemo(local.identifier)
+            }
+        }
+
         val latestLocals = memoDao.getAllMemosForSync(accountKey)
         for (local in latestLocals) {
             if (local.remoteId != null && remoteById.containsKey(local.remoteId)) {
@@ -660,14 +710,25 @@ class SyncingRepository(
             }
 
             if (local.remoteId != null && !remoteById.containsKey(local.remoteId)) {
-                if (local.isDeleted) {
-                    permanentlyDeleteMemo(local.identifier)
-                } else if (local.needsSync) {
-                    if (!pushLocalMemo(local.identifier, forceCreate = true)) {
-                        recordFailure()
+                if (local.remoteId.let { remoteId -> remoteDeletedIds.contains(remoteId) }) {
+                    continue
+                }
+                if (treatMissingRemoteAsDeleted) {
+                    if (local.isDeleted) {
+                        permanentlyDeleteMemo(local.identifier)
+                    } else if (local.needsSync) {
+                        if (!pushLocalMemo(local.identifier, forceCreate = true)) {
+                            recordFailure()
+                        }
+                    } else {
+                        permanentlyDeleteMemo(local.identifier)
                     }
                 } else {
-                    permanentlyDeleteMemo(local.identifier)
+                    if (local.needsSync) {
+                        if (!pushLocalMemo(local.identifier)) {
+                            recordFailure()
+                        }
+                    }
                 }
                 continue
             }
@@ -688,6 +749,11 @@ class SyncingRepository(
                 Exception(firstErrorMessage ?: "Sync finished with partial failures")
             )
         } else {
+            try {
+                writeMemoSyncAnchor(nextSyncAnchor)
+            } catch (e: Throwable) {
+                return ApiResponse.Failure.Exception(e)
+            }
             ApiResponse.Success(Unit)
         }
     }

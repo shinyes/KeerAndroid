@@ -27,7 +27,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,24 +48,24 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
-import site.lcyk.keer.data.model.MemoVisibility
-import site.lcyk.keer.data.model.ShareContent
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.suspendOnErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.LocalRootNavController
+import site.lcyk.keer.util.extractCollaboratorIds
+import site.lcyk.keer.util.mergeTagsWithCollaborators
+import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.normalizeTagName
+import site.lcyk.keer.util.stripCollaboratorTags
 import site.lcyk.keer.viewmodel.LocalMemos
-import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 import kotlin.coroutines.resume
 
 @Composable
 fun MemoInputPage(
     viewModel: MemoInputViewModel = hiltViewModel(),
-    memoIdentifier: String? = null,
-    shareContent: ShareContent? = null
+    memoIdentifier: String? = null
 ) {
     val focusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
@@ -74,17 +73,37 @@ fun MemoInputPage(
     val navController = LocalRootNavController.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val memosViewModel = LocalMemos.current
-    val userStateViewModel = LocalUserState.current
-    val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val memo = remember { memosViewModel.memos.toList().find { it.identifier == memoIdentifier } }
     var initialContent by remember { mutableStateOf(memo?.content ?: "") }
-    var initialTags by remember { mutableStateOf(normalizeTagList(memo?.tags ?: emptyList())) }
+    var initialTags by remember { mutableStateOf(normalizeTagList(stripCollaboratorTags(memo?.tags ?: emptyList()))) }
+    var initialCollaborators by remember {
+        mutableStateOf(
+            memo?.tags
+                ?.let(::extractCollaboratorIds)
+                .orEmpty()
+                .map(::normalizeCollaboratorId)
+                .filter { it.isNotEmpty() }
+                .distinct()
+        )
+    }
     var text by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(memo?.content ?: "", TextRange(memo?.content?.length ?: 0)))
     }
-    var selectedTags by rememberSaveable { mutableStateOf(normalizeTagList(memo?.tags ?: emptyList())) }
-    var visibilityMenuExpanded by remember { mutableStateOf(false) }
+    var selectedTags by rememberSaveable {
+        mutableStateOf(normalizeTagList(stripCollaboratorTags(memo?.tags ?: emptyList())))
+    }
+    var selectedCollaborators by rememberSaveable {
+        mutableStateOf(
+            memo?.tags
+                ?.let(::extractCollaboratorIds)
+                .orEmpty()
+                .map(::normalizeCollaboratorId)
+                .filter { it.isNotEmpty() }
+                .distinct()
+        )
+    }
     var showTagSelector by remember { mutableStateOf(false) }
+    var showCollaboratorSelector by remember { mutableStateOf(false) }
     var photoImageUri by remember { mutableStateOf<Uri?>(null) }
     var videoUri by remember { mutableStateOf<Uri?>(null) }
     var showExitConfirmation by remember { mutableStateOf(false) }
@@ -92,6 +111,12 @@ fun MemoInputPage(
     var isLocationPrefetching by remember { mutableStateOf(false) }
     var stopLocationTracking by remember { mutableStateOf<(() -> Unit)?>(null) }
     val normalizedSelectedTags = remember(selectedTags) { normalizeTagList(selectedTags) }
+    val normalizedSelectedCollaborators = remember(selectedCollaborators) {
+        selectedCollaborators
+            .map(::normalizeCollaboratorId)
+            .filter { it.isNotEmpty() }
+            .distinct()
+    }
     val locationPermissions = remember {
         arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -100,8 +125,7 @@ fun MemoInputPage(
     }
     var pendingSubmitAfterLocationPermission by remember { mutableStateOf(false) }
 
-    val defaultVisibility = userStateViewModel.currentUser?.defaultVisibility ?: MemoVisibility.PRIVATE
-    var currentVisibility by remember { mutableStateOf(memo?.visibility ?: defaultVisibility) }
+    val resolvedVisibility = memo?.visibility ?: site.lcyk.keer.data.model.MemoVisibility.PRIVATE
 
     val validMimeTypePrefixes = remember {
         setOf("text/")
@@ -166,8 +190,13 @@ fun MemoInputPage(
             return@launch
         }
 
+        val mergedTags = mergeTagsWithCollaborators(
+            normalizedSelectedTags,
+            normalizedSelectedCollaborators
+        )
+
         memo?.let {
-            viewModel.editMemo(memo.identifier, text.text, currentVisibility, normalizedSelectedTags).suspendOnSuccess {
+            viewModel.editMemo(memo.identifier, text.text, resolvedVisibility, mergedTags).suspendOnSuccess {
                 memosViewModel.refreshLocalSnapshot()
                 navController.popBackStack()
             }.suspendOnErrorMessage { message ->
@@ -191,13 +220,14 @@ fun MemoInputPage(
         }
         viewModel.createMemo(
             content = text.text,
-            visibility = currentVisibility,
-            tags = normalizedSelectedTags,
+            visibility = resolvedVisibility,
+            tags = mergedTags,
             latitude = location?.latitude,
             longitude = location?.longitude
         ).suspendOnSuccess {
             text = TextFieldValue("")
             selectedTags = emptyList()
+            selectedCollaborators = emptyList()
             viewModel.updateDraft("")
             memosViewModel.refreshLocalSnapshot()
             navController.popBackStack()
@@ -213,7 +243,11 @@ fun MemoInputPage(
             }
             return
         }
-        if (text.text != initialContent || normalizedSelectedTags != initialTags || viewModel.uploadResources.size != (memo?.resources?.size ?: 0)) {
+        if (text.text != initialContent ||
+            normalizedSelectedTags != initialTags ||
+            normalizedSelectedCollaborators != initialCollaborators ||
+            viewModel.uploadResources.size != (memo?.resources?.size ?: 0)
+        ) {
             showExitConfirmation = true
         } else {
             navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
@@ -314,13 +348,9 @@ fun MemoInputPage(
         },
         bottomBar = {
             MemoInputBottomBar(
-                currentAccount = currentAccount,
-                currentVisibility = currentVisibility,
-                visibilityMenuExpanded = visibilityMenuExpanded,
-                onVisibilityExpandedChange = { visibilityMenuExpanded = it },
-                onVisibilitySelected = { currentVisibility = it },
                 selectedTags = selectedTags,
                 selectedTagCount = normalizedSelectedTags.size,
+                selectedCollaborators = selectedCollaborators,
                 onTagSelectorClick = {
                     showTagSelector = true
                 },
@@ -329,6 +359,17 @@ fun MemoInputPage(
                     selectedTags = normalizeTagList(
                         selectedTags.filterNot { normalizeTagName(it) == normalizedTagToRemove }
                     )
+                },
+                onCollaboratorSelectorClick = {
+                    showCollaboratorSelector = true
+                },
+                onCollaboratorRemove = { collaboratorId ->
+                    val normalizedCollaboratorId = normalizeCollaboratorId(collaboratorId)
+                    selectedCollaborators = selectedCollaborators
+                        .map(::normalizeCollaboratorId)
+                        .filter { it.isNotEmpty() }
+                        .filterNot { it == normalizedCollaboratorId }
+                        .distinct()
                 },
                 onToggleTodoItem = {
                     text = toggleTodoItemInText(text)
@@ -394,6 +435,14 @@ fun MemoInputPage(
         )
     }
 
+    if (showCollaboratorSelector) {
+        MemoCollaboratorDialog(
+            selectedCollaborators = selectedCollaborators,
+            onSelectedCollaboratorsChange = { selectedCollaborators = it },
+            onDismiss = { showCollaboratorSelector = false }
+        )
+    }
+
     if (showExitConfirmation) {
         SaveChangesDialog(
             onSave = {
@@ -419,15 +468,16 @@ fun MemoInputPage(
             memo != null -> {
                 viewModel.uploadResources.addAll(memo.resources)
                 initialContent = memo.content
-                initialTags = normalizeTagList(memo.tags)
-                selectedTags = normalizeTagList(memo.tags)
-            }
-
-            shareContent != null -> {
-                text = TextFieldValue(shareContent.text, TextRange(shareContent.text.length))
-                for (item in shareContent.images) {
-                    uploadResource(item)
-                }
+                val strippedTags = normalizeTagList(stripCollaboratorTags(memo.tags))
+                val collaboratorIds = memo.tags
+                    .let(::extractCollaboratorIds)
+                    .map(::normalizeCollaboratorId)
+                    .filter { it.isNotEmpty() }
+                    .distinct()
+                initialTags = strippedTags
+                initialCollaborators = collaboratorIds
+                selectedTags = strippedTags
+                selectedCollaborators = collaboratorIds
             }
 
             else -> {
@@ -444,7 +494,7 @@ fun MemoInputPage(
     DisposableEffect(Unit) {
         onDispose {
             stopLocationTracking?.invoke()
-            if (memo == null && shareContent == null) {
+            if (memo == null) {
                 viewModel.updateDraft(text.text)
             }
         }

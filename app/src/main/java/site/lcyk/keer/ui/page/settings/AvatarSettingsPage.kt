@@ -14,7 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.AccountCircle
-import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,6 +27,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,8 +42,11 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import site.lcyk.keer.R
+import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
+import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.viewmodel.LocalUserState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -55,10 +59,17 @@ fun AvatarSettingsPage(
     val scope = rememberCoroutineScope()
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
+    val localAvatarUri = settings.usersList
+        .firstOrNull { user -> user.accountKey == settings.currentUser }
+        ?.settings
+        ?.avatarUri
+        .orEmpty()
     val accountAvatarUrl = when (val account = currentAccount) {
         is site.lcyk.keer.data.model.Account.KeerV2 -> resolveAvatarUrl(account.info.host, account.info.avatarUrl)
         else -> null
     }
+    val displayAvatarModel = if (localAvatarUri.isNotBlank()) localAvatarUri else accountAvatarUrl
     val imageLoader = ImageLoader.Builder(context)
         .components {
             add(OkHttpNetworkFetcherFactory(callFactory = { userStateViewModel.okHttpClient }))
@@ -78,6 +89,10 @@ fun AvatarSettingsPage(
         scope.launch {
             userStateViewModel.uploadCurrentUserAvatar(uri)
         }
+    }
+
+    LaunchedEffect(currentAccount?.accountKey()) {
+        userStateViewModel.loadCurrentUser()
     }
 
     Scaffold(
@@ -115,7 +130,7 @@ fun AvatarSettingsPage(
                     icon = Icons.Outlined.AccountCircle,
                     text = R.string.avatar.string,
                     trailingIcon = {
-                        if (accountAvatarUrl.isNullOrBlank()) {
+                        if (displayAvatarModel.isNullOrBlank()) {
                             Icon(
                                 imageVector = Icons.Outlined.AccountCircle,
                                 contentDescription = null,
@@ -124,7 +139,7 @@ fun AvatarSettingsPage(
                             )
                         } else {
                             AsyncImage(
-                                model = accountAvatarUrl,
+                                model = displayAvatarModel,
                                 imageLoader = imageLoader,
                                 contentDescription = null,
                                 modifier = Modifier
@@ -148,17 +163,6 @@ fun AvatarSettingsPage(
                 )
             }
             item {
-                SettingItem(
-                    icon = Icons.Outlined.Delete,
-                    text = R.string.clear_avatar.string,
-                    onClick = {
-                        scope.launch {
-                            userStateViewModel.clearCurrentUserAvatar()
-                        }
-                    }
-                )
-            }
-            item {
                 Column(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
                     horizontalAlignment = Alignment.Start
@@ -169,6 +173,15 @@ fun AvatarSettingsPage(
                         color = MaterialTheme.colorScheme.outline
                     )
                 }
+            }
+            item {
+                SettingItem(
+                    icon = Icons.Outlined.Group,
+                    text = R.string.group_management.string,
+                    onClick = {
+                        navController.navigate(RouteName.GROUP_MANAGEMENT)
+                    }
+                )
             }
         }
     }

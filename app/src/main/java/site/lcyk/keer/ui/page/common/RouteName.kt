@@ -13,8 +13,10 @@ object RouteName {
     const val SEARCH = "search"
     const val MEMO_DETAIL = "memo-detail"
     const val RESOURCE = "resource"
-    const val SHARE = "share"
     const val EXPLORE = "explore"
     const val ACCOUNT = "account"
     const val DEBUG_LOGS = "debug-logs"
+    const val GROUP_MANAGEMENT = "group-management"
+    const val GROUP_CHAT = "group-chat"
+    const val GROUP_INPUT = "group-input"
 }

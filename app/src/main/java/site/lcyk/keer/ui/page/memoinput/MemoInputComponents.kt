@@ -32,12 +32,12 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.outlined.Attachment
-import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CheckBox
 import androidx.compose.material.icons.outlined.FormatBold
 import androidx.compose.material.icons.outlined.FormatItalic
 import androidx.compose.material.icons.outlined.FormatListNumbered
 import androidx.compose.material.icons.outlined.FormatStrikethrough
+import androidx.compose.material.icons.outlined.GroupAdd
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
 import androidx.compose.material.icons.outlined.Tag
@@ -48,8 +48,6 @@ import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,9 +58,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -80,18 +80,14 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.PopupProperties
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
-import site.lcyk.keer.data.model.Account
-import site.lcyk.keer.data.model.MemoVisibility
-import site.lcyk.keer.ext.icon
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.ext.titleResource
 import site.lcyk.keer.ui.component.Attachment
 import site.lcyk.keer.ui.component.InputImage
 import site.lcyk.keer.ui.component.KeerRemovableTagChip
 import site.lcyk.keer.util.isValidTagName
+import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.normalizeTagName
 import site.lcyk.keer.viewmodel.MemoInputViewModel
@@ -159,15 +155,13 @@ private fun FormattingButtons(
 
 @Composable
 internal fun MemoInputBottomBar(
-    currentAccount: Account?,
-    currentVisibility: MemoVisibility,
-    visibilityMenuExpanded: Boolean,
-    onVisibilityExpandedChange: (Boolean) -> Unit,
-    onVisibilitySelected: (MemoVisibility) -> Unit,
     selectedTags: List<String>,
     selectedTagCount: Int,
+    selectedCollaborators: List<String>,
     onTagSelectorClick: () -> Unit,
     onTagRemove: (String) -> Unit,
+    onCollaboratorSelectorClick: () -> Unit,
+    onCollaboratorRemove: (String) -> Unit,
     onToggleTodoItem: () -> Unit,
     onPickImage: () -> Unit,
     onPickAttachment: () -> Unit,
@@ -177,8 +171,29 @@ internal fun MemoInputBottomBar(
 ) {
     val scrollState = rememberScrollState()
     val normalizedSelectedTags = remember(selectedTags) { normalizeTagList(selectedTags) }
+    val normalizedCollaborators = remember(selectedCollaborators) {
+        selectedCollaborators
+            .map(::normalizeCollaboratorId)
+            .filter { it.isNotEmpty() }
+            .distinct()
+    }
 
     Column {
+        if (normalizedCollaborators.isNotEmpty()) {
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(normalizedCollaborators, key = { it }) { collaboratorId ->
+                    KeerRemovableTagChip(
+                        tag = "co:$collaboratorId",
+                        onRemove = { onCollaboratorRemove(collaboratorId) }
+                    )
+                }
+            }
+        }
         if (normalizedSelectedTags.isNotEmpty()) {
             LazyRow(
                 modifier = Modifier
@@ -206,43 +221,6 @@ internal fun MemoInputBottomBar(
                         modifier = Modifier.horizontalScroll(scrollState),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (currentAccount !is Account.Local) {
-                            Box {
-                                DropdownMenu(
-                                    expanded = visibilityMenuExpanded,
-                                    onDismissRequest = { onVisibilityExpandedChange(false) },
-                                    properties = PopupProperties(focusable = false)
-                                ) {
-                                    enumValues<MemoVisibility>().forEach { visibility ->
-                                        DropdownMenuItem(
-                                            text = { Text(stringResource(visibility.titleResource)) },
-                                            onClick = {
-                                                onVisibilitySelected(visibility)
-                                                onVisibilityExpandedChange(false)
-                                            },
-                                            leadingIcon = {
-                                                Icon(
-                                                    visibility.icon,
-                                                    contentDescription = stringResource(visibility.titleResource)
-                                                )
-                                            },
-                                            trailingIcon = {
-                                                if (currentVisibility == visibility) {
-                                                    Icon(Icons.Outlined.Check, contentDescription = null)
-                                                }
-                                            }
-                                        )
-                                    }
-                                }
-                                IconButton(onClick = { onVisibilityExpandedChange(!visibilityMenuExpanded) }) {
-                                    Icon(
-                                        currentVisibility.icon,
-                                        contentDescription = stringResource(currentVisibility.titleResource)
-                                    )
-                                }
-                            }
-                        }
-
                         IconButton(onClick = onTagSelectorClick) {
                             BadgedBox(
                                 badge = {
@@ -254,6 +232,23 @@ internal fun MemoInputBottomBar(
                                 }
                             ) {
                                 Icon(Icons.Outlined.Tag, contentDescription = stringResource(R.string.tag))
+                            }
+                        }
+
+                        IconButton(onClick = onCollaboratorSelectorClick) {
+                            BadgedBox(
+                                badge = {
+                                    if (normalizedCollaborators.isNotEmpty()) {
+                                        Badge {
+                                            Text(normalizedCollaborators.size.toString())
+                                        }
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    Icons.Outlined.GroupAdd,
+                                    contentDescription = stringResource(R.string.collaborators)
+                                )
                             }
                         }
 
@@ -491,6 +486,79 @@ internal fun MemoTagSelectorDialog(
                             } else {
                                 Spacer(modifier = Modifier.size(24.dp))
                             }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(R.string.confirm.string)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(R.string.cancel.string)
+            }
+        }
+    )
+}
+
+@Composable
+internal fun MemoCollaboratorDialog(
+    selectedCollaborators: List<String>,
+    onSelectedCollaboratorsChange: (List<String>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var inputValue by remember { mutableStateOf("") }
+    val collaborators = remember(selectedCollaborators) {
+        selectedCollaborators
+            .map(::normalizeCollaboratorId)
+            .filter { it.isNotEmpty() }
+            .distinct()
+    }
+
+    fun addCollaborator(raw: String) {
+        val normalized = normalizeCollaboratorId(raw)
+        if (normalized.isEmpty()) {
+            return
+        }
+        onSelectedCollaboratorsChange((collaborators + normalized).distinct())
+        inputValue = ""
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(R.string.collaborators.string) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = inputValue,
+                    onValueChange = { inputValue = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text(R.string.collaborator_id.string) },
+                    singleLine = true
+                )
+                TextButton(
+                    onClick = { addCollaborator(inputValue) }
+                ) {
+                    Text(R.string.add_collaborator.string)
+                }
+
+                if (collaborators.isNotEmpty()) {
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(collaborators, key = { it }) { collaboratorId ->
+                            KeerRemovableTagChip(
+                                tag = "co:$collaboratorId",
+                                onRemove = {
+                                    onSelectedCollaboratorsChange(
+                                        collaborators.filterNot { it == collaboratorId }
+                                    )
+                                }
+                            )
                         }
                     }
                 }

@@ -29,6 +29,13 @@ interface KeerV2Api {
         @Query("filter") filter: String? = null,
     ): ApiResponse<ListMemosResponse>
 
+    @GET("api/v1/memos/changes")
+    suspend fun listMemoChanges(
+        @Query("since") since: String,
+        @Query("state") state: KeerV2State? = null,
+        @Query("filter") filter: String? = null,
+    ): ApiResponse<ListMemoChangesResponse>
+
     @POST("api/v1/memos")
     suspend fun createMemo(@Body body: KeerV2CreateMemoRequest): ApiResponse<KeerV2Memo>
 
@@ -37,6 +44,43 @@ interface KeerV2Api {
 
     @DELETE("api/v1/memos/{id}")
     suspend fun deleteMemo(@Path("id") memoId: String): ApiResponse<Unit>
+
+    @GET("api/v1/groups")
+    suspend fun listGroups(): ApiResponse<ListGroupsResponse>
+
+    @POST("api/v1/groups")
+    suspend fun createGroup(@Body body: CreateGroupRequest): ApiResponse<KeerV2Group>
+
+    @POST("api/v1/groups/{id}/join")
+    suspend fun joinGroup(@Path("id") groupId: String): ApiResponse<KeerV2Group>
+
+    @PATCH("api/v1/groups/{id}")
+    suspend fun updateGroup(@Path("id") groupId: String, @Body body: UpdateGroupRequest): ApiResponse<KeerV2Group>
+
+    @DELETE("api/v1/groups/{id}")
+    suspend fun deleteOrLeaveGroup(@Path("id") groupId: String): ApiResponse<Unit>
+
+    @GET("api/v1/groups/{id}/messages")
+    suspend fun listGroupMessages(
+        @Path("id") groupId: String,
+        @Query("pageSize") pageSize: Int,
+        @Query("pageToken") pageToken: String? = null
+    ): ApiResponse<ListGroupMessagesResponse>
+
+    @POST("api/v1/groups/{id}/messages")
+    suspend fun createGroupMessage(
+        @Path("id") groupId: String,
+        @Body body: CreateGroupMessageRequest
+    ): ApiResponse<KeerV2GroupMessage>
+
+    @GET("api/v1/groups/{id}/tags")
+    suspend fun listGroupTags(@Path("id") groupId: String): ApiResponse<ListGroupTagsResponse>
+
+    @POST("api/v1/groups/{id}/tags")
+    suspend fun addGroupTag(
+        @Path("id") groupId: String,
+        @Body body: AddGroupTagRequest
+    ): ApiResponse<ListGroupTagsResponse>
 
     @GET("api/v1/attachments")
     suspend fun listResources(): ApiResponse<ListResourceResponse>
@@ -114,6 +158,86 @@ data class UpdateUserAvatarUpload(
 data class ListMemosResponse(
     val memos: List<KeerV2Memo>,
     val nextPageToken: String?
+)
+
+@Serializable
+data class ListMemoChangesResponse(
+    val memos: List<KeerV2Memo>,
+    val deletedMemoNames: List<String> = emptyList(),
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val syncAnchor: Instant? = null
+)
+
+@Serializable
+data class ListGroupsResponse(
+    val groups: List<KeerV2Group>
+)
+
+@Serializable
+data class CreateGroupRequest(
+    val name: String,
+    val description: String = ""
+)
+
+@Serializable
+data class UpdateGroupRequest(
+    val name: String? = null,
+    val description: String? = null
+)
+
+@Serializable
+data class KeerV2GroupMember(
+    val name: String,
+    val username: String,
+    val displayName: String? = null
+)
+
+@Serializable
+data class KeerV2Group(
+    val name: String,
+    val creator: String,
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val createTime: Instant? = null,
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val updateTime: Instant? = null,
+    val groupName: String,
+    val description: String? = null,
+    val members: List<KeerV2GroupMember> = emptyList()
+)
+
+@Serializable
+data class ListGroupMessagesResponse(
+    val messages: List<KeerV2GroupMessage>,
+    val nextPageToken: String? = null
+)
+
+@Serializable
+data class CreateGroupMessageRequest(
+    val content: String,
+    val tags: List<String>? = null
+)
+
+@Serializable
+data class KeerV2GroupMessage(
+    val name: String,
+    val group: String,
+    val creator: String,
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val createTime: Instant? = null,
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val updateTime: Instant? = null,
+    val content: String? = null,
+    val tags: List<String>? = null
+)
+
+@Serializable
+data class ListGroupTagsResponse(
+    val tags: List<String> = emptyList()
+)
+
+@Serializable
+data class AddGroupTagRequest(
+    val tag: String
 )
 
 @Serializable

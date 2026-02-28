@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.service.MemoService
+import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.suspendOnErrorMessage
 import javax.inject.Inject
@@ -40,12 +41,14 @@ class ArchivedMemoListViewModel @Inject constructor(
     suspend fun restoreMemo(identifier: String) = withContext(viewModelScope.coroutineContext) {
         memoService.getRepository().restoreMemo(identifier).suspendOnSuccess {
             memos.removeIf { it.identifier == identifier }
+            memoService.requestSync(trigger = SyncTrigger.MUTATION, force = false)
         }
     }
 
     suspend fun deleteMemo(identifier: String) = withContext(viewModelScope.coroutineContext) {
         memoService.getRepository().deleteMemo(identifier).suspendOnSuccess {
             memos.removeIf { it.identifier == identifier }
+            memoService.requestSync(trigger = SyncTrigger.MUTATION, force = false)
         }
     }
 }

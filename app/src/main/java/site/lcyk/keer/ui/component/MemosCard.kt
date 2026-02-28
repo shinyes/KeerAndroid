@@ -2,18 +2,24 @@ package site.lcyk.keer.ui.component
 
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.Intent
 import android.text.format.DateUtils
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -23,10 +29,8 @@ import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.PinDrop
 import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -39,6 +43,7 @@ import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,25 +52,33 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import coil3.ImageLoader
+import coil3.compose.AsyncImage
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.skydoves.sandwich.suspendOnSuccess
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
-import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemoEditGesture
-import site.lcyk.keer.ext.icon
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.ext.titleResource
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.util.extractCollaboratorIds
+import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 @Composable
 fun MemosCard(
@@ -74,12 +87,47 @@ fun MemosCard(
     editGesture: MemoEditGesture = MemoEditGesture.NONE,
     previewMode: Boolean = false,
     showSyncStatus: Boolean = false,
-    onTagClick: ((String) -> Unit)? = null
+    onTagClick: ((String) -> Unit)? = null,
+    authorAvatarUrl: String? = null,
+    authorName: String? = null,
+    actionButton: (@Composable (MemoEntity) -> Unit)? = null
 ) {
+    val context = LocalContext.current
     val memosViewModel = LocalMemos.current
     val rootNavController = LocalRootNavController.current
+    val userStateViewModel = LocalUserState.current
+    val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsState()
+    val imageLoader = remember(userStateViewModel.okHttpClient) {
+        ImageLoader.Builder(context)
+            .components {
+                add(OkHttpNetworkFetcherFactory(callFactory = { userStateViewModel.okHttpClient }))
+            }
+            .build()
+    }
     val scope = rememberCoroutineScope()
-    val displayTags = remember(memo.tags) { normalizeTagList(memo.tags) }
+    val displayTags = remember(memo.tags) {
+        normalizeTagList(memo.tags.filterNot(::isCollaboratorTag))
+    }
+    val collaboratorIds = remember(memo.tags) { extractCollaboratorIds(memo.tags) }
+    val hasAuthorIdentity = !authorAvatarUrl.isNullOrBlank() || !authorName.isNullOrBlank()
+    val resolvedAuthorAvatarUrl = remember(authorAvatarUrl, userStateViewModel.host) {
+        resolveAvatarUrl(userStateViewModel.host, authorAvatarUrl.orEmpty())
+    }
+    val authorAvatarFallback = remember(authorName) {
+        authorName
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.take(2)
+            ?.uppercase()
+            ?: "?"
+    }
+    var showCollaboratorDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(collaboratorIds) {
+        if (collaboratorIds.isNotEmpty()) {
+            userStateViewModel.prefetchCollaboratorAvatars(collaboratorIds)
+        }
+    }
 
     val cardModifier = Modifier
         .padding(horizontal = 15.dp, vertical = 10.dp)
@@ -132,6 +180,44 @@ fun MemosCard(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.outline
                 )
+                if (hasAuthorIdentity) {
+                    Box(
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .border(1.dp, MaterialTheme.colorScheme.surface, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!resolvedAuthorAvatarUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = resolvedAuthorAvatarUrl,
+                                imageLoader = imageLoader,
+                                contentDescription = authorName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape)
+                            )
+                        } else {
+                            Text(
+                                text = authorAvatarFallback,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Clip,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                if (collaboratorIds.isNotEmpty()) {
+                    CollaboratorAvatarStack(
+                        collaboratorIds = collaboratorIds,
+                        collaboratorProfiles = collaboratorProfiles,
+                        onClick = { showCollaboratorDialog = true }
+                    )
+                }
                 if (displayTags.isNotEmpty()) {
                     LazyRow(
                         modifier = Modifier
@@ -160,17 +246,11 @@ fun MemosCard(
                         tint = MaterialTheme.colorScheme.error
                     )
                 }
-                if (LocalUserState.current.currentUser?.defaultVisibility != memo.visibility) {
-                    Icon(
-                        memo.visibility.icon,
-                        contentDescription = stringResource(memo.visibility.titleResource),
-                        modifier = Modifier
-                            .padding(start = 5.dp)
-                            .size(20.dp),
-                        tint = MaterialTheme.colorScheme.outline
-                    )
+                if (actionButton != null) {
+                    actionButton(memo)
+                } else {
+                    MemosCardActionButton(memo)
                 }
-                MemosCardActionButton(memo)
             }
 
             MemoContent(
@@ -199,6 +279,27 @@ fun MemosCard(
             )
         }
     }
+
+    if (showCollaboratorDialog) {
+        CollaboratorListDialog(
+            collaboratorIds = collaboratorIds,
+            collaboratorProfiles = collaboratorProfiles,
+            onDismiss = { showCollaboratorDialog = false }
+        )
+    }
+}
+
+private fun resolveAvatarUrl(host: String, avatarUrl: String): String? {
+    if (avatarUrl.isBlank()) {
+        return null
+    }
+    if (avatarUrl.toHttpUrlOrNull() != null || "://" in avatarUrl) {
+        return avatarUrl
+    }
+    val baseUrl = host.toHttpUrlOrNull() ?: return avatarUrl
+    return runCatching {
+        baseUrl.toUrl().toURI().resolve(avatarUrl).toString()
+    }.getOrDefault(avatarUrl)
 }
 
 @Composable
@@ -209,8 +310,6 @@ fun MemosCardActionButton(
     val context = LocalContext.current
     val clipboardManager = context.getSystemService(ClipboardManager::class.java)
     val memosViewModel = LocalMemos.current
-    val userStateViewModel = LocalUserState.current
-    val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val rootNavController = LocalRootNavController.current
     val scope = rememberCoroutineScope()
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -270,23 +369,6 @@ fun MemosCardActionButton(
                     )
                 })
             DropdownMenuItem(
-                text = { Text(R.string.share.string) },
-                onClick = {
-                    val sendIntent = Intent().apply {
-                        action = Intent.ACTION_SEND
-                        putExtra(Intent.EXTRA_TEXT, memo.content)
-                        type = "text/plain"
-                    }
-                    val shareIntent = Intent.createChooser(sendIntent, null)
-                    context.startActivity(shareIntent)
-                },
-                leadingIcon = {
-                    Icon(
-                        Icons.Outlined.Share,
-                        contentDescription = null
-                    )
-                })
-            DropdownMenuItem(
                 text = { Text(R.string.copy.string) },
                 onClick = {
                     clipboardManager?.setPrimaryClip(
@@ -300,28 +382,6 @@ fun MemosCardActionButton(
                         contentDescription = null
                     )
                 })
-            if (currentAccount !is Account.Local) {
-                DropdownMenuItem(
-                    text = { Text(R.string.copy_link.string) },
-                    onClick = {
-                        memosViewModel.host.value?.let { host ->
-                            val memoUrl = "$host/${memo.remoteId ?: memo.identifier}"
-                            val sendIntent = Intent().apply {
-                                action = Intent.ACTION_SEND
-                                putExtra(Intent.EXTRA_TEXT, memoUrl)
-                                type = "text/plain"
-                            }
-                            val shareIntent = Intent.createChooser(sendIntent, null)
-                            context.startActivity(shareIntent)
-                        }
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Outlined.Link,
-                            contentDescription = null
-                        )
-                    })
-            }
             DropdownMenuItem(
                 text = { Text(R.string.archive.string) },
                 onClick = {

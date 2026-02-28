@@ -14,18 +14,29 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import site.lcyk.keer.data.api.KeerV2Api
+import site.lcyk.keer.data.api.AddGroupTagRequest
+import site.lcyk.keer.data.api.CreateGroupMessageRequest
+import site.lcyk.keer.data.api.CreateGroupRequest
+import site.lcyk.keer.data.api.KeerV2Group
+import site.lcyk.keer.data.api.KeerV2GroupMessage
 import site.lcyk.keer.data.api.KeerV2CreateMemoRequest
 import site.lcyk.keer.data.api.KeerV2Memo
 import site.lcyk.keer.data.api.KeerV2Resource
 import site.lcyk.keer.data.api.KeerV2State
 import site.lcyk.keer.data.api.MemosVisibility
 import site.lcyk.keer.data.api.UpdateMemoRequest
+import site.lcyk.keer.data.api.UpdateGroupRequest
 import site.lcyk.keer.data.constant.KeerException
 import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.data.model.GroupMember
 import site.lcyk.keer.data.model.Memo
+import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.Resource
 import site.lcyk.keer.data.model.User
+import site.lcyk.keer.data.security.MemoContentCodec
+import site.lcyk.keer.data.security.PlaintextMemoContentCodec
+import site.lcyk.keer.util.buildCollaboratorFilterExpression
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -33,6 +44,7 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okio.BufferedSink
 import java.io.File
 import java.io.RandomAccessFile
@@ -59,7 +71,8 @@ class KeerV2Repository(
     private val memosApi: KeerV2Api,
     private val account: Account.KeerV2,
     private val okHttpClient: OkHttpClient,
-    appContext: Context
+    appContext: Context,
+    private val memoContentCodec: MemoContentCodec = PlaintextMemoContentCodec
 ): RemoteRepository() {
     private val uploadCheckpointStore = ResumableUploadCheckpointStore(
         File(
@@ -84,7 +97,7 @@ class KeerV2Repository(
     private fun convertMemo(memo: KeerV2Memo): Memo {
         return Memo(
             remoteId = memo.name,
-            content = memo.content ?: "",
+            content = decodeMemoContent(memo.content.orEmpty()),
             date = memo.createTime ?: memo.updateTime ?: Instant.now(),
             pinned = memo.pinned ?: false,
             visibility = memo.visibility?.toMemoVisibility() ?: MemoVisibility.PRIVATE,
@@ -94,6 +107,60 @@ class KeerV2Repository(
             longitude = memo.longitude,
             archived = memo.state == KeerV2State.ARCHIVED,
             updatedAt = memo.updateTime
+        )
+    }
+
+    private fun convertGroup(group: KeerV2Group): MemoGroup {
+        val members = group.members.map { member ->
+            GroupMember(
+                userId = member.name,
+                userName = member.displayName
+                    ?.takeIf { it.isNotBlank() }
+                    ?: member.username
+            )
+        }
+        val creatorName = members.firstOrNull { it.userId == group.creator }?.userName
+            ?: getId(group.creator)
+        return MemoGroup(
+            id = getId(group.name),
+            name = group.groupName,
+            description = group.description.orEmpty(),
+            creatorId = group.creator,
+            creatorName = creatorName,
+            members = members,
+            createdAtEpochMillis = group.createTime?.toEpochMilli() ?: System.currentTimeMillis()
+        )
+    }
+
+    private fun convertGroupMessage(
+        groupMessage: KeerV2GroupMessage,
+        userMap: Map<String, site.lcyk.keer.data.api.KeerV2User>
+    ): Memo {
+        val creatorId = groupMessage.creator
+        val creator = (userMap[creatorId] ?: userMap[getId(creatorId)])?.let { user ->
+            User(
+                identifier = user.name,
+                name = user.displayName?.takeIf { it.isNotBlank() } ?: user.username,
+                startDate = user.createTime ?: Instant.now(),
+                avatarUrl = resolveAvatarUrl(account.info.host, user.avatarUrl.orEmpty())
+            )
+        } ?: User(
+            identifier = creatorId,
+            name = getId(creatorId),
+            startDate = Instant.now()
+        )
+
+        return Memo(
+            remoteId = groupMessage.name,
+            content = decodeMemoContent(groupMessage.content.orEmpty()),
+            date = groupMessage.createTime ?: groupMessage.updateTime ?: Instant.now(),
+            pinned = false,
+            visibility = MemoVisibility.PROTECTED,
+            resources = emptyList(),
+            tags = groupMessage.tags ?: emptyList(),
+            creator = creator,
+            archived = false,
+            updatedAt = groupMessage.updateTime
         )
     }
 
@@ -123,18 +190,71 @@ class KeerV2Repository(
     }
 
     override suspend fun listMemos(): ApiResponse<List<Memo>> {
-        return listMemosByFilter(KeerV2State.NORMAL, "creator_id == ${account.info.id}")
+        val accountId = account.info.id
+        val collaboratorFilter = buildCollaboratorFilterExpression(accountId.toString())
+        val filter = if (collaboratorFilter.isNotEmpty()) {
+            "creator_id == $accountId || ($collaboratorFilter)"
+        } else {
+            "creator_id == $accountId"
+        }
+        return listMemosByFilter(KeerV2State.NORMAL, filter)
     }
 
     override suspend fun listArchivedMemos(): ApiResponse<List<Memo>> {
         return listMemosByFilter(KeerV2State.ARCHIVED, "creator_id == ${account.info.id}")
     }
 
+    override suspend fun listMemoChanges(since: Instant): ApiResponse<MemoChanges> {
+        val accountId = account.info.id
+        val collaboratorFilter = buildCollaboratorFilterExpression(accountId.toString())
+        val filter = if (collaboratorFilter.isNotEmpty()) {
+            "creator_id == $accountId || ($collaboratorFilter)"
+        } else {
+            "creator_id == $accountId"
+        }
+        return memosApi.listMemoChanges(
+            since = since.toString(),
+            state = null,
+            filter = filter
+        ).mapSuccess {
+            MemoChanges(
+                memos = memos.map { memo -> convertMemo(memo) },
+                deletedMemoRemoteIds = deletedMemoNames
+                    .asSequence()
+                    .map { name -> getName(name) }
+                    .filter { name -> name.isNotBlank() }
+                    .distinct()
+                    .toList(),
+                syncAnchor = syncAnchor ?: Instant.now()
+            )
+        }
+    }
+
     override suspend fun listWorkspaceMemos(
         pageSize: Int,
-        pageToken: String?
+        pageToken: String?,
+        filter: String?
     ): ApiResponse<Pair<List<Memo>, String?>> {
-        val resp = memosApi.listMemos(pageSize, pageToken, filter = "visibility in [\"PUBLIC\", \"PROTECTED\"]")
+        val accountId = account.info.id
+        val collaboratorFilter = buildCollaboratorFilterExpression(accountId.toString())
+        val baseFilterParts = mutableListOf(
+            "visibility in [\"PUBLIC\", \"PROTECTED\"]",
+            "creator_id == $accountId"
+        )
+        if (collaboratorFilter.isNotEmpty()) {
+            baseFilterParts += collaboratorFilter
+        }
+        val baseFilter = baseFilterParts.joinToString(
+            separator = " || ",
+            prefix = "(",
+            postfix = ")"
+        )
+        val resolvedFilter = filter
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { "($baseFilter) && ($it)" }
+            ?: baseFilter
+        val resp = memosApi.listMemos(pageSize, pageToken, filter = resolvedFilter)
         if (resp !is ApiResponse.Success) {
             return resp.mapSuccess { emptyList<Memo>() to null }
         }
@@ -154,7 +274,8 @@ class KeerV2Repository(
                             User(
                                 user.name,
                                 user.displayName ?: user.username,
-                                user.createTime ?: Instant.now()
+                                user.createTime ?: Instant.now(),
+                                avatarUrl = resolveAvatarUrl(account.info.host, user.avatarUrl.orEmpty())
                             )
                         }
                     }
@@ -171,9 +292,10 @@ class KeerV2Repository(
         latitude: Double?,
         longitude: Double?
     ): ApiResponse<Memo> {
+        val encodedContent = encodeMemoContent(content)
         val resp = memosApi.createMemo(
             KeerV2CreateMemoRequest(
-                content = content,
+                content = encodedContent,
                 visibility = MemosVisibility.fromMemoVisibility(visibility),
                 attachments = resourceRemoteIds.map { KeerV2Resource(name = getName(it)) },
                 tags = tags,
@@ -195,8 +317,9 @@ class KeerV2Repository(
         pinned: Boolean?,
         archived: Boolean?
     ): ApiResponse<Memo> {
+        val encodedContent = content?.let(::encodeMemoContent)
         val resp = memosApi.updateMemo(getId(remoteId), UpdateMemoRequest(
-            content = content,
+            content = encodedContent,
             visibility = visibility?.let { MemosVisibility.fromMemoVisibility(it) },
             pinned = pinned,
             state = archived?.let { isArchived -> if (isArchived) KeerV2State.ARCHIVED else KeerV2State.NORMAL },
@@ -209,6 +332,120 @@ class KeerV2Repository(
 
     override suspend fun deleteMemo(remoteId: String): ApiResponse<Unit> {
         return memosApi.deleteMemo(getId(remoteId))
+    }
+
+    override suspend fun listGroups(): ApiResponse<List<MemoGroup>> {
+        return memosApi.listGroups().mapSuccess {
+            groups.map { group -> convertGroup(group) }
+        }
+    }
+
+    override suspend fun createGroup(name: String, description: String): ApiResponse<MemoGroup> {
+        return memosApi.createGroup(
+            CreateGroupRequest(
+                name = name.trim(),
+                description = description.trim()
+            )
+        ).mapSuccess { convertGroup(this) }
+    }
+
+    override suspend fun joinGroup(groupId: String): ApiResponse<MemoGroup> {
+        return memosApi.joinGroup(getId(groupId)).mapSuccess { convertGroup(this) }
+    }
+
+    override suspend fun updateGroup(
+        groupId: String,
+        name: String?,
+        description: String?
+    ): ApiResponse<MemoGroup> {
+        return memosApi.updateGroup(
+            getId(groupId),
+            UpdateGroupRequest(
+                name = name?.trim(),
+                description = description?.trim()
+            )
+        ).mapSuccess { convertGroup(this) }
+    }
+
+    override suspend fun deleteOrLeaveGroup(groupId: String): ApiResponse<Unit> {
+        return memosApi.deleteOrLeaveGroup(getId(groupId))
+    }
+
+    override suspend fun listGroupMessages(
+        groupId: String,
+        pageSize: Int,
+        pageToken: String?
+    ): ApiResponse<Pair<List<Memo>, String?>> {
+        val response = memosApi.listGroupMessages(getId(groupId), pageSize, pageToken)
+        if (response !is ApiResponse.Success) {
+            return response.mapSuccess { emptyList<Memo>() to null }
+        }
+
+        val creatorIDs = response.data.messages
+            .map { message -> message.creator }
+            .map { creator -> getId(creator) }
+            .distinct()
+        val users = coroutineScope {
+            creatorIDs.map { userID ->
+                async { memosApi.getUser(userID).getOrNull() }
+            }.awaitAll()
+        }.filterNotNull()
+        val userMap = users
+            .flatMap { user ->
+                listOf(user.name, getId(user.name)).distinct().map { key -> key to user }
+            }
+            .toMap()
+
+        return response.mapSuccess {
+            messages.map { message ->
+                convertGroupMessage(message, userMap)
+            } to nextPageToken?.ifEmpty { null }
+        }
+    }
+
+    override suspend fun createGroupMessage(
+        groupId: String,
+        content: String,
+        tags: List<String>
+    ): ApiResponse<Memo> {
+        val response = memosApi.createGroupMessage(
+            getId(groupId),
+            CreateGroupMessageRequest(
+                content = encodeMemoContent(content),
+                tags = tags
+                    .map { tag -> tag.trim() }
+                    .filter { tag -> tag.isNotEmpty() }
+                    .distinct()
+            )
+        )
+        if (response !is ApiResponse.Success) {
+            return response.mapSuccess { convertGroupMessage(this, emptyMap()) }
+        }
+
+        val creator = memosApi.getUser(getId(response.data.creator)).getOrNull()
+        val userMap = if (creator == null) {
+            emptyMap()
+        } else {
+            listOf(creator.name, getId(creator.name))
+                .distinct()
+                .associateWith { creator }
+        }
+        return ApiResponse.Success(convertGroupMessage(response.data, userMap))
+    }
+
+    override suspend fun listGroupTags(groupId: String): ApiResponse<List<String>> {
+        return memosApi.listGroupTags(getId(groupId)).mapSuccess {
+            tags
+        }
+    }
+
+    override suspend fun addGroupTag(groupId: String, tag: String): ApiResponse<List<String>> {
+        return memosApi.addGroupTag(
+            getId(groupId),
+            AddGroupTagRequest(tag.trim())
+        ).mapSuccess {
+            tags
+        }
     }
 
     override suspend fun listTags(): ApiResponse<List<String>> {
@@ -927,6 +1164,27 @@ class KeerV2Repository(
                 defaultVisibility = generalSetting?.memoVisibility?.toMemoVisibility() ?: MemoVisibility.PRIVATE
             )
         }
+    }
+
+    private fun encodeMemoContent(content: String): String {
+        return memoContentCodec.encode(content)
+    }
+
+    private fun decodeMemoContent(content: String): String {
+        return runCatching { memoContentCodec.decode(content) }.getOrDefault(content)
+    }
+
+    private fun resolveAvatarUrl(host: String, avatarUrl: String): String? {
+        if (avatarUrl.isBlank()) {
+            return null
+        }
+        if (avatarUrl.toHttpUrlOrNull() != null || "://" in avatarUrl) {
+            return avatarUrl
+        }
+        val baseUrl = host.toHttpUrlOrNull() ?: return avatarUrl
+        return runCatching {
+            baseUrl.toUrl().toURI().resolve(avatarUrl).toString()
+        }.getOrDefault(avatarUrl)
     }
 }
 

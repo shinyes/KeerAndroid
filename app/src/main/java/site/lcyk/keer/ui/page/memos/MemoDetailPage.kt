@@ -35,21 +35,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
-import site.lcyk.keer.ext.icon
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.ext.titleResource
+import site.lcyk.keer.ui.component.CollaboratorAvatarStack
+import site.lcyk.keer.ui.component.CollaboratorListDialog
 import site.lcyk.keer.ui.component.KeerTagChip
 import site.lcyk.keer.ui.component.MemoContent
 import site.lcyk.keer.ui.component.MemosCardActionButton
 import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.util.extractCollaboratorIds
+import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
@@ -65,17 +66,28 @@ fun MemoDetailPage(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsState()
     val scope = rememberCoroutineScope()
     val memo = remember(memosViewModel.memos.toList(), memoIdentifier) {
         memosViewModel.memos.firstOrNull { it.identifier == memoIdentifier }
     }
-    val displayTags = remember(memo?.tags) { normalizeTagList(memo?.tags ?: emptyList()) }
+    val collaboratorIds = remember(memo?.tags) { extractCollaboratorIds(memo?.tags.orEmpty()) }
+    val displayTags = remember(memo?.tags) {
+        normalizeTagList(memo?.tags.orEmpty().filterNot(::isCollaboratorTag))
+    }
     var hadMemo by rememberSaveable(memoIdentifier) { mutableStateOf(false) }
+    var showCollaboratorDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(memo?.identifier) {
         when {
             memo != null -> hadMemo = true
             hadMemo -> navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
+        }
+    }
+
+    LaunchedEffect(collaboratorIds) {
+        if (collaboratorIds.isNotEmpty()) {
+            userStateViewModel.prefetchCollaboratorAvatars(collaboratorIds)
         }
     }
 
@@ -127,6 +139,13 @@ fun MemoDetailPage(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.outline
                 )
+                if (collaboratorIds.isNotEmpty()) {
+                    CollaboratorAvatarStack(
+                        collaboratorIds = collaboratorIds,
+                        collaboratorProfiles = collaboratorProfiles,
+                        onClick = { showCollaboratorDialog = true }
+                    )
+                }
                 if (displayTags.isNotEmpty()) {
                     LazyRow(
                         modifier = Modifier
@@ -159,15 +178,6 @@ fun MemoDetailPage(
                             .size(20.dp),
                     )
                 }
-                if (userStateViewModel.currentUser?.defaultVisibility != memo.visibility) {
-                    Icon(
-                        imageVector = memo.visibility.icon,
-                        contentDescription = stringResource(memo.visibility.titleResource),
-                        modifier = Modifier
-                            .padding(start = 5.dp)
-                            .size(20.dp)
-                    )
-                }
             }
 
             MemoContent(
@@ -189,6 +199,14 @@ fun MemoDetailPage(
                         )
                     }
                 }
+            )
+        }
+
+        if (showCollaboratorDialog) {
+            CollaboratorListDialog(
+                collaboratorIds = collaboratorIds,
+                collaboratorProfiles = collaboratorProfiles,
+                onDismiss = { showCollaboratorDialog = false }
             )
         }
     }

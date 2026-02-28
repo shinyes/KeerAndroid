@@ -13,19 +13,20 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.util.Consumer
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.launch
 import site.lcyk.keer.MainActivity
-import site.lcyk.keer.data.model.ShareContent
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.account.AccountPage
 import site.lcyk.keer.ui.page.account.AddAccountPage
@@ -40,14 +41,31 @@ import site.lcyk.keer.ui.page.settings.AvatarSettingsPage
 import site.lcyk.keer.ui.page.settings.DebugLogPage
 import site.lcyk.keer.ui.page.settings.SettingsPage
 import site.lcyk.keer.ui.theme.KeerTheme
+import site.lcyk.keer.util.ForegroundSyncCoordinator
+import site.lcyk.keer.data.service.SyncTrigger
+import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 
 @Composable
 fun Navigation() {
     val navController = rememberNavController()
     val userStateViewModel = LocalUserState.current
+    val memosViewModel = LocalMemos.current
     val context = LocalContext.current
-    var shareContent by remember { mutableStateOf<ShareContent?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
+    val foregroundSyncCoordinator = remember { ForegroundSyncCoordinator() }
+
+    suspend fun runForegroundSync(trigger: SyncTrigger) {
+        if (!userStateViewModel.hasAnyAccount()) {
+            return
+        }
+        userStateViewModel.loadCurrentUser()
+        memosViewModel.loadMemos(
+            syncAfterLoad = true,
+            trigger = trigger
+        )
+    }
 
     CompositionLocalProvider(LocalRootNavController provides navController) {
         KeerTheme {
@@ -80,6 +98,10 @@ fun Navigation() {
                     DebugLogPage(navController = navController)
                 }
 
+                composable(RouteName.GROUP_MANAGEMENT) {
+                    MemosPage(startDestination = RouteName.GROUP_MANAGEMENT)
+                }
+
                 composable(RouteName.ADD_ACCOUNT) {
                     AddAccountPage(navController = navController)
                 }
@@ -90,10 +112,6 @@ fun Navigation() {
 
                 composable(RouteName.INPUT) {
                     MemoInputPage()
-                }
-
-                composable(RouteName.SHARE) {
-                    MemoInputPage(shareContent = shareContent)
                 }
 
                 composable("${RouteName.EDIT}?memoId={id}"
@@ -127,6 +145,24 @@ fun Navigation() {
                         MemoDetailPage(navController = navController, memoIdentifier = Uri.decode(memoId))
                     }
                 }
+
+                composable("${RouteName.GROUP_CHAT}?groupId={groupId}") { entry ->
+                    val groupId = entry.arguments?.getString("groupId")
+                    if (groupId != null) {
+                        MemosPage(
+                            startDestination = "${RouteName.GROUP_CHAT}?groupId=${Uri.encode(Uri.decode(groupId))}"
+                        )
+                    }
+                }
+
+                composable("${RouteName.GROUP_INPUT}?groupId={groupId}") { entry ->
+                    val groupId = entry.arguments?.getString("groupId")
+                    if (groupId != null) {
+                        MemosPage(
+                            startDestination = "${RouteName.GROUP_INPUT}?groupId=${Uri.encode(Uri.decode(groupId))}"
+                        )
+                    }
+                }
             }
         }
     }
@@ -144,15 +180,38 @@ fun Navigation() {
             }
             return@LaunchedEffect
         }
-        userStateViewModel.loadCurrentUser()
+        if (foregroundSyncCoordinator.requestAppStartSync()) {
+            try {
+                runForegroundSync(trigger = SyncTrigger.APP_START)
+            } finally {
+                foregroundSyncCoordinator.completeSync()
+            }
+        }
+    }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                if (!foregroundSyncCoordinator.requestResumeSync()) {
+                    return@LifecycleEventObserver
+                }
+                scope.launch {
+                    try {
+                        runForegroundSync(trigger = SyncTrigger.APP_FOREGROUND)
+                    } finally {
+                        foregroundSyncCoordinator.completeSync()
+                    }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     fun handleIntent(intent: Intent) {
         when(intent.action) {
-            Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE -> {
-                shareContent = ShareContent.parseIntent(intent)
-                navController.navigate(RouteName.SHARE)
-            }
             Intent.ACTION_VIEW -> {
                 when (intent.getStringExtra("action")) {
                     "compose" -> navController.navigate(RouteName.INPUT)

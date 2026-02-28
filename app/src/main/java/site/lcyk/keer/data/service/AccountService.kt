@@ -48,6 +48,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.time.Instant
 import java.time.ZoneId
@@ -113,6 +114,10 @@ class AccountService @Inject constructor(
     private val mutex = Mutex()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val initialization = CompletableDeferred<Unit>()
+    @Volatile
+    private var lastAvatarSyncAttemptAtMillis = 0L
+    @Volatile
+    private var lastAvatarSyncAttemptUri = ""
 
     init {
         serviceScope.launch {
@@ -147,7 +152,13 @@ class AccountService @Inject constructor(
                     database.memoDao(),
                     fileStorage,
                     remote,
-                    account
+                    account,
+                    readMemoSyncAnchor = {
+                        readMemoSyncAnchor(account.accountKey())
+                    },
+                    writeMemoSyncAnchor = { anchor ->
+                        writeMemoSyncAnchor(account.accountKey(), anchor)
+                    }
                 ) { user ->
                     updateAccountFromSyncedUser(account.accountKey(), user)
                 }
@@ -399,27 +410,122 @@ class AccountService @Inject constructor(
             return@withContext ApiResponse.exception(IllegalStateException("Current account does not support avatar sync"))
         }
 
-        val thumbnailUri = fileStorage.saveImageThumbnailFromUri(
+        val previousAvatarUri = context.settingsDataStore.data.first().usersList
+            .firstOrNull { user -> user.accountKey == account.accountKey() }
+            ?.settings
+            ?.avatarUri
+            .orEmpty()
+
+        val localAvatarUri = fileStorage.saveImageThumbnailFromUri(
             accountKey = account.accountKey(),
             sourceUri = uri,
-            filename = "avatar_${account.info.id}.jpg",
+            filename = "avatar_local_${account.info.id}.jpg",
+            maxEdge = 640,
+            quality = 82
+        ) ?: runCatching {
+            val extension = resolveAvatarFileExtension(uri)
+            fileStorage.savePersistentFileFromUri(
+                accountKey = account.accountKey(),
+                sourceUri = uri,
+                filename = "avatar_local_${account.info.id}.$extension"
+            )
+        }.getOrNull()
+            ?: return@withContext ApiResponse.exception(IllegalStateException("Cannot save avatar locally"))
+
+        mutex.withLock {
+            context.settingsDataStore.updateData { settings ->
+                val users = settings.usersList.toMutableList()
+                val index = users.indexOfFirst { it.accountKey == account.accountKey() }
+                if (index == -1) {
+                    return@updateData settings
+                }
+                val existing = users[index]
+                users[index] = existing.copy(
+                    settings = existing.settings.copy(
+                        avatarUri = localAvatarUri.toString(),
+                        avatarSyncPending = true
+                    )
+                )
+                settings.copy(usersList = users)
+            }
+        }
+
+        if (previousAvatarUri.isNotBlank() && previousAvatarUri != localAvatarUri.toString()) {
+            runCatching { fileStorage.deleteFile(previousAvatarUri.toUri()) }
+        }
+
+        return@withContext ApiResponse.Success(Unit)
+    }
+
+    suspend fun syncPendingAvatarIfNeeded(): ApiResponse<Unit> = withContext(Dispatchers.IO) {
+        val account = currentAccount.first() as? Account.KeerV2 ?: return@withContext ApiResponse.Success(Unit)
+        val settingsSnapshot = context.settingsDataStore.data.first()
+        val userSettings = settingsSnapshot.usersList
+            .firstOrNull { it.accountKey == account.accountKey() }
+            ?.settings
+            ?: return@withContext ApiResponse.Success(Unit)
+        if (!userSettings.avatarSyncPending || userSettings.avatarUri.isBlank()) {
+            return@withContext ApiResponse.Success(Unit)
+        }
+        val now = System.currentTimeMillis()
+        if (
+            userSettings.avatarUri == lastAvatarSyncAttemptUri &&
+            now - lastAvatarSyncAttemptAtMillis < AVATAR_SYNC_RETRY_INTERVAL_MILLIS
+        ) {
+            return@withContext ApiResponse.Success(Unit)
+        }
+        lastAvatarSyncAttemptUri = userSettings.avatarUri
+        lastAvatarSyncAttemptAtMillis = now
+        val avatarUri = runCatching { userSettings.avatarUri.toUri() }.getOrNull()
+            ?: return@withContext ApiResponse.exception(IllegalStateException("Invalid local avatar uri"))
+        syncAvatarForAccount(account, avatarUri)
+    }
+
+    private suspend fun syncAvatarForAccount(account: Account.KeerV2, sourceUri: Uri): ApiResponse<Unit> {
+        val thumbnailUri = fileStorage.saveImageThumbnailFromUri(
+            accountKey = account.accountKey(),
+            sourceUri = sourceUri,
+            filename = "avatar_upload_${account.info.id}.jpg",
             maxEdge = 320,
             quality = 82
-        ) ?: return@withContext ApiResponse.exception(IllegalStateException("Cannot generate avatar thumbnail"))
-        val thumbnailFile = thumbnailUri.path?.let(::File)
-            ?: return@withContext ApiResponse.exception(IllegalStateException("Cannot resolve avatar thumbnail file"))
-        val thumbnailBytes = runCatching { thumbnailFile.readBytes() }
-            .getOrNull()
-            ?: return@withContext ApiResponse.exception(IllegalStateException("Cannot read avatar thumbnail"))
-        if (thumbnailBytes.isEmpty()) {
-            return@withContext ApiResponse.exception(IllegalStateException("Avatar thumbnail is empty"))
-        }
-        if (thumbnailBytes.size > 1024 * 1024) {
+        )
+        var avatarBytes: ByteArray? = null
+        var avatarType: String? = null
+
+        if (thumbnailUri != null) {
+            val thumbnailFile = thumbnailUri.path?.let(::File)
+            val thumbnailBytes = thumbnailFile?.let { file ->
+                runCatching { file.readBytes() }.getOrNull()
+            }
+            if (thumbnailBytes != null && thumbnailBytes.isNotEmpty() && thumbnailBytes.size <= AVATAR_UPLOAD_MAX_BYTES) {
+                avatarBytes = thumbnailBytes
+                avatarType = "image/jpeg"
+            }
             fileStorage.deleteFile(thumbnailUri)
-            return@withContext ApiResponse.exception(IllegalStateException("Avatar thumbnail is too large"))
         }
-        val thumbnailContent = Base64.encodeToString(thumbnailBytes, Base64.NO_WRAP)
-        fileStorage.deleteFile(thumbnailUri)
+
+        if (avatarBytes == null) {
+            val originalBytes = runCatching {
+                readUriBytesWithLimit(sourceUri, AVATAR_UPLOAD_MAX_BYTES)
+            }.getOrElse { throwable ->
+                return ApiResponse.exception(
+                    IllegalStateException(
+                        throwable.message ?: "Cannot read avatar file",
+                        throwable
+                    )
+                )
+            }
+            if (originalBytes.isEmpty()) {
+                return ApiResponse.exception(IllegalStateException("Avatar file is empty"))
+            }
+            avatarBytes = originalBytes
+            avatarType = context.contentResolver
+                .getType(sourceUri)
+                ?.trim()
+                ?.takeIf { it.startsWith("image/") }
+        }
+
+        val avatarContent = Base64.encodeToString(avatarBytes, Base64.NO_WRAP)
 
         val api = createKeerV2Client(account.info.host, account.info.accessToken).second
         val response = api.updateUser(
@@ -427,17 +533,19 @@ class AccountService @Inject constructor(
             UpdateUserRequest(
                 user = UpdateUserBody(
                     avatar = UpdateUserAvatarUpload(
-                        content = thumbnailContent,
-                        type = "image/jpeg"
+                        content = avatarContent,
+                        type = avatarType
                     )
                 )
             )
         )
         if (response !is ApiResponse.Success) {
-            return@withContext ApiResponse.exception(
+            return ApiResponse.exception(
                 IllegalStateException("upload avatar failed: $response")
             )
         }
+        lastAvatarSyncAttemptUri = ""
+        lastAvatarSyncAttemptAtMillis = 0L
 
         val updatedUser = response.data
         mutex.withLock {
@@ -450,45 +558,13 @@ class AccountService @Inject constructor(
                 val existing = users[index]
                 val parsed = parseAccountWithSecureToken(existing) as? Account.KeerV2 ?: return@updateData settings
                 val updated = parsed.info.copy(avatarUrl = updatedUser.avatarUrl.orEmpty())
-                users[index] = Account.KeerV2(updated).toPersistedUserData(existing.settings)
+                users[index] = Account.KeerV2(updated).toPersistedUserData(
+                    existing.settings.copy(avatarSyncPending = false)
+                )
                 settings.copy(usersList = users)
             }
         }
-        return@withContext ApiResponse.Success(Unit)
-    }
-
-    suspend fun setCurrentUserAvatarUrl(avatarUrl: String): ApiResponse<Unit> = withContext(Dispatchers.IO) {
-        val account = currentAccount.first()
-        if (account !is Account.KeerV2) {
-            return@withContext ApiResponse.exception(IllegalStateException("Current account does not support avatar sync"))
-        }
-        val api = createKeerV2Client(account.info.host, account.info.accessToken).second
-        val response = api.updateUser(
-            account.info.id.toString(),
-            UpdateUserRequest(user = UpdateUserBody(avatarUrl = avatarUrl))
-        )
-        if (response !is ApiResponse.Success) {
-            return@withContext ApiResponse.exception(
-                IllegalStateException("update avatar failed: $response")
-            )
-        }
-
-        val updatedUser = response.data
-        mutex.withLock {
-            context.settingsDataStore.updateData { settings ->
-                val users = settings.usersList.toMutableList()
-                val index = users.indexOfFirst { it.accountKey == account.accountKey() }
-                if (index == -1) {
-                    return@updateData settings
-                }
-                val existing = users[index]
-                val parsed = parseAccountWithSecureToken(existing) as? Account.KeerV2 ?: return@updateData settings
-                val updated = parsed.info.copy(avatarUrl = updatedUser.avatarUrl.orEmpty())
-                users[index] = Account.KeerV2(updated).toPersistedUserData(existing.settings)
-                settings.copy(usersList = users)
-            }
-        }
-        return@withContext ApiResponse.Success(Unit)
+        return ApiResponse.Success(Unit)
     }
 
     private suspend fun detectKeerAPIVersion(host: String): String? {
@@ -510,6 +586,40 @@ class AccountService @Inject constructor(
             else -> {
                 null
             }
+        }
+    }
+
+    private suspend fun readMemoSyncAnchor(accountKey: String): Instant? {
+        val settings = context.settingsDataStore.data.first()
+        val raw = settings.usersList
+            .firstOrNull { user -> user.accountKey == accountKey }
+            ?.settings
+            ?.memoSyncAnchor
+            .orEmpty()
+            .trim()
+        if (raw.isEmpty()) {
+            return null
+        }
+        return try {
+            Instant.parse(raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private suspend fun writeMemoSyncAnchor(accountKey: String, anchor: Instant) {
+        val normalizedAnchor = anchor.toString()
+        context.settingsDataStore.updateData { existing ->
+            val index = existing.usersList.indexOfFirst { user -> user.accountKey == accountKey }
+            if (index == -1) {
+                return@updateData existing
+            }
+            val users = existing.usersList.toMutableList()
+            val target = users[index]
+            users[index] = target.copy(
+                settings = target.settings.copy(memoSyncAnchor = normalizedAnchor)
+            )
+            existing.copy(usersList = users)
         }
     }
 
@@ -552,6 +662,36 @@ class AccountService @Inject constructor(
             requestUrl.port == baseUrl.port
     }
 
+    private fun resolveAvatarFileExtension(uri: Uri): String {
+        val mimeType = context.contentResolver.getType(uri).orEmpty()
+        val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
+            ?.trim()
+            .orEmpty()
+        return extension.ifEmpty { "jpg" }
+    }
+
+    private fun readUriBytesWithLimit(uri: Uri, maxBytes: Int): ByteArray {
+        val input = context.contentResolver.openInputStream(uri)
+            ?: throw IllegalStateException("Cannot open avatar file")
+        input.use { stream ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8 * 1024)
+            var totalBytes = 0
+            while (true) {
+                val read = stream.read(buffer)
+                if (read <= 0) {
+                    break
+                }
+                totalBytes += read
+                if (totalBytes > maxBytes) {
+                    throw IllegalStateException("Avatar file is too large")
+                }
+                output.write(buffer, 0, read)
+            }
+            return output.toByteArray()
+        }
+    }
+
     private suspend fun awaitInitialization() {
         initialization.await()
     }
@@ -575,5 +715,7 @@ class AccountService @Inject constructor(
         private val KEER_API_MAX_VERSION = SemVer(0, 1, 0)
         private val TWO_SEGMENT_VERSION_REGEX = Regex("""^\d+\.\d+$""")
         private const val SYNC_COMPATIBILITY_TIMEOUT_MILLIS = 3500L
+        private const val AVATAR_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
+        private const val AVATAR_SYNC_RETRY_INTERVAL_MILLIS = 20_000L
     }
 }
