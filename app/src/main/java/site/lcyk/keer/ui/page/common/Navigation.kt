@@ -22,9 +22,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import kotlinx.coroutines.launch
 import site.lcyk.keer.MainActivity
 import site.lcyk.keer.ext.string
@@ -155,11 +157,26 @@ fun Navigation() {
                     }
                 }
 
-                composable("${RouteName.GROUP_INPUT}?groupId={groupId}") { entry ->
+                composable(
+                    "${RouteName.GROUP_INPUT}?groupId={groupId}&memoId={memoId}",
+                    arguments = listOf(
+                        navArgument("memoId") {
+                            type = NavType.StringType
+                            nullable = true
+                            defaultValue = null
+                        }
+                    )
+                ) { entry ->
                     val groupId = entry.arguments?.getString("groupId")
+                    val memoId = entry.arguments?.getString("memoId")
                     if (groupId != null) {
                         MemosPage(
-                            startDestination = "${RouteName.GROUP_INPUT}?groupId=${Uri.encode(Uri.decode(groupId))}"
+                            startDestination = buildString {
+                                append("${RouteName.GROUP_INPUT}?groupId=${Uri.encode(Uri.decode(groupId))}")
+                                if (!memoId.isNullOrBlank()) {
+                                    append("&memoId=${Uri.encode(Uri.decode(memoId))}")
+                                }
+                            }
                         )
                     }
                 }

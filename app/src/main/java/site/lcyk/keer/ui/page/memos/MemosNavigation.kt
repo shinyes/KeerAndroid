@@ -7,8 +7,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.ui.page.group.GroupChatPage
 import site.lcyk.keer.ui.page.group.GroupManagementPage
@@ -105,10 +107,24 @@ fun MemosNavigation(
             }
         }
 
-        composable("${RouteName.GROUP_INPUT}?groupId={groupId}") { entry ->
+        composable(
+            "${RouteName.GROUP_INPUT}?groupId={groupId}&memoId={memoId}",
+            arguments = listOf(
+                navArgument("memoId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { entry ->
             val groupId = entry.arguments?.getString("groupId")?.let(Uri::decode)
+            val memoId = entry.arguments?.getString("memoId")?.let(Uri::decode)
             if (!groupId.isNullOrBlank()) {
-                GroupMemoInputPage(navController = navController, groupId = groupId)
+                GroupMemoInputPage(
+                    navController = navController,
+                    groupId = groupId,
+                    memoId = memoId
+                )
             }
         }
     }

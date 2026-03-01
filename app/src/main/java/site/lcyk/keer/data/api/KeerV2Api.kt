@@ -79,6 +79,19 @@ interface KeerV2Api {
         @Body body: CreateGroupMessageRequest
     ): ApiResponse<KeerV2GroupMessage>
 
+    @PATCH("api/v1/groups/{id}/messages/{messageId}")
+    suspend fun updateGroupMessage(
+        @Path("id") groupId: String,
+        @Path("messageId") messageId: String,
+        @Body body: UpdateGroupMessageRequest
+    ): ApiResponse<KeerV2GroupMessage>
+
+    @DELETE("api/v1/groups/{id}/messages/{messageId}")
+    suspend fun deleteGroupMessage(
+        @Path("id") groupId: String,
+        @Path("messageId") messageId: String
+    ): ApiResponse<Unit>
+
     @GET("api/v1/groups/{id}/tags")
     suspend fun listGroupTags(@Path("id") groupId: String): ApiResponse<ListGroupTagsResponse>
 
@@ -235,6 +248,12 @@ data class ListGroupMessagesResponse(
 @Serializable
 data class CreateGroupMessageRequest(
     val content: String,
+    val tags: List<String>? = null
+)
+
+@Serializable
+data class UpdateGroupMessageRequest(
+    val content: String? = null,
     val tags: List<String>? = null
 )
 

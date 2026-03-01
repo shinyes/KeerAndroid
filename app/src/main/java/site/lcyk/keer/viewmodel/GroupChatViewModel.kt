@@ -32,6 +32,8 @@ import site.lcyk.keer.data.service.OfflineSyncTaskScheduler
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.util.extractCollaboratorIds
+import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 
 @HiltViewModel
@@ -231,6 +233,167 @@ class GroupChatViewModel @Inject constructor(
         }
     }
 
+    suspend fun findGroupMemo(groupId: String, memoRemoteId: String): Memo? = withContext(viewModelScope.coroutineContext) {
+        val normalizedRemoteID = memoRemoteId.trim()
+        if (normalizedRemoteID.isEmpty()) {
+            return@withContext null
+        }
+        _memos.value.firstOrNull { memo -> memo.remoteId == normalizedRemoteID }?.let { memo ->
+            return@withContext memo
+        }
+        val localState = readLocalState(groupId)
+        return@withContext mergeGroupMemos(
+            groupId = groupId,
+            remote = localState.cachedMemos.map(CachedMemoItem::toMemo),
+            pending = localState.pending,
+            pinnedKeys = localState.pinnedKeys
+        ).firstOrNull { memo -> memo.remoteId == normalizedRemoteID }
+    }
+
+    fun canManageGroupMemo(memo: Memo, currentUserId: String): Boolean {
+        val normalizedCurrentUserID = normalizeCollaboratorId(currentUserId)
+        if (normalizedCurrentUserID.isEmpty()) {
+            return false
+        }
+        val creatorID = normalizeCollaboratorId(memo.creator?.identifier.orEmpty())
+        if (creatorID == normalizedCurrentUserID) {
+            return true
+        }
+        return extractCollaboratorIds(memo.tags).any { collaboratorID ->
+            normalizeCollaboratorId(collaboratorID) == normalizedCurrentUserID
+        }
+    }
+
+    suspend fun updateGroupMemo(
+        groupId: String,
+        memoRemoteId: String,
+        content: String,
+        tags: List<String>
+    ): Boolean = withContext(viewModelScope.coroutineContext) {
+        val normalizedRemoteID = memoRemoteId.trim()
+        val normalizedContent = content.trim()
+        val normalizedTags = normalizeTagList(tags)
+        if (normalizedRemoteID.isEmpty() || normalizedContent.isEmpty()) {
+            return@withContext false
+        }
+
+        if (normalizedRemoteID.startsWith("local:")) {
+            val localID = normalizedRemoteID.removePrefix("local:").trim()
+            if (localID.isEmpty()) {
+                return@withContext false
+            }
+            val updated = updatePendingGroupMemo(
+                groupId = groupId,
+                localId = localID,
+                content = normalizedContent,
+                tags = normalizedTags
+            )
+            if (!updated) {
+                return@withContext false
+            }
+            _memos.value = _memos.value
+                .map { memo ->
+                    if (memo.remoteId == normalizedRemoteID) {
+                        memo.copy(
+                            content = normalizedContent,
+                            tags = normalizedTags,
+                            updatedAt = Instant.now()
+                        )
+                    } else {
+                        memo
+                    }
+                }
+                .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+            _errorMessage.value = null
+            return@withContext true
+        }
+
+        val remoteRepository = accountService.getRemoteRepository() ?: run {
+            _errorMessage.value = R.string.group_error_account_not_support_group_memos.string
+            return@withContext false
+        }
+
+        return@withContext when (
+            val response = remoteRepository.updateGroupMessage(
+                groupId = groupId,
+                messageRemoteId = normalizedRemoteID,
+                content = normalizedContent,
+                tags = normalizedTags
+            )
+        ) {
+            is ApiResponse.Success -> {
+                val updatedMemo = response.data
+                upsertCachedGroupMemo(groupId, updatedMemo)
+                _memos.value = _memos.value
+                    .map { memo ->
+                        if (memo.remoteId == normalizedRemoteID) {
+                            val pinned = memo.pinned
+                            updatedMemo.copy(pinned = pinned)
+                        } else {
+                            memo
+                        }
+                    }
+                    .let { current ->
+                        if (current.none { memo -> memo.remoteId == updatedMemo.remoteId }) {
+                            current + updatedMemo
+                        } else {
+                            current
+                        }
+                    }
+                    .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+                _errorMessage.value = null
+                true
+            }
+            else -> {
+                _errorMessage.value = response.getErrorMessage()
+                false
+            }
+        }
+    }
+
+    suspend fun deleteGroupMemo(groupId: String, memoRemoteId: String): Boolean = withContext(viewModelScope.coroutineContext) {
+        val normalizedRemoteID = memoRemoteId.trim()
+        if (normalizedRemoteID.isEmpty()) {
+            return@withContext false
+        }
+
+        if (normalizedRemoteID.startsWith("local:")) {
+            val localID = normalizedRemoteID.removePrefix("local:").trim()
+            if (localID.isEmpty()) {
+                return@withContext false
+            }
+            val removed = removePendingGroupMemo(groupId, localID, normalizedRemoteID)
+            if (!removed) {
+                return@withContext false
+            }
+            _memos.value = _memos.value
+                .filterNot { memo -> memo.remoteId == normalizedRemoteID }
+                .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+            _errorMessage.value = null
+            return@withContext true
+        }
+
+        val remoteRepository = accountService.getRemoteRepository() ?: run {
+            _errorMessage.value = R.string.group_error_account_not_support_group_memos.string
+            return@withContext false
+        }
+
+        return@withContext when (val response = remoteRepository.deleteGroupMessage(groupId, normalizedRemoteID)) {
+            is ApiResponse.Success -> {
+                removeCachedGroupMemo(groupId, normalizedRemoteID)
+                _memos.value = _memos.value
+                    .filterNot { memo -> memo.remoteId == normalizedRemoteID }
+                    .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+                _errorMessage.value = null
+                true
+            }
+            else -> {
+                _errorMessage.value = response.getErrorMessage()
+                false
+            }
+        }
+    }
+
     suspend fun setGroupMemoPinned(
         groupId: String,
         memoRemoteId: String,
@@ -266,7 +429,7 @@ class GroupChatViewModel @Inject constructor(
             .map { memo ->
                 if (memo.remoteId == memoRemoteId) memo.copy(pinned = pinned) else memo
             }
-            .sortedByDescending { it.date }
+            .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
         true
     }
 
@@ -352,6 +515,112 @@ class GroupChatViewModel @Inject constructor(
         }
     }
 
+    private suspend fun updatePendingGroupMemo(
+        groupId: String,
+        localId: String,
+        content: String,
+        tags: List<String>
+    ): Boolean {
+        var updated = false
+        context.settingsDataStore.updateData { existing ->
+            val userIndex = existing.usersList.indexOfFirst { it.accountKey == existing.currentUser }
+            if (userIndex == -1) {
+                return@updateData existing
+            }
+            val users = existing.usersList.toMutableList()
+            val target = users[userIndex]
+            val pendingMemos = target.settings.pendingGroupMemos.map { pendingMemo ->
+                if (pendingMemo.groupId == groupId && pendingMemo.localId == localId) {
+                    updated = true
+                    pendingMemo.copy(content = content, tags = tags)
+                } else {
+                    pendingMemo
+                }
+            }
+            if (!updated) {
+                return@updateData existing
+            }
+            users[userIndex] = target.copy(
+                settings = target.settings.copy(
+                    pendingGroupMemos = pendingMemos
+                )
+            )
+            existing.copy(usersList = users)
+        }
+        return updated
+    }
+
+    private suspend fun removePendingGroupMemo(groupId: String, localId: String, remoteId: String): Boolean {
+        var removed = false
+        context.settingsDataStore.updateData { existing ->
+            val userIndex = existing.usersList.indexOfFirst { it.accountKey == existing.currentUser }
+            if (userIndex == -1) {
+                return@updateData existing
+            }
+            val users = existing.usersList.toMutableList()
+            val target = users[userIndex]
+            val nextPending = target.settings.pendingGroupMemos.filterNot { pendingMemo ->
+                val matched = pendingMemo.groupId == groupId && pendingMemo.localId == localId
+                if (matched) {
+                    removed = true
+                }
+                matched
+            }
+            if (!removed) {
+                return@updateData existing
+            }
+            val keyToRemove = groupMemoKey(groupId, remoteId)
+            users[userIndex] = target.copy(
+                settings = target.settings.copy(
+                    pendingGroupMemos = nextPending,
+                    pinnedGroupMemoKeys = target.settings.pinnedGroupMemoKeys.filterNot { key -> key == keyToRemove }
+                )
+            )
+            existing.copy(usersList = users)
+        }
+        return removed
+    }
+
+    private suspend fun upsertCachedGroupMemo(groupId: String, memo: Memo) {
+        context.settingsDataStore.updateData { existing ->
+            val userIndex = existing.usersList.indexOfFirst { it.accountKey == existing.currentUser }
+            if (userIndex == -1) {
+                return@updateData existing
+            }
+            val users = existing.usersList.toMutableList()
+            val target = users[userIndex]
+            val updatedCache = target.settings.cachedGroupMemos
+                .filterNot { cached -> cached.groupId == groupId && cached.remoteId == memo.remoteId } + memo.toCachedMemoItem(groupId = groupId)
+            users[userIndex] = target.copy(
+                settings = target.settings.copy(
+                    cachedGroupMemos = updatedCache
+                )
+            )
+            existing.copy(usersList = users)
+        }
+    }
+
+    private suspend fun removeCachedGroupMemo(groupId: String, remoteId: String) {
+        context.settingsDataStore.updateData { existing ->
+            val userIndex = existing.usersList.indexOfFirst { it.accountKey == existing.currentUser }
+            if (userIndex == -1) {
+                return@updateData existing
+            }
+            val users = existing.usersList.toMutableList()
+            val target = users[userIndex]
+            val keyToRemove = groupMemoKey(groupId, remoteId)
+            users[userIndex] = target.copy(
+                settings = target.settings.copy(
+                    cachedGroupMemos = target.settings.cachedGroupMemos.filterNot { cached ->
+                        cached.groupId == groupId && cached.remoteId == remoteId
+                    },
+                    pinnedGroupMemoKeys = target.settings.pinnedGroupMemoKeys.filterNot { key -> key == keyToRemove }
+                )
+            )
+            existing.copy(usersList = users)
+        }
+    }
+
     private data class GroupLocalState(
         val pending: List<PendingGroupMemo>,
         val pinnedKeys: Set<String>,
@@ -429,7 +698,7 @@ class GroupChatViewModel @Inject constructor(
                 val pinned = groupMemoKey(groupId, memo.remoteId) in pinnedKeys
                 if (memo.pinned == pinned) memo else memo.copy(pinned = pinned)
             }
-            .sortedByDescending { it.date }
+            .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
     }
 
     private fun PendingGroupMemo.toMemo(): Memo {

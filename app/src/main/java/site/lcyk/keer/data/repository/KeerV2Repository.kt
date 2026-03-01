@@ -29,6 +29,7 @@ import site.lcyk.keer.data.api.KeerV2Resource
 import site.lcyk.keer.data.api.KeerV2State
 import site.lcyk.keer.data.api.KeerV2User
 import site.lcyk.keer.data.api.MemosVisibility
+import site.lcyk.keer.data.api.UpdateGroupMessageRequest
 import site.lcyk.keer.data.api.UpdateMemoRequest
 import site.lcyk.keer.data.api.UpdateGroupRequest
 import site.lcyk.keer.data.constant.KeerException
@@ -696,6 +697,36 @@ class KeerV2Repository(
 
         val userMap = getUsersByIDs(listOf(response.data.creator))
         return ApiResponse.Success(convertGroupMessage(response.data, userMap))
+    }
+
+    override suspend fun updateGroupMessage(
+        groupId: String,
+        messageRemoteId: String,
+        content: String?,
+        tags: List<String>?
+    ): ApiResponse<Memo> {
+        val request = UpdateGroupMessageRequest(
+            content = content?.let(::encodeMemoContent),
+            tags = tags
+                ?.map { tag -> tag.trim() }
+                ?.filter { tag -> tag.isNotEmpty() }
+                ?.distinct()
+        )
+        val response = memosApi.updateGroupMessage(
+            getId(groupId),
+            getId(messageRemoteId),
+            request
+        )
+        if (response !is ApiResponse.Success) {
+            return response.mapSuccess { convertGroupMessage(this, emptyMap()) }
+        }
+
+        val userMap = getUsersByIDs(listOf(response.data.creator))
+        return ApiResponse.Success(convertGroupMessage(response.data, userMap))
+    }
+
+    override suspend fun deleteGroupMessage(groupId: String, messageRemoteId: String): ApiResponse<Unit> {
+        return memosApi.deleteGroupMessage(getId(groupId), getId(messageRemoteId))
     }
 
     override suspend fun syncKnownUsers(): ApiResponse<Unit> {

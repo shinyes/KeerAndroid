@@ -50,9 +50,11 @@ import site.lcyk.keer.ui.page.memoinput.SaveChangesDialog
 import site.lcyk.keer.ui.page.memoinput.applyMarkdownFormatToText
 import site.lcyk.keer.ui.page.memoinput.handleEnterInText
 import site.lcyk.keer.ui.page.memoinput.toggleTodoItemInText
+import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.mergeTagsWithCollaborators
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
+import site.lcyk.keer.util.stripCollaboratorTags
 import site.lcyk.keer.viewmodel.GroupChatViewModel
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 
@@ -60,6 +62,7 @@ import site.lcyk.keer.viewmodel.MemoInputViewModel
 fun GroupMemoInputPage(
     navController: NavHostController,
     groupId: String,
+    memoId: String? = null,
     groupViewModel: GroupChatViewModel = hiltViewModel(),
     inputViewModel: MemoInputViewModel = hiltViewModel()
 ) {
@@ -82,6 +85,7 @@ fun GroupMemoInputPage(
     var showTagSelector by remember { mutableStateOf(false) }
     var showCollaboratorSelector by remember { mutableStateOf(false) }
     var showExitConfirmation by remember { mutableStateOf(false) }
+    val isEditMode = !memoId.isNullOrBlank()
 
     val validMimeTypePrefixes = remember { setOf("text/") }
     val normalizedSelectedTags = remember(selectedTags) { normalizeTagList(selectedTags) }
@@ -136,8 +140,17 @@ fun GroupMemoInputPage(
             return@launch
         }
 
-        val sent = groupViewModel.sendGroupMemo(groupId, payload, mergedTags)
-        if (!sent) {
+        val saved = if (isEditMode) {
+            groupViewModel.updateGroupMemo(
+                groupId = groupId,
+                memoRemoteId = memoId.orEmpty(),
+                content = payload,
+                tags = mergedTags
+            )
+        } else {
+            groupViewModel.sendGroupMemo(groupId, payload, mergedTags)
+        }
+        if (!saved) {
             snackbarState.showSnackbar(errorMessage ?: R.string.sync_failed.string)
             return@launch
         }
@@ -213,7 +226,7 @@ fun GroupMemoInputPage(
         modifier = Modifier.imePadding(),
         topBar = {
             MemoInputTopBar(
-                isEditMode = false,
+                isEditMode = isEditMode,
                 canSubmit = (text.text.isNotEmpty() || inputViewModel.uploadResources.isNotEmpty()) && !inputViewModel.hasActiveUpload(),
                 onClose = { handleExit() },
                 onSubmit = { submit() }
@@ -331,13 +344,38 @@ fun GroupMemoInputPage(
         )
     }
 
-    LaunchedEffect(groupId) {
+    LaunchedEffect(groupId, memoId) {
         inputViewModel.uploadResources.clear()
         inputViewModel.uploadTasks.clear()
         groupViewModel.loadGroupTags(groupId)
-        initialContent = ""
-        initialTags = emptyList()
-        initialCollaborators = emptyList()
+        if (isEditMode) {
+            groupViewModel.loadGroupMemos(groupId, forceSync = false)
+            val targetMemo = groupViewModel.findGroupMemo(groupId, memoId.orEmpty())
+            if (targetMemo != null) {
+                val collaborators = extractCollaboratorIds(targetMemo.tags)
+                val tags = normalizeTagList(stripCollaboratorTags(targetMemo.tags))
+                initialContent = targetMemo.content
+                initialTags = tags
+                initialCollaborators = collaborators
+                text = TextFieldValue(targetMemo.content, TextRange(targetMemo.content.length))
+                selectedTags = tags
+                selectedCollaborators = collaborators
+            } else {
+                initialContent = ""
+                initialTags = emptyList()
+                initialCollaborators = emptyList()
+                text = TextFieldValue("", TextRange(0))
+                selectedTags = emptyList()
+                selectedCollaborators = emptyList()
+            }
+        } else {
+            initialContent = ""
+            initialTags = emptyList()
+            initialCollaborators = emptyList()
+            text = TextFieldValue("", TextRange(0))
+            selectedTags = emptyList()
+            selectedCollaborators = emptyList()
+        }
         delay(300)
         focusRequester.requestFocus()
     }

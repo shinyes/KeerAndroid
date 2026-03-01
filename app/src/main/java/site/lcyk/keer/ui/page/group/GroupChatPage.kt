@@ -14,6 +14,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.PinDrop
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.DrawerState
@@ -100,6 +102,11 @@ fun GroupChatPage(
         ?.remoteId
         ?: groupId
     val activeAccountKey = settings.currentUser
+    val currentUserId = when (val account = currentAccount) {
+        is Account.KeerV2 -> account.info.id.toString()
+        is Account.Local -> "local"
+        null -> ""
+    }
     val editGesture = settings.usersList
         .firstOrNull { it.accountKey == settings.currentUser }
         ?.settings
@@ -275,6 +282,9 @@ fun GroupChatPage(
                             groupId = group.id
                         )
                     }
+                    val canManageMemo = remember(memo, currentUserId) {
+                        viewModel.canManageGroupMemo(memo, currentUserId)
+                    }
                     MemosCard(
                         memo = adaptedMemo,
                         onClick = { },
@@ -286,12 +296,26 @@ fun GroupChatPage(
                         actionButton = { memoEntity ->
                             GroupMemoCardActionButton(
                                 pinned = memoEntity.pinned,
+                                canManage = canManageMemo,
                                 onTogglePinned = {
                                     scope.launch {
                                         viewModel.setGroupMemoPinned(
                                             groupId = group.id,
                                             memoRemoteId = memo.remoteId,
                                             pinned = !memoEntity.pinned
+                                        )
+                                    }
+                                },
+                                onEdit = {
+                                    navController.navigate(
+                                        "${RouteName.GROUP_INPUT}?groupId=${Uri.encode(group.id)}&memoId=${Uri.encode(memo.remoteId)}"
+                                    )
+                                },
+                                onDelete = {
+                                    scope.launch {
+                                        viewModel.deleteGroupMemo(
+                                            groupId = group.id,
+                                            memoRemoteId = memo.remoteId
                                         )
                                     }
                                 }
@@ -397,9 +421,13 @@ private fun Memo.toGroupMemoEntity(
 @Composable
 private fun GroupMemoCardActionButton(
     pinned: Boolean,
-    onTogglePinned: () -> Unit
+    canManage: Boolean,
+    onTogglePinned: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     IconButton(onClick = { menuExpanded = true }) {
         Icon(Icons.Filled.MoreVert, contentDescription = null)
@@ -435,5 +463,55 @@ private fun GroupMemoCardActionButton(
                 }
             )
         }
+        if (canManage) {
+            DropdownMenuItem(
+                text = { Text(R.string.edit.string) },
+                onClick = {
+                    onEdit()
+                    menuExpanded = false
+                },
+                leadingIcon = {
+                    Icon(Icons.Outlined.Edit, contentDescription = null)
+                }
+            )
+            DropdownMenuItem(
+                text = { Text(R.string.delete.string) },
+                onClick = {
+                    showDeleteDialog = true
+                    menuExpanded = false
+                },
+                colors = MenuDefaults.itemColors(
+                    textColor = MaterialTheme.colorScheme.error,
+                    leadingIconColor = MaterialTheme.colorScheme.error
+                ),
+                leadingIcon = {
+                    Icon(Icons.Outlined.Delete, contentDescription = null)
+                }
+            )
+        }
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text(R.string.delete_this_memo.string) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onDelete()
+                        showDeleteDialog = false
+                    }
+                ) {
+                    Text(R.string.confirm.string)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showDeleteDialog = false }
+                ) {
+                    Text(R.string.cancel.string)
+                }
+            }
+        )
     }
 }

@@ -76,6 +76,18 @@ abstract class RemoteRepository {
         tags: List<String> = emptyList()
     ): ApiResponse<Memo>
 
+    abstract suspend fun updateGroupMessage(
+        groupId: String,
+        messageRemoteId: String,
+        content: String? = null,
+        tags: List<String>? = null
+    ): ApiResponse<Memo>
+
+    abstract suspend fun deleteGroupMessage(
+        groupId: String,
+        messageRemoteId: String
+    ): ApiResponse<Unit>
+
     abstract suspend fun listGroupTags(groupId: String): ApiResponse<List<String>>
     abstract suspend fun addGroupTag(groupId: String, tag: String): ApiResponse<List<String>>
 
