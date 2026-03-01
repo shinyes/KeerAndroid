@@ -124,8 +124,12 @@ fun GroupChatPage(
             listState.firstVisibleItemIndex == 0
         }
     }
+    val atTop = !listState.canScrollBackward
+    val atBottom = memos.isNotEmpty() && !listState.canScrollForward
     var syncAlert by remember { mutableStateOf<GroupSyncAlert?>(null) }
     var syncWasRunning by remember { mutableStateOf(syncStatus.syncing) }
+    var topHapticArmed by remember { mutableStateOf(false) }
+    var bottomHapticArmed by remember { mutableStateOf(false) }
 
     suspend fun reloadGroup(forceSync: Boolean = false) {
         val resolvedGroup = group ?: return
@@ -146,6 +150,41 @@ fun GroupChatPage(
 
     LaunchedEffect(group?.id) {
         reloadGroup(forceSync = false)
+    }
+
+    LaunchedEffect(memos.size) {
+        if (memos.isEmpty()) {
+            topHapticArmed = false
+            bottomHapticArmed = false
+            return@LaunchedEffect
+        }
+        topHapticArmed = !atTop
+        bottomHapticArmed = !atBottom
+    }
+
+    LaunchedEffect(atTop, atBottom, memos.size) {
+        if (memos.isEmpty()) {
+            return@LaunchedEffect
+        }
+
+        var shouldVibrate = false
+        if (!atTop) {
+            topHapticArmed = true
+        } else if (topHapticArmed) {
+            shouldVibrate = true
+            topHapticArmed = false
+        }
+
+        if (!atBottom) {
+            bottomHapticArmed = true
+        } else if (bottomHapticArmed) {
+            shouldVibrate = true
+            bottomHapticArmed = false
+        }
+
+        if (shouldVibrate) {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
     }
 
     LaunchedEffect(syncStatus.syncing, group?.id) {

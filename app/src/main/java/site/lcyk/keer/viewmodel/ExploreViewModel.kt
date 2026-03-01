@@ -6,14 +6,17 @@ import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.skydoves.sandwich.ApiResponse
-import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
@@ -21,17 +24,24 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import site.lcyk.keer.data.model.Account
-import site.lcyk.keer.data.model.CachedMemoItem
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.toCachedMemoItem
 import site.lcyk.keer.data.model.toMemo
 import site.lcyk.keer.data.repository.RemoteRepository
 import site.lcyk.keer.data.service.AccountService
+import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.util.buildCollaboratorFilterExpression
+import site.lcyk.keer.util.normalizeTagList
+
+data class ExploreMemoItem(
+    val memo: Memo,
+    val groupId: String? = null
+)
 
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -39,6 +49,9 @@ class ExploreViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val accountService: AccountService
 ) : ViewModel() {
+    private val refreshSignal = MutableStateFlow(0)
+    private val _mutationErrorMessage = MutableStateFlow<String?>(null)
+    val mutationErrorMessage: StateFlow<String?> = _mutationErrorMessage.asStateFlow()
 
     val groups = context.settingsDataStore.data
         .map { settings ->
@@ -52,8 +65,9 @@ class ExploreViewModel @Inject constructor(
 
     val exploreMemos = combine(
         accountService.currentAccount,
-        groups
-    ) { account, currentGroups ->
+        groups,
+        refreshSignal
+    ) { account, currentGroups, _ ->
         account to currentGroups
     }
         .flatMapLatest { (account, currentGroups) ->
@@ -103,12 +117,12 @@ class ExploreViewModel @Inject constructor(
         account: Account,
         remoteRepository: RemoteRepository,
         groups: List<MemoGroup>
-    ): List<Memo> {
+    ): List<ExploreMemoItem> {
         val collaborative = loadCollaborativeMemos(account, remoteRepository)
         val groupMemos = loadGroupScopeMemos(remoteRepository, groups)
         return (collaborative + groupMemos)
-            .distinctBy { memo -> memo.remoteId }
-            .sortedByDescending { memo -> memo.date }
+            .distinctBy { item -> item.memo.remoteId }
+            .sortedByDescending { item -> item.memo.date }
     }
 
     private fun resolveCollaborativeFilter(account: Account): String? {
@@ -124,7 +138,7 @@ class ExploreViewModel @Inject constructor(
     private suspend fun loadCollaborativeMemos(
         account: Account,
         remoteRepository: RemoteRepository
-    ): List<Memo> {
+    ): List<ExploreMemoItem> {
         val filter = resolveCollaborativeFilter(account) ?: return emptyList()
         val loaded = mutableListOf<Memo>()
         var pageToken: String? = null
@@ -142,13 +156,15 @@ class ExploreViewModel @Inject constructor(
             }
         } while (!pageToken.isNullOrBlank())
 
-        return loaded
+        return loaded.map { memo ->
+            ExploreMemoItem(memo = memo, groupId = null)
+        }
     }
 
     private suspend fun loadGroupScopeMemos(
         remoteRepository: RemoteRepository,
         groups: List<MemoGroup>
-    ): List<Memo> {
+    ): List<ExploreMemoItem> {
         val targets = groups.distinctBy { group -> group.id }
         if (targets.isEmpty()) {
             return emptyList()
@@ -166,7 +182,7 @@ class ExploreViewModel @Inject constructor(
     private suspend fun loadGroupMessages(
         remoteRepository: RemoteRepository,
         groupId: String
-    ): List<Memo> {
+    ): List<ExploreMemoItem> {
         val loaded = mutableListOf<Memo>()
         var pageToken: String? = null
 
@@ -183,21 +199,31 @@ class ExploreViewModel @Inject constructor(
             }
         } while (!pageToken.isNullOrBlank())
 
-        return loaded
+        return loaded.map { memo ->
+            ExploreMemoItem(
+                memo = memo,
+                groupId = groupId
+            )
+        }
     }
 
-    private suspend fun readCachedExploreMemos(): List<Memo> {
+    private suspend fun readCachedExploreMemos(): List<ExploreMemoItem> {
         val settings = context.settingsDataStore.data.first()
         val userSettings = settings.usersList
             .firstOrNull { it.accountKey == settings.currentUser }
             ?.settings
             ?: return emptyList()
         return userSettings.cachedExploreMemos
-            .map(CachedMemoItem::toMemo)
-            .sortedByDescending { memo -> memo.date }
+            .map { item ->
+                ExploreMemoItem(
+                    memo = item.toMemo(),
+                    groupId = item.groupId
+                )
+            }
+            .sortedByDescending { item -> item.memo.date }
     }
 
-    private suspend fun persistExploreMemos(memos: List<Memo>) {
+    private suspend fun persistExploreMemos(memos: List<ExploreMemoItem>) {
         context.settingsDataStore.updateData { existing ->
             val index = existing.usersList.indexOfFirst { user -> user.accountKey == existing.currentUser }
             if (index == -1) {
@@ -207,11 +233,81 @@ class ExploreViewModel @Inject constructor(
             val target = users[index]
             users[index] = target.copy(
                 settings = target.settings.copy(
-                    cachedExploreMemos = memos.map { memo -> memo.toCachedMemoItem() }
+                    cachedExploreMemos = memos.map { item ->
+                        item.memo.toCachedMemoItem(groupId = item.groupId)
+                    }
                 )
             )
             existing.copy(usersList = users)
         }
+    }
+
+    suspend fun updateExploreMemo(
+        item: ExploreMemoItem,
+        content: String,
+        tags: List<String>
+    ): Boolean {
+        val remoteRepository = accountService.getRemoteRepository() ?: run {
+            _mutationErrorMessage.value = "Current account does not support remote memo operations"
+            return false
+        }
+        val normalizedContent = content.trim()
+        if (normalizedContent.isEmpty()) {
+            return false
+        }
+        val normalizedTags = normalizeTagList(tags)
+        val response = if (item.groupId.isNullOrBlank()) {
+            remoteRepository.updateMemo(
+                remoteId = item.memo.remoteId,
+                content = normalizedContent,
+                tags = normalizedTags
+            )
+        } else {
+            remoteRepository.updateGroupMessage(
+                groupId = item.groupId,
+                messageRemoteId = item.memo.remoteId,
+                content = normalizedContent,
+                tags = normalizedTags
+            )
+        }
+        return when (response) {
+            is ApiResponse.Success -> {
+                _mutationErrorMessage.value = null
+                refreshSignal.update { current -> current + 1 }
+                true
+            }
+            else -> {
+                _mutationErrorMessage.value = response.getErrorMessage()
+                false
+            }
+        }
+    }
+
+    suspend fun deleteExploreMemo(item: ExploreMemoItem): Boolean {
+        val remoteRepository = accountService.getRemoteRepository() ?: run {
+            _mutationErrorMessage.value = "Current account does not support remote memo operations"
+            return false
+        }
+        val response = if (item.groupId.isNullOrBlank()) {
+            remoteRepository.deleteMemo(item.memo.remoteId)
+        } else {
+            remoteRepository.deleteGroupMessage(item.groupId, item.memo.remoteId)
+        }
+        return when (response) {
+            is ApiResponse.Success -> {
+                _mutationErrorMessage.value = null
+                refreshSignal.update { current -> current + 1 }
+                true
+            }
+            else -> {
+                _mutationErrorMessage.value = response.getErrorMessage()
+                false
+            }
+        }
+    }
+
+    fun clearMutationError() {
+        _mutationErrorMessage.value = null
     }
 
     private suspend fun syncGroupsFromRemote() {

@@ -77,7 +77,10 @@ fun MemosList(
         ?.editGesture
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
+    val hapticFeedback = LocalHapticFeedback.current
     var syncAlert by remember { mutableStateOf<PullRefreshSyncAlert?>(null) }
+    var topHapticArmed by remember { mutableStateOf(false) }
+    var bottomHapticArmed by remember { mutableStateOf(false) }
     val filteredMemos = remember(viewModel.memos.toList(), tag, searchString) {
         val pinned = viewModel.memos.filter { it.pinned }
         val nonPinned = viewModel.memos.filter { !it.pinned }
@@ -101,6 +104,44 @@ fun MemosList(
 
         fullList
     }
+    val atTop = !lazyListState.canScrollBackward
+    val atBottom = filteredMemos.isNotEmpty() && !lazyListState.canScrollForward
+
+    LaunchedEffect(filteredMemos.size) {
+        if (filteredMemos.isEmpty()) {
+            topHapticArmed = false
+            bottomHapticArmed = false
+            return@LaunchedEffect
+        }
+        topHapticArmed = !atTop
+        bottomHapticArmed = !atBottom
+    }
+
+    LaunchedEffect(atTop, atBottom, filteredMemos.size) {
+        if (filteredMemos.isEmpty()) {
+            return@LaunchedEffect
+        }
+
+        var shouldVibrate = false
+        if (!atTop) {
+            topHapticArmed = true
+        } else if (topHapticArmed) {
+            shouldVibrate = true
+            topHapticArmed = false
+        }
+
+        if (!atBottom) {
+            bottomHapticArmed = true
+        } else if (bottomHapticArmed) {
+            shouldVibrate = true
+            bottomHapticArmed = false
+        }
+
+        if (shouldVibrate) {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+    }
+
     var listTopId: String? by rememberSaveable {
         mutableStateOf(null)
     }
@@ -129,7 +170,6 @@ fun MemosList(
         },
         state = refreshState,
         indicator = {
-            val hapticFeedback = LocalHapticFeedback.current
             val rawPullFraction = refreshState.distanceFraction
             val pullFraction = rawPullFraction.coerceIn(0f, 1f)
             val isPulling = rawPullFraction > 0f
