@@ -190,23 +190,37 @@ class UserStateViewModel @Inject constructor(
         val remoteIDs = missingIds.filterNot { userId -> userId == currentUserID }
         val remoteUsersByID = hashMapOf<String, KeerV2User>()
         if (remoteIDs.isNotEmpty()) {
-            val batch = api.getUsersBatch(remoteIDs.joinToString(",")).getOrNull()
-            batch?.users?.forEach { user ->
-                val userID = user.name.substringAfterLast('/')
-                if (userID.isNotBlank()) {
-                    remoteUsersByID[userID] = user
+            val unresolved = linkedSetOf<String>()
+            remoteIDs.chunked(userBatchQueryChunkSize).forEach { chunk ->
+                val batch = api.getUsersBatch(chunk.joinToString(",")).getOrNull()
+                if (batch == null) {
+                    unresolved += chunk
+                } else {
+                    batch.users.forEach { user ->
+                        val userID = user.name.substringAfterLast('/')
+                        if (userID.isNotBlank()) {
+                            remoteUsersByID[userID] = user
+                        }
+                    }
+                    chunk.forEach { userID ->
+                        if (!remoteUsersByID.containsKey(userID)) {
+                            unresolved += userID
+                        }
+                    }
                 }
             }
-            val unresolved = remoteIDs.filterNot { userID -> remoteUsersByID.containsKey(userID) }
+
             if (unresolved.isNotEmpty()) {
-                val fallbackUsers = kotlinx.coroutines.coroutineScope {
-                    unresolved.map { userId ->
-                        async { userId to api.getUser(userId).getOrNull() }
-                    }.awaitAll()
-                }
-                fallbackUsers.forEach { (userId, user) ->
-                    if (user != null) {
-                        remoteUsersByID[userId] = user
+                unresolved.chunked(userFallbackLookupChunkSize).forEach { chunk ->
+                    val fallbackUsers = kotlinx.coroutines.coroutineScope {
+                        chunk.map { userId ->
+                            async { userId to api.getUser(userId).getOrNull() }
+                        }.awaitAll()
+                    }
+                    fallbackUsers.forEach { (userId, user) ->
+                        if (user != null) {
+                            remoteUsersByID[userId] = user
+                        }
                     }
                 }
             }
@@ -270,6 +284,11 @@ class UserStateViewModel @Inject constructor(
         return runCatching {
             baseUrl.toUrl().toURI().resolve(avatarUrl).toString()
         }.getOrDefault(avatarUrl)
+    }
+
+    private companion object {
+        private const val userBatchQueryChunkSize = 200
+        private const val userFallbackLookupChunkSize = 8
     }
 }
 

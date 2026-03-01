@@ -64,6 +64,9 @@ private const val retryDelayMillis = 500L
 private const val uploadCheckpointTTLMillis = 24L * 60L * 60L * 1000L
 private const val uploadCheckpointCleanupIntervalMillis = 15L * 60L * 1000L
 private const val uploadCheckpointMaxEntries = 256
+private const val maxSyncedUserIDs = 180
+private const val maxUserBatchRequestSize = 200
+private const val userFallbackRequestChunkSize = 12
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 private val uploadChunkMediaType = "application/offset+octet-stream".toMediaType()
 private val uploadJson = Json {
@@ -210,6 +213,35 @@ class KeerV2Repository(
         return getId(rawUserID).trim()
     }
 
+    private fun pruneTrackedUserIDsLocked() {
+        val currentUserID = account.info.id.toString()
+        trackedUserIDs.removeAll { userID -> userID.isBlank() }
+        trackedUserIDs.add(currentUserID)
+
+        if (trackedUserIDs.size <= maxSyncedUserIDs) {
+            return
+        }
+
+        val iterator = trackedUserIDs.iterator()
+        while (trackedUserIDs.size > maxSyncedUserIDs && iterator.hasNext()) {
+            val candidate = iterator.next()
+            if (candidate == currentUserID) {
+                continue
+            }
+            iterator.remove()
+        }
+
+        if (!trackedUserIDs.contains(currentUserID)) {
+            if (trackedUserIDs.size >= maxSyncedUserIDs) {
+                val oldest = trackedUserIDs.firstOrNull { userID -> userID != currentUserID }
+                if (oldest != null) {
+                    trackedUserIDs.remove(oldest)
+                }
+            }
+            trackedUserIDs.add(currentUserID)
+        }
+    }
+
     private suspend fun ensureUserSyncStateLoaded() {
         if (userSyncStateLoaded) {
             return
@@ -227,6 +259,7 @@ class KeerV2Repository(
                 .distinct()
                 .toList()
             trackedUserIDs += account.info.id.toString()
+            pruneTrackedUserIDsLocked()
             userSyncStateLoaded = true
         }
     }
@@ -247,10 +280,11 @@ class KeerV2Repository(
 
         var updatedSnapshot: List<String>? = null
         userSyncStateMutex.withLock {
-            val beforeSize = trackedUserIDs.size
+            val beforeSnapshot = trackedUserIDs.toList()
             trackedUserIDs += normalizedIDs
             trackedUserIDs += account.info.id.toString()
-            if (trackedUserIDs.size != beforeSize) {
+            pruneTrackedUserIDsLocked()
+            if (trackedUserIDs.toList() != beforeSnapshot) {
                 updatedSnapshot = trackedUserIDs.toList()
             }
         }
@@ -340,36 +374,39 @@ class KeerV2Repository(
         }
 
         if (missingNetworkIDs.isNotEmpty()) {
-            val batchIDs = missingNetworkIDs.joinToString(",")
-            val batchResp = memosApi.getUsersBatch(batchIDs)
-            if (batchResp is ApiResponse.Success) {
-                batchResp.data.users.forEach { user ->
-                    val userID = getId(user.name)
-                    if (userID.isNotBlank()) {
-                        fetchedByID[userID] = user
+            val unresolvedIDs = linkedSetOf<String>()
+            missingNetworkIDs.chunked(maxUserBatchRequestSize).forEach { chunk ->
+                val batchResp = memosApi.getUsersBatch(chunk.joinToString(","))
+                if (batchResp is ApiResponse.Success) {
+                    batchResp.data.users.forEach { user ->
+                        val userID = getId(user.name)
+                        if (userID.isNotBlank()) {
+                            fetchedByID[userID] = user
+                        }
                     }
-                }
-                val unresolvedIDs = missingNetworkIDs
-                    .filterNot { userID -> fetchedByID.containsKey(userID) }
-                if (unresolvedIDs.isNotEmpty()) {
-                    val fallback = coroutineScope {
-                        unresolvedIDs.map { userID ->
-                            async { userID to memosApi.getUser(userID).getOrNull() }
-                        }.awaitAll()
+                    chunk.forEach { userID ->
+                        if (!fetchedByID.containsKey(userID)) {
+                            unresolvedIDs += userID
+                        }
                     }
-                    fallback.forEach { (userID, user) ->
-                        fetchedByID[userID] = user
+                } else {
+                    unresolvedIDs += chunk
+                }
+            }
+
+            if (unresolvedIDs.isNotEmpty()) {
+                unresolvedIDs
+                    .chunked(userFallbackRequestChunkSize)
+                    .forEach { chunk ->
+                        val fallback = coroutineScope {
+                            chunk.map { userID ->
+                                async { userID to memosApi.getUser(userID).getOrNull() }
+                            }.awaitAll()
+                        }
+                        fallback.forEach { (userID, user) ->
+                            fetchedByID[userID] = user
+                        }
                     }
-                }
-            } else {
-                val fallback = coroutineScope {
-                    missingNetworkIDs.map { userID ->
-                        async { userID to memosApi.getUser(userID).getOrNull() }
-                    }.awaitAll()
-                }
-                fallback.forEach { (userID, user) ->
-                    fetchedByID[userID] = user
-                }
             }
         }
 

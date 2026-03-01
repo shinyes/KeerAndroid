@@ -86,7 +86,7 @@ class MemoService @Inject constructor(
             }
             lastSyncAttemptTime = now
 
-            val preSyncResult = offlineSyncTaskScheduler.dispatch(
+            offlineSyncTaskScheduler.dispatch(
                 setOf(
                     OfflineSyncTask.AVATAR,
                     OfflineSyncTask.GROUP_OPERATIONS,
@@ -97,9 +97,8 @@ class MemoService @Inject constructor(
             )
             val memoSyncResult = offlineSyncTaskScheduler.dispatch(OfflineSyncTask.MEMOS)
 
-            val preSyncFailed = preSyncResult !is ApiResponse.Success
             val memoSyncFailed = memoSyncResult !is ApiResponse.Success
-            if (memoSyncFailed || preSyncFailed) {
+            if (memoSyncFailed) {
                 if (!force) {
                     consecutiveFailureCount += 1
                     backoffUntilTime = SyncTriggerPolicy.calculateBackoffUntil(
