@@ -168,10 +168,7 @@ class UserStateViewModel @Inject constructor(
         val account = currentAccount.first() as? Account.KeerV2 ?: return@withContext
         val normalizedIds = userIds
             .asSequence()
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .map { it.substringAfterLast('/') }
-            .filter { it.isNotEmpty() }
+            .mapNotNull(::normalizeCollaboratorUserID)
             .distinct()
             .toList()
         if (normalizedIds.isEmpty()) {
@@ -197,8 +194,8 @@ class UserStateViewModel @Inject constructor(
                     unresolved += chunk
                 } else {
                     batch.users.forEach { user ->
-                        val userID = user.name.substringAfterLast('/')
-                        if (userID.isNotBlank()) {
+                        val userID = normalizeCollaboratorUserID(user.name)
+                        if (userID != null) {
                             remoteUsersByID[userID] = user
                         }
                     }
@@ -284,6 +281,14 @@ class UserStateViewModel @Inject constructor(
         return runCatching {
             baseUrl.toUrl().toURI().resolve(avatarUrl).toString()
         }.getOrDefault(avatarUrl)
+    }
+
+    private fun normalizeCollaboratorUserID(raw: String): String? {
+        val normalized = raw.trim()
+            .substringAfterLast('/')
+            .substringBefore('|')
+            .trim()
+        return normalized.ifEmpty { null }
     }
 
     private companion object {
