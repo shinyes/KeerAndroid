@@ -1,11 +1,21 @@
 package site.lcyk.keer.ui.page.memos
 
 import android.net.Uri
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -13,15 +23,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.compose.ui.res.stringResource
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoEditGesture
+import site.lcyk.keer.R
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.RouteName
@@ -103,13 +116,15 @@ fun ExploreList(
                     showSyncStatus = false,
                     authorAvatarUrl = item.creator?.avatarUrl,
                     authorName = item.creator?.name,
+                    actionButton = { memoEntity ->
+                        ExploreMemoCardActionButton(memoEntity)
+                    },
                     onTagClick = { tag ->
                         rootNavController.navigate("${RouteName.TAG}/${Uri.encode(tag)}") {
                             launchSingleTop = true
                             restoreState = true
                         }
-                    },
-                    actionButton = { _ -> }
+                    }
                 )
             }
         }
@@ -152,4 +167,37 @@ private fun Memo.toExploreMemoEntity(accountKey: String): MemoEntity {
     }
     entity.tags = tags
     return entity
+}
+
+@Composable
+private fun ExploreMemoCardActionButton(memo: MemoEntity) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val clipboardManager = context.getSystemService(ClipboardManager::class.java)
+    val memoLabel = stringResource(R.string.memo)
+    val hapticFeedback = LocalHapticFeedback.current
+
+    IconButton(onClick = {
+        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+        menuExpanded = true
+    }) {
+        Icon(Icons.Filled.MoreVert, contentDescription = null)
+    }
+    DropdownMenu(
+        expanded = menuExpanded,
+        onDismissRequest = { menuExpanded = false }
+    ) {
+        DropdownMenuItem(
+            text = { Text(text = stringResource(R.string.copy)) },
+            onClick = {
+                clipboardManager?.setPrimaryClip(
+                    ClipData.newPlainText(memoLabel, memo.content)
+                )
+                menuExpanded = false
+            },
+            leadingIcon = {
+                Icon(Icons.Outlined.ContentCopy, contentDescription = null)
+            }
+        )
+    }
 }

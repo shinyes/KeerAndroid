@@ -287,7 +287,11 @@ fun GroupChatPage(
                     }
                     MemosCard(
                         memo = adaptedMemo,
-                        onClick = { },
+                        onClick = { selectedMemo ->
+                            navController.navigate(
+                                "${RouteName.MEMO_DETAIL}?memoId=${Uri.encode(selectedMemo.identifier)}"
+                            )
+                        },
                         editGesture = editGesture,
                         previewMode = true,
                         showSyncStatus = true,
@@ -429,65 +433,67 @@ private fun GroupMemoCardActionButton(
     var menuExpanded by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
-    IconButton(onClick = { menuExpanded = true }) {
-        Icon(Icons.Filled.MoreVert, contentDescription = null)
-    }
-    DropdownMenu(
-        expanded = menuExpanded,
-        onDismissRequest = { menuExpanded = false }
-    ) {
-        if (pinned) {
-            DropdownMenuItem(
-                text = { Text(R.string.unpin.string) },
-                onClick = {
-                    onTogglePinned()
-                    menuExpanded = false
-                },
-                leadingIcon = {
-                    Icon(Icons.Outlined.PinDrop, contentDescription = null)
-                },
-                colors = MenuDefaults.itemColors(
-                    textColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    leadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            )
-        } else {
-            DropdownMenuItem(
-                text = { Text(R.string.pin.string) },
-                onClick = {
-                    onTogglePinned()
-                    menuExpanded = false
-                },
-                leadingIcon = {
-                    Icon(Icons.Outlined.PushPin, contentDescription = null)
-                }
-            )
+    Box {
+        IconButton(onClick = { menuExpanded = true }) {
+            Icon(Icons.Filled.MoreVert, contentDescription = null)
         }
-        if (canManage) {
-            DropdownMenuItem(
-                text = { Text(R.string.edit.string) },
-                onClick = {
-                    onEdit()
-                    menuExpanded = false
-                },
-                leadingIcon = {
-                    Icon(Icons.Outlined.Edit, contentDescription = null)
-                }
-            )
-            DropdownMenuItem(
-                text = { Text(R.string.delete.string) },
-                onClick = {
-                    showDeleteDialog = true
-                    menuExpanded = false
-                },
-                colors = MenuDefaults.itemColors(
-                    textColor = MaterialTheme.colorScheme.error,
-                    leadingIconColor = MaterialTheme.colorScheme.error
-                ),
-                leadingIcon = {
-                    Icon(Icons.Outlined.Delete, contentDescription = null)
-                }
-            )
+        DropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { menuExpanded = false }
+        ) {
+            if (pinned) {
+                DropdownMenuItem(
+                    text = { Text(R.string.unpin.string) },
+                    onClick = {
+                        onTogglePinned()
+                        menuExpanded = false
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Outlined.PinDrop, contentDescription = null)
+                    },
+                    colors = MenuDefaults.itemColors(
+                        textColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        leadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                )
+            } else {
+                DropdownMenuItem(
+                    text = { Text(R.string.pin.string) },
+                    onClick = {
+                        onTogglePinned()
+                        menuExpanded = false
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Outlined.PushPin, contentDescription = null)
+                    }
+                )
+            }
+            if (canManage) {
+                DropdownMenuItem(
+                    text = { Text(R.string.edit.string) },
+                    onClick = {
+                        onEdit()
+                        menuExpanded = false
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Outlined.Edit, contentDescription = null)
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text(R.string.delete.string) },
+                    onClick = {
+                        showDeleteDialog = true
+                        menuExpanded = false
+                    },
+                    colors = MenuDefaults.itemColors(
+                        textColor = MaterialTheme.colorScheme.error,
+                        leadingIconColor = MaterialTheme.colorScheme.error
+                    ),
+                    leadingIcon = {
+                        Icon(Icons.Outlined.Delete, contentDescription = null)
+                    }
+                )
+            }
         }
     }
 

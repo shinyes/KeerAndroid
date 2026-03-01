@@ -35,13 +35,21 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
+import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.data.model.CachedMemoItem
+import site.lcyk.keer.data.model.MemoVisibility
+import site.lcyk.keer.data.model.PendingGroupMemo
+import site.lcyk.keer.data.model.Settings
+import site.lcyk.keer.data.model.toMemo
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
+import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.CollaboratorAvatarStack
 import site.lcyk.keer.ui.component.CollaboratorListDialog
@@ -55,6 +63,7 @@ import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import java.net.URLEncoder
+import java.time.Instant
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,14 +71,26 @@ fun MemoDetailPage(
     navController: NavHostController,
     memoIdentifier: String
 ) {
+    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsState()
+    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
     val scope = rememberCoroutineScope()
-    val memo = remember(memosViewModel.memos.toList(), memoIdentifier) {
+    val localMemo = remember(memosViewModel.memos.toList(), memoIdentifier) {
         memosViewModel.memos.firstOrNull { it.identifier == memoIdentifier }
+    }
+    val fallbackMemo = remember(memoIdentifier, settings.currentUser, settings.usersList) {
+        resolveFallbackMemoEntity(
+            settings = settings,
+            memoIdentifier = memoIdentifier
+        )
+    }
+    val memo = localMemo ?: fallbackMemo
+    val readOnlyMemoDetail = remember(memoIdentifier) {
+        memoIdentifier.startsWith(EXPLORE_MEMO_PREFIX) || memoIdentifier.startsWith(GROUP_MEMO_PREFIX)
     }
     val collaboratorIds = remember(memo?.tags) { extractCollaboratorIds(memo?.tags.orEmpty()) }
     val displayTags = remember(memo?.tags) {
@@ -101,7 +122,9 @@ fun MemoDetailPage(
                     }
                 },
                 actions = {
-                    memo?.let { MemosCardActionButton(it) }
+                    if (!readOnlyMemoDetail) {
+                        memo?.let { MemosCardActionButton(it) }
+                    }
                 }
             )
         }
@@ -184,19 +207,21 @@ fun MemoDetailPage(
                 memo = memo,
                 selectable = true,
                 checkboxChange = { checked, startOffset, endOffset ->
-                    scope.launch {
-                        var text = memo.content.substring(startOffset, endOffset)
-                        text = if (checked) {
-                            text.replace("[ ]", "[x]")
-                        } else {
-                            text.replace("[x]", "[ ]")
+                    if (!readOnlyMemoDetail) {
+                        scope.launch {
+                            var text = memo.content.substring(startOffset, endOffset)
+                            text = if (checked) {
+                                text.replace("[ ]", "[x]")
+                            } else {
+                                text.replace("[x]", "[ ]")
+                            }
+                            memosViewModel.editMemo(
+                                memo.identifier,
+                                memo.content.replaceRange(startOffset, endOffset, text),
+                                memo.resources,
+                                memo.visibility
+                            )
                         }
-                        memosViewModel.editMemo(
-                            memo.identifier,
-                            memo.content.replaceRange(startOffset, endOffset, text),
-                            memo.resources,
-                            memo.visibility
-                        )
                     }
                 }
             )
@@ -211,3 +236,149 @@ fun MemoDetailPage(
         }
     }
 }
+
+private data class ParsedGroupMemoIdentifier(
+    val groupId: String,
+    val memoRemoteId: String
+)
+
+private fun resolveFallbackMemoEntity(
+    settings: Settings,
+    memoIdentifier: String
+): MemoEntity? {
+    val userSettings = settings.usersList
+        .firstOrNull { user -> user.accountKey == settings.currentUser }
+        ?.settings
+        ?: return null
+    val accountKey = settings.currentUser.ifBlank { "cached" }
+
+    if (memoIdentifier.startsWith(EXPLORE_MEMO_PREFIX)) {
+        val remoteId = memoIdentifier.removePrefix(EXPLORE_MEMO_PREFIX).trim()
+        if (remoteId.isEmpty()) {
+            return null
+        }
+        return userSettings.cachedExploreMemos
+            .firstOrNull { memo -> memo.remoteId == remoteId }
+            ?.toMemoEntity(
+                identifier = memoIdentifier,
+                accountKey = accountKey
+            )
+    }
+
+    if (memoIdentifier.startsWith(GROUP_MEMO_PREFIX)) {
+        val parsed = parseGroupMemoIdentifier(memoIdentifier) ?: return null
+        val pinned = userSettings.pinnedGroupMemoKeys.contains(
+            groupMemoKey(parsed.groupId, parsed.memoRemoteId)
+        )
+
+        if (parsed.memoRemoteId.startsWith(LOCAL_GROUP_MESSAGE_PREFIX)) {
+            val localId = parsed.memoRemoteId.removePrefix(LOCAL_GROUP_MESSAGE_PREFIX).trim()
+            if (localId.isNotEmpty()) {
+                userSettings.pendingGroupMemos
+                    .firstOrNull { memo ->
+                        memo.groupId == parsed.groupId && memo.localId == localId
+                    }
+                    ?.let { pendingMemo ->
+                        return pendingMemo.toMemoEntity(
+                            identifier = memoIdentifier,
+                            remoteId = parsed.memoRemoteId,
+                            accountKey = accountKey,
+                            pinned = pinned
+                        )
+                    }
+            }
+        }
+
+        return userSettings.cachedGroupMemos
+            .firstOrNull { memo ->
+                memo.groupId == parsed.groupId && memo.remoteId == parsed.memoRemoteId
+            }
+            ?.toMemoEntity(
+                identifier = memoIdentifier,
+                accountKey = accountKey,
+                pinnedOverride = pinned
+            )
+    }
+
+    return null
+}
+
+private fun parseGroupMemoIdentifier(memoIdentifier: String): ParsedGroupMemoIdentifier? {
+    if (!memoIdentifier.startsWith(GROUP_MEMO_PREFIX)) {
+        return null
+    }
+    val payload = memoIdentifier.removePrefix(GROUP_MEMO_PREFIX)
+    val parts = payload.split(":", limit = 2)
+    if (parts.size != 2) {
+        return null
+    }
+    val groupId = parts[0].trim()
+    val memoRemoteId = parts[1].trim()
+    if (groupId.isEmpty() || memoRemoteId.isEmpty()) {
+        return null
+    }
+    return ParsedGroupMemoIdentifier(
+        groupId = groupId,
+        memoRemoteId = memoRemoteId
+    )
+}
+
+private fun groupMemoKey(groupId: String, memoRemoteId: String): String {
+    return "$groupId|$memoRemoteId"
+}
+
+private fun CachedMemoItem.toMemoEntity(
+    identifier: String,
+    accountKey: String,
+    pinnedOverride: Boolean? = null
+): MemoEntity {
+    val memo = toMemo()
+    val syncedAt = memo.updatedAt ?: memo.date
+    val entity = MemoEntity(
+        identifier = identifier,
+        remoteId = memo.remoteId,
+        accountKey = accountKey,
+        content = memo.content,
+        date = memo.date,
+        visibility = memo.visibility,
+        pinned = pinnedOverride ?: memo.pinned,
+        archived = memo.archived,
+        latitude = memo.latitude,
+        longitude = memo.longitude,
+        needsSync = false,
+        isDeleted = false,
+        lastModified = syncedAt,
+        lastSyncedAt = syncedAt
+    )
+    entity.tags = memo.tags
+    return entity
+}
+
+private fun PendingGroupMemo.toMemoEntity(
+    identifier: String,
+    remoteId: String,
+    accountKey: String,
+    pinned: Boolean
+): MemoEntity {
+    val createdAt = Instant.ofEpochMilli(createdAtEpochMillis)
+    val entity = MemoEntity(
+        identifier = identifier,
+        remoteId = remoteId,
+        accountKey = accountKey,
+        content = content,
+        date = createdAt,
+        visibility = MemoVisibility.PROTECTED,
+        pinned = pinned,
+        archived = false,
+        needsSync = true,
+        isDeleted = false,
+        lastModified = createdAt,
+        lastSyncedAt = null
+    )
+    entity.tags = normalizeTagList(tags)
+    return entity
+}
+
+private const val EXPLORE_MEMO_PREFIX = "explore:"
+private const val GROUP_MEMO_PREFIX = "group:"
+private const val LOCAL_GROUP_MESSAGE_PREFIX = "local:"
