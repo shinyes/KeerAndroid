@@ -63,6 +63,8 @@ class SyncingRepository(
 
     private val accountKey = account.accountKey()
     private var currentUser: User = account.toUser()
+    @Volatile
+    private var lastCurrentUserRefreshAtMillis: Long = 0L
     private val operationMutex = Mutex()
     private val operationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pendingDetailedSyncError: String? = null
@@ -570,7 +572,7 @@ class SyncingRepository(
     }
 
     private suspend fun syncInternal(): ApiResponse<Unit> {
-        val currentUserSync = refreshCurrentUserFromRemoteStrict()
+        val currentUserSync = refreshCurrentUserFromRemoteIfNeeded()
         if (currentUserSync !is ApiResponse.Success) {
             return currentUserSync
         }
@@ -758,7 +760,15 @@ class SyncingRepository(
         }
     }
 
-    private suspend fun refreshCurrentUserFromRemoteStrict(): ApiResponse<Unit> {
+    private suspend fun refreshCurrentUserFromRemoteIfNeeded(): ApiResponse<Unit> {
+        val now = System.currentTimeMillis()
+        if (
+            lastCurrentUserRefreshAtMillis > 0L &&
+            now - lastCurrentUserRefreshAtMillis < CURRENT_USER_REFRESH_INTERVAL_MILLIS
+        ) {
+            return ApiResponse.Success(Unit)
+        }
+
         val remoteUser = try {
             remoteRepository.getCurrentUser()
         } catch (e: Throwable) {
@@ -768,6 +778,7 @@ class SyncingRepository(
         return when (remoteUser) {
             is ApiResponse.Success -> {
                 currentUser = remoteUser.data
+                lastCurrentUserRefreshAtMillis = now
                 try {
                     onUserSynced(remoteUser.data)
                     ApiResponse.Success(Unit)
@@ -1450,6 +1461,7 @@ class SyncingRepository(
         private const val ATTACHMENT_UPLOAD_FAILED_MESSAGE =
             "Failed to upload one or more attachments during sync"
         private const val MAX_UPLOADED_THUMBNAIL_BYTES = 2 * 1024 * 1024
+        private const val CURRENT_USER_REFRESH_INTERVAL_MILLIS = 5 * 60 * 1000L
     }
 
 }

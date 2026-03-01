@@ -67,6 +67,7 @@ private const val uploadCheckpointMaxEntries = 256
 private const val maxSyncedUserIDs = 180
 private const val maxUserBatchRequestSize = 200
 private const val userFallbackRequestChunkSize = 12
+private const val syncedUserIDPersistDebounceMillis = 15_000L
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 private val uploadChunkMediaType = "application/offset+octet-stream".toMediaType()
 private val uploadJson = Json {
@@ -102,6 +103,10 @@ class KeerV2Repository(
     private var userSyncAnchorCache: Instant? = null
     @Volatile
     private var userSyncStateLoaded: Boolean = false
+    @Volatile
+    private var syncedUserIDsDirty: Boolean = false
+    @Volatile
+    private var lastSyncedUserIDsPersistAtMillis: Long = 0L
 
     private fun convertResource(resource: KeerV2Resource): Resource {
         return Resource(
@@ -260,6 +265,8 @@ class KeerV2Repository(
                 .toList()
             trackedUserIDs += account.info.id.toString()
             pruneTrackedUserIDsLocked()
+            syncedUserIDsDirty = false
+            lastSyncedUserIDsPersistAtMillis = System.currentTimeMillis()
             userSyncStateLoaded = true
         }
     }
@@ -278,18 +285,50 @@ class KeerV2Repository(
             return
         }
 
-        var updatedSnapshot: List<String>? = null
+        var changed = false
         userSyncStateMutex.withLock {
             val beforeSnapshot = trackedUserIDs.toList()
             trackedUserIDs += normalizedIDs
             trackedUserIDs += account.info.id.toString()
             pruneTrackedUserIDsLocked()
             if (trackedUserIDs.toList() != beforeSnapshot) {
-                updatedSnapshot = trackedUserIDs.toList()
+                changed = true
+                syncedUserIDsDirty = true
             }
         }
-        updatedSnapshot?.let { snapshot ->
-            writeSyncedUserIDs(snapshot)
+        if (changed) {
+            persistTrackedUserIDsIfNeeded(force = false)
+        }
+    }
+
+    private suspend fun persistTrackedUserIDsIfNeeded(force: Boolean) {
+        ensureUserSyncStateLoaded()
+        var snapshot: List<String>? = null
+        val now = System.currentTimeMillis()
+        userSyncStateMutex.withLock {
+            if (!syncedUserIDsDirty) {
+                return@withLock
+            }
+            val shouldPersistNow = force ||
+                lastSyncedUserIDsPersistAtMillis <= 0L ||
+                now - lastSyncedUserIDsPersistAtMillis >= syncedUserIDPersistDebounceMillis
+            if (!shouldPersistNow) {
+                return@withLock
+            }
+            snapshot = trackedUserIDs.toList()
+            syncedUserIDsDirty = false
+            lastSyncedUserIDsPersistAtMillis = now
+        }
+
+        val pendingSnapshot = snapshot ?: return
+        try {
+            writeSyncedUserIDs(pendingSnapshot)
+        } catch (e: Throwable) {
+            userSyncStateMutex.withLock {
+                syncedUserIDsDirty = true
+                lastSyncedUserIDsPersistAtMillis = 0L
+            }
+            throw e
         }
     }
 
@@ -691,6 +730,7 @@ class KeerV2Repository(
                 trackUserIDs(changesResponse.data.users.map { user -> user.name })
                 val nextAnchor = changesResponse.data.syncAnchor ?: now
                 persistUserSyncAnchor(nextAnchor)
+                persistTrackedUserIDsIfNeeded(force = true)
                 return ApiResponse.Success(Unit)
             }
             is ApiResponse.Failure.Error -> {
@@ -715,6 +755,7 @@ class KeerV2Repository(
                 cacheFetchedUsers(batchResponse.data.users)
                 trackUserIDs(batchResponse.data.users.map { user -> user.name })
                 persistUserSyncAnchor(now)
+                persistTrackedUserIDsIfNeeded(force = true)
                 return ApiResponse.Success(Unit)
             }
             is ApiResponse.Failure.Error -> {
