@@ -91,7 +91,8 @@ class MemoService @Inject constructor(
                     OfflineSyncTask.AVATAR,
                     OfflineSyncTask.GROUP_OPERATIONS,
                     OfflineSyncTask.GROUP_TAGS,
-                    OfflineSyncTask.GROUP_MESSAGES
+                    OfflineSyncTask.GROUP_MESSAGES,
+                    OfflineSyncTask.USERS
                 )
             )
             val memoSyncResult = offlineSyncTaskScheduler.dispatch(OfflineSyncTask.MEMOS)

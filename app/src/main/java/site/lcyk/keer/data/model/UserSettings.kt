@@ -26,4 +26,6 @@ data class UserSettings(
     val cachedExploreMemos: List<CachedMemoItem> = emptyList(),
     val cachedGroupTags: List<CachedGroupTagSet> = emptyList(),
     val memoSyncAnchor: String = "",
+    val userSyncAnchor: String = "",
+    val syncedUserIds: List<String> = emptyList(),
 )

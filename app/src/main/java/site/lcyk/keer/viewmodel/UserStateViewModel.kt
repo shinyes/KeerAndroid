@@ -186,33 +186,55 @@ class UserStateViewModel @Inject constructor(
         }
 
         val api = accountService.createKeerV2Client(account.info.host, account.info.accessToken).second
-        val fetched = kotlinx.coroutines.coroutineScope {
-            missingIds.map { userId ->
-                async {
-                    if (userId == account.info.id.toString()) {
-                        val current = currentUser
-                        userId to CollaboratorProfile(
-                            id = userId,
-                            name = current?.name?.takeIf { it.isNotBlank() }
-                                ?: account.info.name.ifBlank { userId },
-                            avatarUrl = resolveAvatarUrl(
-                                account.info.host,
-                                current?.avatarUrl.orEmpty().ifBlank { account.info.avatarUrl }
-                            )
-                        )
-                    } else {
-                        val user = api.getUser(userId).getOrNull()
-                        userId to CollaboratorProfile(
-                            id = userId,
-                            name = user?.displayName?.takeIf { it.isNotBlank() }
-                                ?: user?.username?.takeIf { it.isNotBlank() }
-                                ?: userId,
-                            avatarUrl = resolveAvatarUrl(account.info.host, user?.avatarUrl.orEmpty())
-                        )
+        val currentUserID = account.info.id.toString()
+        val remoteIDs = missingIds.filterNot { userId -> userId == currentUserID }
+        val remoteUsersByID = hashMapOf<String, KeerV2User>()
+        if (remoteIDs.isNotEmpty()) {
+            val batch = api.getUsersBatch(remoteIDs.joinToString(",")).getOrNull()
+            batch?.users?.forEach { user ->
+                val userID = user.name.substringAfterLast('/')
+                if (userID.isNotBlank()) {
+                    remoteUsersByID[userID] = user
+                }
+            }
+            val unresolved = remoteIDs.filterNot { userID -> remoteUsersByID.containsKey(userID) }
+            if (unresolved.isNotEmpty()) {
+                val fallbackUsers = kotlinx.coroutines.coroutineScope {
+                    unresolved.map { userId ->
+                        async { userId to api.getUser(userId).getOrNull() }
+                    }.awaitAll()
+                }
+                fallbackUsers.forEach { (userId, user) ->
+                    if (user != null) {
+                        remoteUsersByID[userId] = user
                     }
                 }
-            }.awaitAll()
-        }.toMap()
+            }
+        }
+
+        val fetched = missingIds.associateWith { userId ->
+            if (userId == currentUserID) {
+                val current = currentUser
+                CollaboratorProfile(
+                    id = userId,
+                    name = current?.name?.takeIf { it.isNotBlank() }
+                        ?: account.info.name.ifBlank { userId },
+                    avatarUrl = resolveAvatarUrl(
+                        account.info.host,
+                        current?.avatarUrl.orEmpty().ifBlank { account.info.avatarUrl }
+                    )
+                )
+            } else {
+                val user = remoteUsersByID[userId]
+                CollaboratorProfile(
+                    id = userId,
+                    name = user?.displayName?.takeIf { it.isNotBlank() }
+                        ?: user?.username?.takeIf { it.isNotBlank() }
+                        ?: userId,
+                    avatarUrl = resolveAvatarUrl(account.info.host, user?.avatarUrl.orEmpty())
+                )
+            }
+        }
 
         collaboratorAvatarMutex.withLock {
             val merged = _collaboratorProfiles.value.toMutableMap()

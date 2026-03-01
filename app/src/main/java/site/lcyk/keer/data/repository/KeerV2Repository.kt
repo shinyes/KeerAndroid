@@ -2,14 +2,18 @@ package site.lcyk.keer.data.repository
 
 import android.content.Context
 import com.skydoves.sandwich.ApiResponse
+import com.skydoves.sandwich.StatusCode
 import com.skydoves.sandwich.getOrNull
 import com.skydoves.sandwich.mapSuccess
 import com.skydoves.sandwich.onSuccess
+import com.skydoves.sandwich.retrofit.statusCode
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -23,6 +27,7 @@ import site.lcyk.keer.data.api.KeerV2CreateMemoRequest
 import site.lcyk.keer.data.api.KeerV2Memo
 import site.lcyk.keer.data.api.KeerV2Resource
 import site.lcyk.keer.data.api.KeerV2State
+import site.lcyk.keer.data.api.KeerV2User
 import site.lcyk.keer.data.api.MemosVisibility
 import site.lcyk.keer.data.api.UpdateMemoRequest
 import site.lcyk.keer.data.api.UpdateGroupRequest
@@ -72,6 +77,10 @@ class KeerV2Repository(
     private val account: Account.KeerV2,
     private val okHttpClient: OkHttpClient,
     appContext: Context,
+    private val readUserSyncAnchor: suspend () -> Instant? = { null },
+    private val writeUserSyncAnchor: suspend (Instant) -> Unit = {},
+    private val readSyncedUserIDs: suspend () -> List<String> = { emptyList() },
+    private val writeSyncedUserIDs: suspend (List<String>) -> Unit = {},
     private val memoContentCodec: MemoContentCodec = PlaintextMemoContentCodec
 ): RemoteRepository() {
     private val uploadCheckpointStore = ResumableUploadCheckpointStore(
@@ -82,6 +91,14 @@ class KeerV2Repository(
     )
     @Volatile
     private var lastCheckpointCleanupAtMillis: Long = 0L
+    private val userProfileCacheMutex = Mutex()
+    private val userProfileCache = mutableMapOf<String, KeerV2User>()
+    private val userSyncStateMutex = Mutex()
+    private val trackedUserIDs = mutableSetOf<String>()
+    @Volatile
+    private var userSyncAnchorCache: Instant? = null
+    @Volatile
+    private var userSyncStateLoaded: Boolean = false
 
     private fun convertResource(resource: KeerV2Resource): Resource {
         return Resource(
@@ -189,6 +206,200 @@ class KeerV2Repository(
         return identifier.substringBefore('|')
     }
 
+    private fun normalizeUserID(rawUserID: String): String {
+        return getId(rawUserID).trim()
+    }
+
+    private suspend fun ensureUserSyncStateLoaded() {
+        if (userSyncStateLoaded) {
+            return
+        }
+        userSyncStateMutex.withLock {
+            if (userSyncStateLoaded) {
+                return@withLock
+            }
+            userSyncAnchorCache = readUserSyncAnchor()
+            trackedUserIDs.clear()
+            trackedUserIDs += readSyncedUserIDs()
+                .asSequence()
+                .map(::normalizeUserID)
+                .filter { userID -> userID.isNotEmpty() }
+                .distinct()
+                .toList()
+            trackedUserIDs += account.info.id.toString()
+            userSyncStateLoaded = true
+        }
+    }
+
+    private suspend fun trackUserIDs(userIDs: Collection<String>) {
+        if (userIDs.isEmpty()) {
+            return
+        }
+        ensureUserSyncStateLoaded()
+        val normalizedIDs = userIDs
+            .asSequence()
+            .map(::normalizeUserID)
+            .filter { userID -> userID.isNotEmpty() }
+            .toList()
+        if (normalizedIDs.isEmpty()) {
+            return
+        }
+
+        var updatedSnapshot: List<String>? = null
+        userSyncStateMutex.withLock {
+            val beforeSize = trackedUserIDs.size
+            trackedUserIDs += normalizedIDs
+            trackedUserIDs += account.info.id.toString()
+            if (trackedUserIDs.size != beforeSize) {
+                updatedSnapshot = trackedUserIDs.toList()
+            }
+        }
+        updatedSnapshot?.let { snapshot ->
+            writeSyncedUserIDs(snapshot)
+        }
+    }
+
+    private suspend fun persistUserSyncAnchor(anchor: Instant) {
+        val normalized = anchor
+        userSyncStateMutex.withLock {
+            userSyncAnchorCache = normalized
+        }
+        writeUserSyncAnchor(normalized)
+    }
+
+    private suspend fun cacheFetchedUsers(users: Collection<KeerV2User>) {
+        if (users.isEmpty()) {
+            return
+        }
+        userProfileCacheMutex.withLock {
+            users.forEach(::cacheUserProfileLocked)
+        }
+    }
+
+    private fun buildCurrentAccountUserProfile(): KeerV2User {
+        val accountId = account.info.id.toString()
+        val fallbackName = account.info.name.trim().ifBlank { accountId }
+        return KeerV2User(
+            name = "users/$accountId",
+            username = fallbackName,
+            displayName = fallbackName,
+            avatarUrl = account.info.avatarUrl.ifBlank { null },
+            createTime = if (account.info.startDateEpochSecond > 0L) {
+                Instant.ofEpochSecond(account.info.startDateEpochSecond)
+            } else {
+                null
+            },
+            updateTime = Instant.now()
+        )
+    }
+
+    private fun cacheUserProfileLocked(user: KeerV2User) {
+        val keys = listOf(user.name, getId(user.name))
+            .map { key -> key.trim() }
+            .filter { key -> key.isNotEmpty() }
+            .distinct()
+        keys.forEach { key ->
+            userProfileCache[key] = user
+        }
+    }
+
+    private suspend fun getUsersByIDs(userIDs: Collection<String>): Map<String, KeerV2User> {
+        val normalizedIDs = userIDs
+            .asSequence()
+            .map(::normalizeUserID)
+            .map { userID -> userID.trim() }
+            .filter { userID -> userID.isNotEmpty() }
+            .distinct()
+            .toList()
+        if (normalizedIDs.isEmpty()) {
+            return emptyMap()
+        }
+        trackUserIDs(normalizedIDs)
+
+        val missingIDs = mutableListOf<String>()
+        val usersByID = mutableMapOf<String, KeerV2User>()
+        userProfileCacheMutex.withLock {
+            normalizedIDs.forEach { userID ->
+                val cached = userProfileCache[userID]
+                if (cached != null) {
+                    usersByID[userID] = cached
+                } else {
+                    missingIDs += userID
+                }
+            }
+        }
+
+        val missingNetworkIDs = missingIDs
+            .filterNot { userID -> userID == account.info.id.toString() }
+            .distinct()
+            .toMutableList()
+
+        val fetchedByID = mutableMapOf<String, KeerV2User?>()
+        if (missingIDs.any { userID -> userID == account.info.id.toString() }) {
+            fetchedByID[account.info.id.toString()] = buildCurrentAccountUserProfile()
+        }
+
+        if (missingNetworkIDs.isNotEmpty()) {
+            val batchIDs = missingNetworkIDs.joinToString(",")
+            val batchResp = memosApi.getUsersBatch(batchIDs)
+            if (batchResp is ApiResponse.Success) {
+                batchResp.data.users.forEach { user ->
+                    val userID = getId(user.name)
+                    if (userID.isNotBlank()) {
+                        fetchedByID[userID] = user
+                    }
+                }
+                val unresolvedIDs = missingNetworkIDs
+                    .filterNot { userID -> fetchedByID.containsKey(userID) }
+                if (unresolvedIDs.isNotEmpty()) {
+                    val fallback = coroutineScope {
+                        unresolvedIDs.map { userID ->
+                            async { userID to memosApi.getUser(userID).getOrNull() }
+                        }.awaitAll()
+                    }
+                    fallback.forEach { (userID, user) ->
+                        fetchedByID[userID] = user
+                    }
+                }
+            } else {
+                val fallback = coroutineScope {
+                    missingNetworkIDs.map { userID ->
+                        async { userID to memosApi.getUser(userID).getOrNull() }
+                    }.awaitAll()
+                }
+                fallback.forEach { (userID, user) ->
+                    fetchedByID[userID] = user
+                }
+            }
+        }
+
+        return userProfileCacheMutex.withLock {
+            fetchedByID.forEach { (userID, user) ->
+                if (user == null) {
+                    return@forEach
+                }
+                cacheUserProfileLocked(user)
+                usersByID[userID] = userProfileCache[userID] ?: user
+            }
+            normalizedIDs.forEach { userID ->
+                val cached = userProfileCache[userID]
+                if (cached != null) {
+                    usersByID.putIfAbsent(userID, cached)
+                }
+            }
+
+            usersByID.values
+                .flatMap { user ->
+                    listOf(user.name, getId(user.name))
+                        .map { key -> key.trim() }
+                        .filter { key -> key.isNotEmpty() }
+                        .distinct()
+                        .map { key -> key to user }
+                }
+                .toMap()
+        }
+    }
+
     override suspend fun listMemos(): ApiResponse<List<Memo>> {
         val accountId = account.info.id
         val collaboratorFilter = buildCollaboratorFilterExpression(accountId.toString())
@@ -258,13 +469,8 @@ class KeerV2Repository(
         if (resp !is ApiResponse.Success) {
             return resp.mapSuccess { emptyList<Memo>() to null }
         }
-        val users = resp.data.memos.mapNotNull { it.creator }.map { getId(it) }.toSet()
-        val userResp = coroutineScope {
-            users.map { userId ->
-                async { memosApi.getUser(userId).getOrNull() }
-            }.awaitAll()
-        }.filterNotNull()
-        val userMap = mapOf(*userResp.map { user -> user.name to user }.toTypedArray())
+        val users = resp.data.memos.mapNotNull { it.creator }.toSet()
+        val userMap = getUsersByIDs(users)
 
         return resp
             .mapSuccess { this.memos.map {
@@ -383,18 +589,8 @@ class KeerV2Repository(
 
         val creatorIDs = response.data.messages
             .map { message -> message.creator }
-            .map { creator -> getId(creator) }
             .distinct()
-        val users = coroutineScope {
-            creatorIDs.map { userID ->
-                async { memosApi.getUser(userID).getOrNull() }
-            }.awaitAll()
-        }.filterNotNull()
-        val userMap = users
-            .flatMap { user ->
-                listOf(user.name, getId(user.name)).distinct().map { key -> key to user }
-            }
-            .toMap()
+        val userMap = getUsersByIDs(creatorIDs)
 
         return response.mapSuccess {
             messages.map { message ->
@@ -422,15 +618,77 @@ class KeerV2Repository(
             return response.mapSuccess { convertGroupMessage(this, emptyMap()) }
         }
 
-        val creator = memosApi.getUser(getId(response.data.creator)).getOrNull()
-        val userMap = if (creator == null) {
-            emptyMap()
-        } else {
-            listOf(creator.name, getId(creator.name))
-                .distinct()
-                .associateWith { creator }
-        }
+        val userMap = getUsersByIDs(listOf(response.data.creator))
         return ApiResponse.Success(convertGroupMessage(response.data, userMap))
+    }
+
+    override suspend fun syncKnownUsers(): ApiResponse<Unit> {
+        ensureUserSyncStateLoaded()
+
+        val syncSnapshot = userSyncStateMutex.withLock {
+            trackedUserIDs += account.info.id.toString()
+            Pair(
+                trackedUserIDs.toList(),
+                userSyncAnchorCache ?: Instant.EPOCH
+            )
+        }
+        val tracked = syncSnapshot.first
+            .asSequence()
+            .map(::normalizeUserID)
+            .filter { userID -> userID.isNotEmpty() }
+            .distinct()
+            .toList()
+        if (tracked.isEmpty()) {
+            return ApiResponse.Success(Unit)
+        }
+
+        val now = Instant.now()
+        val changesResponse = memosApi.listUserChanges(
+            since = syncSnapshot.second.toString(),
+            ids = tracked.joinToString(",")
+        )
+
+        when (changesResponse) {
+            is ApiResponse.Success -> {
+                cacheFetchedUsers(changesResponse.data.users)
+                trackUserIDs(changesResponse.data.users.map { user -> user.name })
+                val nextAnchor = changesResponse.data.syncAnchor ?: now
+                persistUserSyncAnchor(nextAnchor)
+                return ApiResponse.Success(Unit)
+            }
+            is ApiResponse.Failure.Error -> {
+                val statusCode = changesResponse.statusCode
+                val shouldFallback = statusCode == StatusCode.NotFound ||
+                    statusCode.code == 405 ||
+                    statusCode == StatusCode.BadRequest
+                if (!shouldFallback) {
+                    return ApiResponse.exception(
+                        IllegalStateException("sync users failed: HTTP ${statusCode.code}")
+                    )
+                }
+            }
+            is ApiResponse.Failure.Exception -> {
+                return ApiResponse.exception(changesResponse.throwable)
+            }
+        }
+
+        val batchResponse = memosApi.getUsersBatch(tracked.joinToString(","))
+        when (batchResponse) {
+            is ApiResponse.Success -> {
+                cacheFetchedUsers(batchResponse.data.users)
+                trackUserIDs(batchResponse.data.users.map { user -> user.name })
+                persistUserSyncAnchor(now)
+                return ApiResponse.Success(Unit)
+            }
+            is ApiResponse.Failure.Error -> {
+                return ApiResponse.exception(
+                    IllegalStateException("sync users fallback failed: HTTP ${batchResponse.statusCode.code}")
+                )
+            }
+            is ApiResponse.Failure.Exception -> {
+                return ApiResponse.exception(batchResponse.throwable)
+            }
+        }
     }
 
     override suspend fun listGroupTags(groupId: String): ApiResponse<List<String>> {

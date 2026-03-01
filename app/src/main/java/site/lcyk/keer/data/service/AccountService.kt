@@ -147,7 +147,24 @@ class AccountService @Inject constructor(
             }
             is Account.KeerV2 -> {
                 val (client, memosApi) = createKeerV2Client(account.info.host, account.info.accessToken)
-                val remote = KeerV2Repository(memosApi, account, client, context.applicationContext)
+                val remote = KeerV2Repository(
+                    memosApi = memosApi,
+                    account = account,
+                    okHttpClient = client,
+                    appContext = context.applicationContext,
+                    readUserSyncAnchor = {
+                        readUserSyncAnchor(account.accountKey())
+                    },
+                    writeUserSyncAnchor = { anchor ->
+                        writeUserSyncAnchor(account.accountKey(), anchor)
+                    },
+                    readSyncedUserIDs = {
+                        readSyncedUserIDs(account.accountKey())
+                    },
+                    writeSyncedUserIDs = { userIDs ->
+                        writeSyncedUserIDs(account.accountKey(), userIDs)
+                    }
+                )
                 this.repository = SyncingRepository(
                     database.memoDao(),
                     fileStorage,
@@ -618,6 +635,75 @@ class AccountService @Inject constructor(
             val target = users[index]
             users[index] = target.copy(
                 settings = target.settings.copy(memoSyncAnchor = normalizedAnchor)
+            )
+            existing.copy(usersList = users)
+        }
+    }
+
+    private suspend fun readUserSyncAnchor(accountKey: String): Instant? {
+        val settings = context.settingsDataStore.data.first()
+        val raw = settings.usersList
+            .firstOrNull { user -> user.accountKey == accountKey }
+            ?.settings
+            ?.userSyncAnchor
+            .orEmpty()
+            .trim()
+        if (raw.isEmpty()) {
+            return null
+        }
+        return try {
+            Instant.parse(raw)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private suspend fun writeUserSyncAnchor(accountKey: String, anchor: Instant) {
+        val normalizedAnchor = anchor.toString()
+        context.settingsDataStore.updateData { existing ->
+            val index = existing.usersList.indexOfFirst { user -> user.accountKey == accountKey }
+            if (index == -1) {
+                return@updateData existing
+            }
+            val users = existing.usersList.toMutableList()
+            val target = users[index]
+            users[index] = target.copy(
+                settings = target.settings.copy(userSyncAnchor = normalizedAnchor)
+            )
+            existing.copy(usersList = users)
+        }
+    }
+
+    private suspend fun readSyncedUserIDs(accountKey: String): List<String> {
+        val settings = context.settingsDataStore.data.first()
+        return settings.usersList
+            .firstOrNull { user -> user.accountKey == accountKey }
+            ?.settings
+            ?.syncedUserIds
+            .orEmpty()
+            .asSequence()
+            .map { id -> id.trim() }
+            .filter { id -> id.isNotEmpty() }
+            .distinct()
+            .toList()
+    }
+
+    private suspend fun writeSyncedUserIDs(accountKey: String, userIDs: List<String>) {
+        val normalizedUserIDs = userIDs
+            .asSequence()
+            .map { userID -> userID.trim() }
+            .filter { userID -> userID.isNotEmpty() }
+            .distinct()
+            .toList()
+        context.settingsDataStore.updateData { existing ->
+            val index = existing.usersList.indexOfFirst { user -> user.accountKey == accountKey }
+            if (index == -1) {
+                return@updateData existing
+            }
+            val users = existing.usersList.toMutableList()
+            val target = users[index]
+            users[index] = target.copy(
+                settings = target.settings.copy(syncedUserIds = normalizedUserIDs)
             )
             existing.copy(usersList = users)
         }

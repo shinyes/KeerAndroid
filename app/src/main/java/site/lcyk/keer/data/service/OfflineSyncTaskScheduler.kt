@@ -28,6 +28,7 @@ enum class OfflineSyncTask {
     GROUP_OPERATIONS,
     GROUP_TAGS,
     GROUP_MESSAGES,
+    USERS,
     MEMOS,
 }
 
@@ -84,6 +85,13 @@ class OfflineSyncTaskScheduler @Inject constructor(
                         return@withLock messageSync
                     }
                 }
+
+                if (OfflineSyncTask.USERS in tasks) {
+                    val userSync = remoteRepository.syncKnownUsers()
+                    if (userSync !is ApiResponse.Success) {
+                        return@withLock userSync
+                    }
+                }
             }
 
             if (OfflineSyncTask.MEMOS in tasks) {
@@ -106,6 +114,7 @@ class OfflineSyncTaskScheduler @Inject constructor(
             OfflineSyncTask.GROUP_OPERATIONS,
             OfflineSyncTask.GROUP_TAGS,
             OfflineSyncTask.GROUP_MESSAGES,
+            OfflineSyncTask.USERS,
             OfflineSyncTask.MEMOS
         )
     }

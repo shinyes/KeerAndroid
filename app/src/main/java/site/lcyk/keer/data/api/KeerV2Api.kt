@@ -36,6 +36,12 @@ interface KeerV2Api {
         @Query("filter") filter: String? = null,
     ): ApiResponse<ListMemoChangesResponse>
 
+    @GET("api/v1/users/changes")
+    suspend fun listUserChanges(
+        @Query("since") since: String,
+        @Query("ids") ids: String? = null,
+    ): ApiResponse<ListUserChangesResponse>
+
     @POST("api/v1/memos")
     suspend fun createMemo(@Body body: KeerV2CreateMemoRequest): ApiResponse<KeerV2Memo>
 
@@ -97,6 +103,9 @@ interface KeerV2Api {
     @GET("api/v1/users/{id}")
     suspend fun getUser(@Path("id") userId: String): ApiResponse<KeerV2User>
 
+    @GET("api/v1/users/batch")
+    suspend fun getUsersBatch(@Query("ids") ids: String): ApiResponse<ListUsersResponse>
+
     @PATCH("api/v1/users/{id}")
     suspend fun updateUser(@Path("id") userId: String, @Body body: UpdateUserRequest): ApiResponse<KeerV2User>
 
@@ -118,6 +127,18 @@ data class KeerV2User(
     val createTime: Instant? = null,
     @Serializable(with = Rfc3339InstantSerializer::class)
     val updateTime: Instant? = null
+)
+
+@Serializable
+data class ListUsersResponse(
+    val users: List<KeerV2User> = emptyList()
+)
+
+@Serializable
+data class ListUserChangesResponse(
+    val users: List<KeerV2User> = emptyList(),
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val syncAnchor: Instant? = null
 )
 
 @Serializable

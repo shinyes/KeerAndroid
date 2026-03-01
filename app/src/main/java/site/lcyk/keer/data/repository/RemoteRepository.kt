@@ -93,4 +93,8 @@ abstract class RemoteRepository {
 
     abstract suspend fun deleteResource(remoteId: String): ApiResponse<Unit>
     abstract suspend fun getCurrentUser(): ApiResponse<User>
+
+    open suspend fun syncKnownUsers(): ApiResponse<Unit> {
+        return ApiResponse.Success(Unit)
+    }
 }
