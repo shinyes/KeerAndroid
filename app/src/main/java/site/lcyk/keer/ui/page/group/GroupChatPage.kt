@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.Icons
@@ -19,9 +18,6 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.PinDrop
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.DrawerState
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -29,10 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.MenuDefaults
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,7 +47,6 @@ import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
-import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoEditGesture
@@ -62,15 +54,22 @@ import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ui.component.MemoActionMenuButton
+import site.lcyk.keer.ui.component.MemoMenuAction
+import site.lcyk.keer.ui.component.MemoMenuConfirmation
 import site.lcyk.keer.ui.component.MemosCard
+import site.lcyk.keer.ui.component.RefreshableListContainer
 import site.lcyk.keer.ui.component.SyncStatusBadge
+import site.lcyk.keer.ui.component.SyncAlertDialog
+import site.lcyk.keer.ui.component.SyncAlertState
+import site.lcyk.keer.ui.component.handleManualSyncResult
+import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.viewmodel.GroupChatViewModel
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
-import site.lcyk.keer.viewmodel.ManualSyncResult
 import java.net.URLEncoder
-import java.time.Instant
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -126,10 +125,8 @@ fun GroupChatPage(
     }
     val atTop = !listState.canScrollBackward
     val atBottom = memos.isNotEmpty() && !listState.canScrollForward
-    var syncAlert by remember { mutableStateOf<GroupSyncAlert?>(null) }
+    var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     var syncWasRunning by remember { mutableStateOf(syncStatus.syncing) }
-    var topHapticArmed by remember { mutableStateOf(false) }
-    var bottomHapticArmed by remember { mutableStateOf(false) }
 
     suspend fun reloadGroup(forceSync: Boolean = false) {
         val resolvedGroup = group ?: return
@@ -137,14 +134,8 @@ fun GroupChatPage(
     }
 
     suspend fun requestManualSync() {
-        when (val result = memosViewModel.refreshMemos()) {
-            ManualSyncResult.Completed -> Unit
-            is ManualSyncResult.Blocked -> {
-                syncAlert = GroupSyncAlert.Blocked(result.message)
-            }
-            is ManualSyncResult.Failed -> {
-                syncAlert = GroupSyncAlert.Failed(result.message)
-            }
+        handleManualSyncResult(memosViewModel.refreshMemos())?.let { alert ->
+            syncAlert = alert
         }
     }
 
@@ -152,40 +143,11 @@ fun GroupChatPage(
         reloadGroup(forceSync = false)
     }
 
-    LaunchedEffect(memos.size) {
-        if (memos.isEmpty()) {
-            topHapticArmed = false
-            bottomHapticArmed = false
-            return@LaunchedEffect
-        }
-        topHapticArmed = !atTop
-        bottomHapticArmed = !atBottom
-    }
-
-    LaunchedEffect(atTop, atBottom, memos.size) {
-        if (memos.isEmpty()) {
-            return@LaunchedEffect
-        }
-
-        var shouldVibrate = false
-        if (!atTop) {
-            topHapticArmed = true
-        } else if (topHapticArmed) {
-            shouldVibrate = true
-            topHapticArmed = false
-        }
-
-        if (!atBottom) {
-            bottomHapticArmed = true
-        } else if (bottomHapticArmed) {
-            shouldVibrate = true
-            bottomHapticArmed = false
-        }
-
-        if (shouldVibrate) {
-            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-        }
-    }
+    rememberListEdgeHaptics(
+        itemCount = memos.size,
+        atTop = atTop,
+        atBottom = atBottom
+    )
 
     LaunchedEffect(syncStatus.syncing, group?.id) {
         val wasRunning = syncWasRunning
@@ -291,29 +253,27 @@ fun GroupChatPage(
             )
         }
     ) { innerPadding ->
-        PullToRefreshBox(
+        RefreshableListContainer(
             isRefreshing = loading,
             onRefresh = {
                 scope.launch { reloadGroup(forceSync = true) }
             },
             state = refreshState,
-            modifier = Modifier.padding(innerPadding)
+            modifier = Modifier.padding(innerPadding),
+            isEmpty = memos.isEmpty() && errorMessage.isNullOrBlank(),
+            emptyContent = {
+                Text(
+                    text = R.string.no_memos.string,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         ) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
-                if (memos.isEmpty() && !loading) {
-                    item {
-                        Text(
-                            text = R.string.no_memos.string,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
                 items(memos, key = { it.remoteId }) { memo ->
                     val adaptedMemo = remember(memo, activeAccountKey, group.id) {
                         memo.toGroupMemoEntity(
@@ -386,79 +346,21 @@ fun GroupChatPage(
         }
     }
 
-    when (val alert = syncAlert) {
-        null -> Unit
-        is GroupSyncAlert.Blocked -> {
-            AlertDialog(
-                onDismissRequest = { syncAlert = null },
-                title = { Text(R.string.unsupported_memos_version_title.string) },
-                text = { Text(alert.message) },
-                confirmButton = {
-                    TextButton(onClick = { syncAlert = null }) {
-                        Text(R.string.close.string)
-                    }
-                }
-            )
-        }
-        is GroupSyncAlert.Failed -> {
-            AlertDialog(
-                onDismissRequest = { syncAlert = null },
-                title = { Text(R.string.sync_failed.string) },
-                text = { Text(alert.message) },
-                confirmButton = {
-                    TextButton(onClick = { syncAlert = null }) {
-                        Text(R.string.close.string)
-                    }
-                }
-            )
-        }
-    }
-}
-
-private sealed class GroupSyncAlert {
-    data class Blocked(val message: String) : GroupSyncAlert()
-    data class Failed(val message: String) : GroupSyncAlert()
+    SyncAlertDialog(
+        alert = syncAlert,
+        onDismiss = { syncAlert = null }
+    )
 }
 
 private fun Memo.toGroupMemoEntity(
     accountKey: String,
     groupId: String
 ): MemoEntity {
-    val memoIdentifier = "group:$groupId:$remoteId"
-    val syncedAt = updatedAt ?: date
-    val entity = MemoEntity(
-        identifier = memoIdentifier,
-        remoteId = remoteId,
+    return toMemoEntityForCard(
+        identifier = "group:$groupId:$remoteId",
         accountKey = accountKey,
-        content = content,
-        date = date,
-        visibility = visibility,
-        pinned = pinned,
-        archived = archived,
-        latitude = latitude,
-        longitude = longitude,
-        needsSync = remoteId.startsWith("local:"),
-        isDeleted = false,
-        lastModified = updatedAt ?: date,
-        lastSyncedAt = syncedAt
+        needsSync = remoteId.startsWith("local:")
     )
-    entity.resources = resources.map { resource ->
-        ResourceEntity(
-            identifier = "group:$groupId:$remoteId:resource:${resource.remoteId}",
-            remoteId = resource.remoteId,
-            accountKey = accountKey,
-            date = resource.date,
-            filename = resource.filename,
-            uri = resource.uri,
-            localUri = resource.localUri,
-            mimeType = resource.mimeType,
-            thumbnailUri = resource.thumbnailUri,
-            thumbnailLocalUri = resource.thumbnailLocalUri,
-            memoId = memoIdentifier
-        )
-    }
-    entity.tags = tags
-    return entity
 }
 
 @Composable
@@ -469,94 +371,39 @@ private fun GroupMemoCardActionButton(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-
-    Box {
-        IconButton(onClick = { menuExpanded = true }) {
-            Icon(Icons.Filled.MoreVert, contentDescription = null)
-        }
-        DropdownMenu(
-            expanded = menuExpanded,
-            onDismissRequest = { menuExpanded = false }
-        ) {
-            if (pinned) {
-                DropdownMenuItem(
-                    text = { Text(R.string.unpin.string) },
-                    onClick = {
-                        onTogglePinned()
-                        menuExpanded = false
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Outlined.PinDrop, contentDescription = null)
-                    },
-                    colors = MenuDefaults.itemColors(
-                        textColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        leadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                )
-            } else {
-                DropdownMenuItem(
-                    text = { Text(R.string.pin.string) },
-                    onClick = {
-                        onTogglePinned()
-                        menuExpanded = false
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Outlined.PushPin, contentDescription = null)
-                    }
-                )
-            }
-            if (canManage) {
-                DropdownMenuItem(
-                    text = { Text(R.string.edit.string) },
-                    onClick = {
-                        onEdit()
-                        menuExpanded = false
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Outlined.Edit, contentDescription = null)
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text(R.string.delete.string) },
-                    onClick = {
-                        showDeleteDialog = true
-                        menuExpanded = false
-                    },
-                    colors = MenuDefaults.itemColors(
-                        textColor = MaterialTheme.colorScheme.error,
-                        leadingIconColor = MaterialTheme.colorScheme.error
-                    ),
-                    leadingIcon = {
-                        Icon(Icons.Outlined.Delete, contentDescription = null)
-                    }
-                )
-            }
-        }
-    }
-
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text(R.string.delete_this_memo.string) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onDelete()
-                        showDeleteDialog = false
-                    }
-                ) {
-                    Text(R.string.confirm.string)
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { showDeleteDialog = false }
-                ) {
-                    Text(R.string.cancel.string)
-                }
-            }
+    val actions = buildList {
+        add(
+            MemoMenuAction(
+                key = if (pinned) "unpin" else "pin",
+                label = if (pinned) R.string.unpin.string else R.string.pin.string,
+                icon = if (pinned) Icons.Outlined.PinDrop else Icons.Outlined.PushPin,
+                onSelected = onTogglePinned
+            )
         )
+        if (canManage) {
+            add(
+                MemoMenuAction(
+                    key = "edit",
+                    label = R.string.edit.string,
+                    icon = Icons.Outlined.Edit,
+                    onSelected = onEdit
+                )
+            )
+            add(
+                MemoMenuAction(
+                    key = "delete",
+                    label = R.string.delete.string,
+                    icon = Icons.Outlined.Delete,
+                    destructive = true,
+                    confirmation = MemoMenuConfirmation(
+                        title = R.string.delete_this_memo.string,
+                        confirmLabel = R.string.confirm.string,
+                        cancelLabel = R.string.cancel.string
+                    ),
+                    onSelected = onDelete
+                )
+            )
+        }
     }
+    MemoActionMenuButton(actions = actions)
 }

@@ -6,7 +6,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Group
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -14,7 +13,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -36,11 +34,13 @@ import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.settingsDataStore
+import site.lcyk.keer.ui.component.SyncAlertDialog
+import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.SyncStatusBadge
+import site.lcyk.keer.ui.component.handleManualSyncResult
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.viewmodel.LocalMemos
-import site.lcyk.keer.viewmodel.ManualSyncResult
 import site.lcyk.keer.viewmodel.LocalUserState
 import java.net.URLEncoder
 
@@ -79,7 +79,7 @@ fun MemosHomePage(
             .filter { group -> group.creatorId == creatorId }
     }
     var showCreatedGroupMemosOnly by rememberSaveable { mutableStateOf(false) }
-    var syncAlert by remember { mutableStateOf<HomeSyncAlert?>(null) }
+    var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
 
     LaunchedEffect(createdGroups) {
         if (createdGroups.isEmpty()) {
@@ -94,14 +94,8 @@ fun MemosHomePage(
     }
 
     suspend fun requestManualSync() {
-        when (val result = memosViewModel.refreshMemos()) {
-            ManualSyncResult.Completed -> Unit
-            is ManualSyncResult.Blocked -> {
-                syncAlert = HomeSyncAlert.Blocked(result.message)
-            }
-            is ManualSyncResult.Failed -> {
-                syncAlert = HomeSyncAlert.Failed(result.message)
-            }
+        handleManualSyncResult(memosViewModel.refreshMemos())?.let { alert ->
+            syncAlert = alert
         }
     }
 
@@ -197,36 +191,8 @@ fun MemosHomePage(
         }
     )
 
-    when (val alert = syncAlert) {
-        null -> Unit
-        is HomeSyncAlert.Blocked -> {
-            AlertDialog(
-                onDismissRequest = { syncAlert = null },
-                title = { Text(R.string.unsupported_memos_version_title.string) },
-                text = { Text(alert.message) },
-                confirmButton = {
-                    TextButton(onClick = { syncAlert = null }) {
-                        Text(R.string.close.string)
-                    }
-                }
-            )
-        }
-        is HomeSyncAlert.Failed -> {
-            AlertDialog(
-                onDismissRequest = { syncAlert = null },
-                title = { Text(R.string.sync_failed.string) },
-                text = { Text(alert.message) },
-                confirmButton = {
-                    TextButton(onClick = { syncAlert = null }) {
-                        Text(R.string.close.string)
-                    }
-                }
-            )
-        }
-    }
-}
-
-private sealed class HomeSyncAlert {
-    data class Blocked(val message: String) : HomeSyncAlert()
-    data class Failed(val message: String) : HomeSyncAlert()
+    SyncAlertDialog(
+        alert = syncAlert,
+        onDismiss = { syncAlert = null }
+    )
 }

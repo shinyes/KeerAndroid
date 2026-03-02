@@ -181,8 +181,12 @@ suspend fun resolveAttachmentFile(
         ?.let(::File)
         ?.takeIf { it.exists() }
 
-    downloaded.delete()
-    return canonical
+    if (canonical != null) {
+        downloaded.delete()
+        return canonical
+    }
+
+    return downloaded
 }
 
 private fun existingLocalFile(resource: ResourceRepresentable): File? {

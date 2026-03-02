@@ -9,10 +9,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -20,7 +22,10 @@ import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.ui.component.ExploreMemoCard
+import site.lcyk.keer.ui.component.MemosCard
+import site.lcyk.keer.ui.component.RefreshableListContainer
+import site.lcyk.keer.util.toMemoEntityForCard
+import site.lcyk.keer.viewmodel.LocalUserState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,16 +38,19 @@ fun CreatedGroupMemosList(
 ) {
     val scope = rememberCoroutineScope()
     val refreshState = rememberPullToRefreshState()
+    val userStateViewModel = LocalUserState.current
+    val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val accountKey = currentAccount?.accountKey() ?: "created-group"
 
-    PullToRefreshBox(
+    RefreshableListContainer(
         isRefreshing = loading,
         onRefresh = {
             scope.launch { onRefresh() }
         },
         state = refreshState,
-        modifier = Modifier.padding(contentPadding)
-    ) {
-        if (memos.isEmpty() && !loading && errorMessage.isNullOrBlank()) {
+        modifier = Modifier.padding(contentPadding),
+        isEmpty = memos.isEmpty() && errorMessage.isNullOrBlank(),
+        emptyContent = {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -52,14 +60,27 @@ fun CreatedGroupMemosList(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            return@PullToRefreshBox
         }
-
+    ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize()
         ) {
             items(memos, key = { it.remoteId }) { memo ->
-                ExploreMemoCard(memo = memo)
+                val adaptedMemo = remember(memo, accountKey) {
+                    memo.toMemoEntityForCard(
+                        identifier = "created-group:${memo.remoteId}",
+                        accountKey = accountKey
+                    )
+                }
+                MemosCard(
+                    memo = adaptedMemo,
+                    onClick = { },
+                    previewMode = false,
+                    showSyncStatus = false,
+                    authorAvatarUrl = memo.creator?.avatarUrl,
+                    authorName = memo.creator?.name,
+                    actionButton = { }
+                )
             }
 
             if (!errorMessage.isNullOrBlank()) {

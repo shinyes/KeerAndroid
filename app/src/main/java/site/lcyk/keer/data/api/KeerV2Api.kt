@@ -267,7 +267,8 @@ data class KeerV2GroupMessage(
     @Serializable(with = Rfc3339InstantSerializer::class)
     val updateTime: Instant? = null,
     val content: String? = null,
-    val tags: List<String>? = null
+    val tags: List<String>? = null,
+    val attachments: List<KeerV2Resource>? = null
 )
 
 @Serializable

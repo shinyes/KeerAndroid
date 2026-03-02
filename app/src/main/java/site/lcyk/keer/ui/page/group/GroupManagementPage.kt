@@ -25,10 +25,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -37,8 +35,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -49,6 +45,7 @@ import site.lcyk.keer.R
 import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ui.page.common.PageScaffold
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.viewmodel.GroupManagementViewModel
 import site.lcyk.keer.viewmodel.LocalUserState
@@ -63,7 +60,6 @@ fun GroupManagementPage(
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
-    val hapticFeedback = LocalHapticFeedback.current
     val userStateViewModel = LocalUserState.current
     val currentUser = userStateViewModel.currentUser
 
@@ -80,37 +76,22 @@ fun GroupManagementPage(
         viewModel.refreshGroups()
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(R.string.group_management.string) },
-                navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            if (drawerState != null) {
-                                onMenuButtonOpenRequested?.invoke()
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                scope.launch { drawerState.open() }
-                            } else {
-                                navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
-                            }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = if (drawerState != null) Icons.Filled.Menu else Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = if (drawerState != null) R.string.menu.string else R.string.back.string
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { joinDialogVisible = true }) {
-                        Icon(Icons.Outlined.GroupAdd, contentDescription = R.string.join_group.string)
-                    }
-                    IconButton(onClick = { createDialogVisible = true }) {
-                        Icon(Icons.Outlined.Add, contentDescription = R.string.create_group.string)
-                    }
-                }
-            )
+    PageScaffold(
+        title = R.string.group_management.string,
+        drawerState = drawerState,
+        onMenuButtonOpenRequested = onMenuButtonOpenRequested,
+        onBack = if (drawerState == null) {
+            { navController.popBackStackIfLifecycleIsResumed(lifecycleOwner) }
+        } else {
+            null
+        },
+        actions = {
+            IconButton(onClick = { joinDialogVisible = true }) {
+                Icon(Icons.Outlined.GroupAdd, contentDescription = R.string.join_group.string)
+            }
+            IconButton(onClick = { createDialogVisible = true }) {
+                Icon(Icons.Outlined.Add, contentDescription = R.string.create_group.string)
+            }
         }
     ) { innerPadding ->
         LazyColumn(

@@ -182,7 +182,7 @@ class KeerV2Repository(
             date = groupMessage.createTime ?: groupMessage.updateTime ?: Instant.now(),
             pinned = false,
             visibility = MemoVisibility.PROTECTED,
-            resources = emptyList(),
+            resources = groupMessage.attachments?.map { convertResource(it) } ?: emptyList(),
             tags = groupMessage.tags ?: emptyList(),
             creator = creator,
             archived = false,

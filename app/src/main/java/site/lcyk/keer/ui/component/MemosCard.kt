@@ -31,17 +31,10 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.PinDrop
 import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -65,7 +58,6 @@ import androidx.compose.ui.zIndex
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
-import com.skydoves.sandwich.suspendOnSuccess
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
@@ -306,151 +298,79 @@ private fun resolveAvatarUrl(host: String, avatarUrl: String): String? {
 fun MemosCardActionButton(
     memo: MemoEntity,
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val clipboardManager = context.getSystemService(ClipboardManager::class.java)
     val memosViewModel = LocalMemos.current
     val rootNavController = LocalRootNavController.current
     val scope = rememberCoroutineScope()
-    var showDeleteDialog by remember { mutableStateOf(false) }
     val memoLabel = stringResource(R.string.memo)
     val hapticFeedback = LocalHapticFeedback.current
-
-    Box {
-        IconButton(onClick = {
-            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-            menuExpanded = true
-        }) {
-            Icon(Icons.Filled.MoreVert, contentDescription = null)
-        }
-        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-            if (memo.pinned) {
-                DropdownMenuItem(
-                    text = { Text(R.string.unpin.string) },
-                    onClick = {
-                        scope.launch {
-                            memosViewModel.updateMemoPinned(memo.identifier, false).suspendOnSuccess {
-                                menuExpanded = false
-                            }
-                        }
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Outlined.PinDrop,
-                            contentDescription = null
-                        )
-                    })
-            } else {
-                DropdownMenuItem(
-                    text = { Text(R.string.pin.string) },
-                    onClick = {
-                        scope.launch {
-                            memosViewModel.updateMemoPinned(memo.identifier, true).suspendOnSuccess {
-                                menuExpanded = false
-                            }
-                        }
-                    },
-                    leadingIcon = {
-                        Icon(
-                            Icons.Outlined.PushPin,
-                            contentDescription = null
-                        )
-                    })
-            }
-            DropdownMenuItem(
-                text = { Text(R.string.edit.string) },
-                onClick = {
+    val actions = buildList {
+        add(
+            MemoMenuAction(
+                key = if (memo.pinned) "unpin" else "pin",
+                label = if (memo.pinned) R.string.unpin.string else R.string.pin.string,
+                icon = if (memo.pinned) Icons.Outlined.PinDrop else Icons.Outlined.PushPin,
+                onSelected = {
+                    scope.launch {
+                        memosViewModel.updateMemoPinned(memo.identifier, !memo.pinned)
+                    }
+                }
+            )
+        )
+        add(
+            MemoMenuAction(
+                key = "edit",
+                label = R.string.edit.string,
+                icon = Icons.Outlined.Edit,
+                onSelected = {
                     rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
-                },
-                leadingIcon = {
-                    Icon(
-                        Icons.Outlined.Edit,
-                        contentDescription = null
-                    )
-                })
-            DropdownMenuItem(
-                text = { Text(R.string.copy.string) },
-                onClick = {
+                }
+            )
+        )
+        add(
+            MemoMenuAction(
+                key = "copy",
+                label = R.string.copy.string,
+                icon = Icons.Outlined.ContentCopy,
+                onSelected = {
                     clipboardManager?.setPrimaryClip(
                         ClipData.newPlainText(memoLabel, memo.content)
                     )
-                    menuExpanded = false
-                },
-                leadingIcon = {
-                    Icon(
-                        Icons.Outlined.ContentCopy,
-                        contentDescription = null
-                    )
-                })
-            DropdownMenuItem(
-                text = { Text(R.string.archive.string) },
-                onClick = {
+                }
+            )
+        )
+        add(
+            MemoMenuAction(
+                key = "archive",
+                label = R.string.archive.string,
+                icon = Icons.Outlined.Archive,
+                onSelected = {
                     scope.launch {
-                        memosViewModel.archiveMemo(memo.identifier).suspendOnSuccess {
-                            menuExpanded = false
-                        }
+                        memosViewModel.archiveMemo(memo.identifier)
                     }
-                },
-                colors = MenuDefaults.itemColors(
-                    textColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    leadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-                leadingIcon = {
-                    Icon(
-                        Icons.Outlined.Archive,
-                        contentDescription = null
-                    )
-                })
-            DropdownMenuItem(
-                text = { Text(R.string.delete.string) },
-                onClick = {
-                    showDeleteDialog = true
-                    menuExpanded = false
-                },
-                colors = MenuDefaults.itemColors(
-                    textColor = MaterialTheme.colorScheme.error,
-                    leadingIconColor = MaterialTheme.colorScheme.error,
-                ),
-                leadingIcon = {
-                    Icon(
-                        Icons.Outlined.Delete,
-                        contentDescription = null
-                    )
-                })
-        }
-    }
-
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text(R.string.delete_this_memo.string) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                        scope.launch {
-                            memosViewModel.deleteMemo(memo.identifier).suspendOnSuccess {
-                                showDeleteDialog = false
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        contentColor = MaterialTheme.colorScheme.error,
-                        containerColor = MaterialTheme.colorScheme.errorContainer
-                    )
-                ) {
-                    Text(R.string.confirm.string)
                 }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteDialog = false
+            )
+        )
+        add(
+            MemoMenuAction(
+                key = "delete",
+                label = R.string.delete.string,
+                icon = Icons.Outlined.Delete,
+                destructive = true,
+                confirmation = MemoMenuConfirmation(
+                    title = R.string.delete_this_memo.string,
+                    confirmLabel = R.string.confirm.string,
+                    cancelLabel = R.string.cancel.string
+                ),
+                onSelected = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    scope.launch {
+                        memosViewModel.deleteMemo(memo.identifier)
                     }
-                ) {
-                    Text(R.string.cancel.string)
                 }
-            }
+            )
         )
     }
+    MemoActionMenuButton(actions = actions)
 }

@@ -14,13 +14,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -46,12 +42,16 @@ import site.lcyk.keer.data.model.MemoEditGesture
 import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ui.component.RefreshableListContainer
+import site.lcyk.keer.ui.component.SyncAlertDialog
+import site.lcyk.keer.ui.component.SyncAlertState
+import site.lcyk.keer.ui.component.handleManualSyncResult
+import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
-import site.lcyk.keer.viewmodel.ManualSyncResult
 import timber.log.Timber
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,9 +78,7 @@ fun MemosList(
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
-    var syncAlert by remember { mutableStateOf<PullRefreshSyncAlert?>(null) }
-    var topHapticArmed by remember { mutableStateOf(false) }
-    var bottomHapticArmed by remember { mutableStateOf(false) }
+    var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     val filteredMemos = remember(viewModel.memos.toList(), tag, searchString) {
         val pinned = viewModel.memos.filter { it.pinned }
         val nonPinned = viewModel.memos.filter { !it.pinned }
@@ -107,63 +105,28 @@ fun MemosList(
     val atTop = !lazyListState.canScrollBackward
     val atBottom = filteredMemos.isNotEmpty() && !lazyListState.canScrollForward
 
-    LaunchedEffect(filteredMemos.size) {
-        if (filteredMemos.isEmpty()) {
-            topHapticArmed = false
-            bottomHapticArmed = false
-            return@LaunchedEffect
-        }
-        topHapticArmed = !atTop
-        bottomHapticArmed = !atBottom
-    }
-
-    LaunchedEffect(atTop, atBottom, filteredMemos.size) {
-        if (filteredMemos.isEmpty()) {
-            return@LaunchedEffect
-        }
-
-        var shouldVibrate = false
-        if (!atTop) {
-            topHapticArmed = true
-        } else if (topHapticArmed) {
-            shouldVibrate = true
-            topHapticArmed = false
-        }
-
-        if (!atBottom) {
-            bottomHapticArmed = true
-        } else if (bottomHapticArmed) {
-            shouldVibrate = true
-            bottomHapticArmed = false
-        }
-
-        if (shouldVibrate) {
-            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-        }
-    }
+    rememberListEdgeHaptics(
+        itemCount = filteredMemos.size,
+        atTop = atTop,
+        atBottom = atBottom
+    )
 
     var listTopId: String? by rememberSaveable {
         mutableStateOf(null)
     }
 
-    PullToRefreshBox(
+    RefreshableListContainer(
         isRefreshing = syncStatus.syncing,
         onRefresh = {
             if (syncStatus.syncing) {
-                return@PullToRefreshBox
+                return@RefreshableListContainer
             }
             scope.launch {
                 if (onRefresh != null) {
                     onRefresh()
                 } else {
-                    when (val result = viewModel.refreshMemos()) {
-                        ManualSyncResult.Completed -> Unit
-                        is ManualSyncResult.Blocked -> {
-                            syncAlert = PullRefreshSyncAlert.Blocked(result.message)
-                        }
-                        is ManualSyncResult.Failed -> {
-                            syncAlert = PullRefreshSyncAlert.Failed(result.message)
-                        }
+                    handleManualSyncResult(viewModel.refreshMemos())?.let { alert ->
+                        syncAlert = alert
                     }
                 }
             }
@@ -263,36 +226,8 @@ fun MemosList(
         listTopId = filteredMemos.firstOrNull()?.identifier
     }
 
-    when (val alert = syncAlert) {
-        null -> Unit
-        is PullRefreshSyncAlert.Blocked -> {
-            AlertDialog(
-                onDismissRequest = { syncAlert = null },
-                title = { Text(R.string.unsupported_memos_version_title.string) },
-                text = { Text(alert.message) },
-                confirmButton = {
-                    TextButton(onClick = { syncAlert = null }) {
-                        Text(R.string.close.string)
-                    }
-                }
-            )
-        }
-        is PullRefreshSyncAlert.Failed -> {
-            AlertDialog(
-                onDismissRequest = { syncAlert = null },
-                title = { Text(R.string.sync_failed.string) },
-                text = { Text(alert.message) },
-                confirmButton = {
-                    TextButton(onClick = { syncAlert = null }) {
-                        Text(R.string.close.string)
-                    }
-                }
-            )
-        }
-    }
-}
-
-private sealed class PullRefreshSyncAlert {
-    data class Blocked(val message: String) : PullRefreshSyncAlert()
-    data class Failed(val message: String) : PullRefreshSyncAlert()
+    SyncAlertDialog(
+        alert = syncAlert,
+        onDismiss = { syncAlert = null }
+    )
 }

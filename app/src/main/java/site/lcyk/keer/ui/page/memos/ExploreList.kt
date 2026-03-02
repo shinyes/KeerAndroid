@@ -4,28 +4,19 @@ import android.net.Uri
 import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,23 +24,24 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.compose.ui.res.stringResource
 import site.lcyk.keer.data.local.entity.MemoEntity
-import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoEditGesture
 import site.lcyk.keer.R
+import site.lcyk.keer.ui.component.MemoActionMenuButton
+import site.lcyk.keer.ui.component.MemoMenuAction
 import site.lcyk.keer.ui.component.MemosCard
+import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.normalizeCollaboratorId
+import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.viewmodel.ExploreMemoItem
 import site.lcyk.keer.viewmodel.ExploreViewModel
 import site.lcyk.keer.viewmodel.LocalUserState
@@ -67,9 +59,6 @@ fun ExploreList(
     val rootNavController = LocalRootNavController.current
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val hapticFeedback = LocalHapticFeedback.current
-    var topHapticArmed by remember { mutableStateOf(false) }
-    var bottomHapticArmed by remember { mutableStateOf(false) }
     var editingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
     var editingContent by remember { mutableStateOf("") }
     var deletingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
@@ -83,39 +72,11 @@ fun ExploreList(
     val atTop = !listState.canScrollBackward
     val atBottom = memos.itemCount > 0 && !listState.canScrollForward
 
-    LaunchedEffect(memos.itemCount) {
-        if (memos.itemCount <= 0) {
-            topHapticArmed = false
-            bottomHapticArmed = false
-            return@LaunchedEffect
-        }
-        topHapticArmed = !atTop
-        bottomHapticArmed = !atBottom
-    }
-
-    LaunchedEffect(atTop, atBottom, memos.itemCount) {
-        if (memos.itemCount <= 0) return@LaunchedEffect
-
-        var shouldVibrate = false
-
-        if (!atTop) {
-            topHapticArmed = true
-        } else if (topHapticArmed) {
-            shouldVibrate = true
-            topHapticArmed = false
-        }
-
-        if (!atBottom) {
-            bottomHapticArmed = true
-        } else if (bottomHapticArmed) {
-            shouldVibrate = true
-            bottomHapticArmed = false
-        }
-
-        if (shouldVibrate) {
-            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-        }
-    }
+    rememberListEdgeHaptics(
+        itemCount = memos.itemCount,
+        atTop = atTop,
+        atBottom = atBottom
+    )
 
     LazyColumn(
         state = listState,
@@ -254,41 +215,10 @@ fun ExploreList(
 }
 
 private fun Memo.toExploreMemoEntity(accountKey: String): MemoEntity {
-    val memoIdentifier = "explore:$remoteId"
-    val syncedAt = updatedAt ?: date
-    val entity = MemoEntity(
-        identifier = memoIdentifier,
-        remoteId = remoteId,
-        accountKey = accountKey,
-        content = content,
-        date = date,
-        visibility = visibility,
-        pinned = pinned,
-        archived = archived,
-        latitude = latitude,
-        longitude = longitude,
-        needsSync = false,
-        isDeleted = false,
-        lastModified = syncedAt,
-        lastSyncedAt = syncedAt
+    return toMemoEntityForCard(
+        identifier = "explore:$remoteId",
+        accountKey = accountKey
     )
-    entity.resources = resources.map { resource ->
-        ResourceEntity(
-            identifier = "explore:$remoteId:resource:${resource.remoteId}",
-            remoteId = resource.remoteId,
-            accountKey = accountKey,
-            date = resource.date,
-            filename = resource.filename,
-            uri = resource.uri,
-            localUri = resource.localUri,
-            mimeType = resource.mimeType,
-            thumbnailUri = resource.thumbnailUri,
-            thumbnailLocalUri = resource.thumbnailLocalUri,
-            memoId = memoIdentifier
-        )
-    }
-    entity.tags = tags
-    return entity
 }
 
 @Composable
@@ -298,65 +228,45 @@ private fun ExploreMemoCardActionButton(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val clipboardManager = context.getSystemService(ClipboardManager::class.java)
     val memoLabel = stringResource(R.string.memo)
-    val hapticFeedback = LocalHapticFeedback.current
-
-    Box {
-        IconButton(onClick = {
-            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-            menuExpanded = true
-        }) {
-            Icon(Icons.Filled.MoreVert, contentDescription = null)
-        }
-        DropdownMenu(
-            expanded = menuExpanded,
-            onDismissRequest = { menuExpanded = false }
-        ) {
-            if (canManage) {
-                DropdownMenuItem(
-                    text = { Text(text = stringResource(R.string.edit)) },
-                    onClick = {
-                        onEdit()
-                        menuExpanded = false
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Outlined.Edit, contentDescription = null)
-                    }
+    val actions = buildList {
+        if (canManage) {
+            add(
+                MemoMenuAction(
+                    key = "edit",
+                    label = stringResource(R.string.edit),
+                    icon = Icons.Outlined.Edit,
+                    onSelected = onEdit
                 )
-            }
-            DropdownMenuItem(
-                text = { Text(text = stringResource(R.string.copy)) },
-                onClick = {
+            )
+        }
+        add(
+            MemoMenuAction(
+                key = "copy",
+                label = stringResource(R.string.copy),
+                icon = Icons.Outlined.ContentCopy,
+                onSelected = {
                     clipboardManager?.setPrimaryClip(
                         ClipData.newPlainText(memoLabel, memo.content)
                     )
-                    menuExpanded = false
-                },
-                leadingIcon = {
-                    Icon(Icons.Outlined.ContentCopy, contentDescription = null)
                 }
             )
-            if (canManage) {
-                DropdownMenuItem(
-                    text = { Text(text = stringResource(R.string.delete)) },
-                    onClick = {
-                        onDelete()
-                        menuExpanded = false
-                    },
-                    leadingIcon = {
-                        Icon(Icons.Outlined.Delete, contentDescription = null)
-                    },
-                    colors = MenuDefaults.itemColors(
-                        textColor = MaterialTheme.colorScheme.error,
-                        leadingIconColor = MaterialTheme.colorScheme.error
-                    )
+        )
+        if (canManage) {
+            add(
+                MemoMenuAction(
+                    key = "delete",
+                    label = stringResource(R.string.delete),
+                    icon = Icons.Outlined.Delete,
+                    destructive = true,
+                    onSelected = onDelete
                 )
-            }
+            )
         }
     }
+    MemoActionMenuButton(actions = actions)
 }
 
 private fun canManageExploreMemo(memo: Memo, currentUserId: String): Boolean {
