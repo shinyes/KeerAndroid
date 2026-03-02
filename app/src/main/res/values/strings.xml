@@ -124,7 +124,6 @@
     <string name="group_message_hint">Write a group memo...</string>
     <string name="open_group_chat">Current group: %1$s</string>
     <string name="unknown_user">Unknown user</string>
-    <string name="created_group_memos">Created-group memos</string>
     <string name="co_created_memos">Co-created memos</string>
     <string name="collaborators">Collaborators</string>
     <string name="collaborator_id">Collaborator ID</string>

@@ -125,7 +125,6 @@
     <string name="group_message_hint">輸入群組 memo...</string>
     <string name="open_group_chat">目前群組：%1$s</string>
     <string name="unknown_user">未知使用者</string>
-    <string name="created_group_memos">我建立的群組 memo</string>
     <string name="co_created_memos">我參與共創的 memo</string>
     <string name="collaborators">共創人</string>
     <string name="collaborator_id">共創人 ID</string>

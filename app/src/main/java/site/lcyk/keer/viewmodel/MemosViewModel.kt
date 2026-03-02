@@ -11,7 +11,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.skydoves.sandwich.ApiResponse
-import com.skydoves.sandwich.retrofit.statusCode
 import com.skydoves.sandwich.suspendOnSuccess
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -19,7 +18,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -27,21 +25,15 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.R
-import site.lcyk.keer.data.model.CachedMemoItem
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.DailyUsageStat
-import site.lcyk.keer.data.model.Memo
-import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.SyncStatus
-import site.lcyk.keer.data.model.toCachedMemoItem
-import site.lcyk.keer.data.model.toMemo
 import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
-import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.widget.WidgetUpdater
 import java.time.LocalDate
@@ -62,12 +54,6 @@ class MemosViewModel @Inject constructor(
     var errorMessage: String? by mutableStateOf(null)
         private set
     var matrix by mutableStateOf(DailyUsageStat.initialMatrix)
-        private set
-    var createdGroupMemos by mutableStateOf<List<Memo>>(emptyList())
-        private set
-    var createdGroupMemosLoading by mutableStateOf(false)
-        private set
-    var createdGroupMemosErrorMessage: String? by mutableStateOf(null)
         private set
 
     val host: StateFlow<String?> =
@@ -158,127 +144,6 @@ class MemosViewModel @Inject constructor(
             return@withContext ManualSyncResult.Failed(message)
         }
         ManualSyncResult.Completed
-    }
-
-    suspend fun loadCreatedGroupMemos(groups: List<MemoGroup>, creatorId: String?) = withContext(viewModelScope.coroutineContext) {
-        val normalizedCreatorId = creatorId?.trim().orEmpty()
-        if (normalizedCreatorId.isEmpty()) {
-            createdGroupMemos = emptyList()
-            createdGroupMemosErrorMessage = null
-            createdGroupMemosLoading = false
-            return@withContext
-        }
-
-        val remoteRepository = accountService.getRemoteRepository()
-        if (remoteRepository == null) {
-            createdGroupMemos = emptyList()
-            createdGroupMemosErrorMessage = "Current account does not support group memos"
-            createdGroupMemosLoading = false
-            return@withContext
-        }
-
-        val targetGroups = groups.filter { group ->
-            group.creatorId.trim() == normalizedCreatorId
-        }
-        if (targetGroups.isEmpty()) {
-            createdGroupMemos = emptyList()
-            createdGroupMemosErrorMessage = null
-            createdGroupMemosLoading = false
-            return@withContext
-        }
-
-        val cached = readCachedGroupMemosByCreator(
-            groupIds = targetGroups.map { it.id }.toSet(),
-            creatorId = normalizedCreatorId
-        )
-        if (cached.isNotEmpty()) {
-            createdGroupMemos = cached
-        }
-
-        createdGroupMemosLoading = true
-        createdGroupMemosErrorMessage = null
-        try {
-            val loaded = mutableListOf<Memo>()
-            val cachedItems = mutableListOf<CachedMemoItem>()
-            for (group in targetGroups) {
-                var pageToken: String? = null
-                do {
-                    when (val response = remoteRepository.listGroupMessages(group.id, pageSize = 100, pageToken = pageToken)) {
-                        is ApiResponse.Success -> {
-                            loaded += response.data.first
-                            cachedItems += response.data.first.map { memo ->
-                                memo.toCachedMemoItem(groupId = group.id)
-                            }
-                            pageToken = response.data.second
-                        }
-                        is ApiResponse.Failure.Error -> {
-                            createdGroupMemosErrorMessage = "Load failed: HTTP ${response.statusCode}"
-                            pageToken = null
-                        }
-                        is ApiResponse.Failure.Exception -> {
-                            createdGroupMemosErrorMessage = response.throwable.message ?: "Load failed"
-                            pageToken = null
-                        }
-                    }
-                } while (!pageToken.isNullOrBlank())
-            }
-            val merged = loaded
-                .distinctBy { memo -> memo.remoteId }
-                .sortedByDescending { memo -> memo.date }
-            if (merged.isNotEmpty()) {
-                createdGroupMemos = merged
-                persistCachedGroupMemos(cachedItems)
-            } else if (cached.isNotEmpty()) {
-                createdGroupMemos = cached
-            }
-        } finally {
-            createdGroupMemosLoading = false
-        }
-    }
-
-    private suspend fun readCachedGroupMemosByCreator(
-        groupIds: Set<String>,
-        creatorId: String
-    ): List<Memo> {
-        val settings = appContext.settingsDataStore.data.first()
-        val userSettings = settings.usersList
-            .firstOrNull { it.accountKey == settings.currentUser }
-            ?.settings
-            ?: return emptyList()
-        return userSettings.cachedGroupMemos
-            .asSequence()
-            .filter { item -> item.groupId != null && item.groupId in groupIds }
-            .map { item -> item.toMemo() }
-            .filter { memo -> memo.creator?.identifier?.trim() == creatorId }
-            .distinctBy { memo -> memo.remoteId }
-            .sortedByDescending { memo -> memo.date }
-            .toList()
-    }
-
-    private suspend fun persistCachedGroupMemos(
-        cachedItems: List<CachedMemoItem>
-    ) {
-        if (cachedItems.isEmpty()) {
-            return
-        }
-        appContext.settingsDataStore.updateData { existing ->
-            val index = existing.usersList.indexOfFirst { it.accountKey == existing.currentUser }
-            if (index == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[index]
-            val touchedGroupIds = cachedItems.mapNotNull { it.groupId }.toSet()
-            val base = target.settings.cachedGroupMemos.filterNot { item ->
-                item.groupId != null && item.groupId in touchedGroupIds
-            }
-            users[index] = target.copy(
-                settings = target.settings.copy(
-                    cachedGroupMemos = base + cachedItems
-                )
-            )
-            existing.copy(usersList = users)
-        }
     }
 
     fun loadTags() = viewModelScope.launch {

@@ -5,7 +5,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -18,22 +17,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
-import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.SyncStatusBadge
@@ -57,42 +51,16 @@ fun MemosHomePage(
     val rootNavController = LocalRootNavController.current
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
-    val context = LocalContext.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
-    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
     val syncStatus by memosViewModel.syncStatus.collectAsState()
     val hapticFeedback = LocalHapticFeedback.current
-    val currentUser = userStateViewModel.currentUser
 
     val expandedFab by remember {
         derivedStateOf {
             listState.firstVisibleItemIndex == 0
         }
     }
-    val createdGroups = remember(settings, currentUser?.identifier) {
-        val groups = settings.usersList
-            .firstOrNull { it.accountKey == settings.currentUser }
-            ?.settings
-            ?.groups
-            .orEmpty()
-        val creatorId = currentUser?.identifier
-        groups
-            .filter { group -> group.creatorId == creatorId }
-    }
-    var showCreatedGroupMemosOnly by rememberSaveable { mutableStateOf(false) }
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
-
-    LaunchedEffect(createdGroups) {
-        if (createdGroups.isEmpty()) {
-            showCreatedGroupMemosOnly = false
-        }
-    }
-
-    LaunchedEffect(showCreatedGroupMemosOnly, createdGroups, currentUser?.identifier) {
-        if (showCreatedGroupMemosOnly) {
-            memosViewModel.loadCreatedGroupMemos(createdGroups, currentUser?.identifier)
-        }
-    }
 
     suspend fun requestManualSync() {
         handleManualSyncResult(memosViewModel.refreshMemos())?.let { alert ->
@@ -134,21 +102,6 @@ fun MemosHomePage(
                     }) {
                         Icon(Icons.Filled.Search, contentDescription = R.string.search.string)
                     }
-                    if (createdGroups.isNotEmpty()) {
-                        IconButton(onClick = {
-                            showCreatedGroupMemosOnly = !showCreatedGroupMemosOnly
-                        }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Group,
-                                contentDescription = R.string.created_group_memos.string,
-                                tint = if (showCreatedGroupMemosOnly) {
-                                    androidx.compose.material3.MaterialTheme.colorScheme.primary
-                                } else {
-                                    androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
-                        }
-                    }
                 }
             )
         },
@@ -166,26 +119,14 @@ fun MemosHomePage(
         },
 
         content = { innerPadding ->
-            if (showCreatedGroupMemosOnly) {
-                CreatedGroupMemosList(
-                    contentPadding = innerPadding,
-                    memos = memosViewModel.createdGroupMemos,
-                    loading = memosViewModel.createdGroupMemosLoading,
-                    errorMessage = memosViewModel.createdGroupMemosErrorMessage,
-                    onRefresh = {
-                        memosViewModel.loadCreatedGroupMemos(createdGroups, currentUser?.identifier)
-                    }
-                )
-            } else {
-                MemosList(
-                    lazyListState = listState,
-                    contentPadding = innerPadding,
-                    onRefresh = { requestManualSync() },
-                    onTagClick = { tag ->
-                        navController.navigateToTagPage(tag)
-                    }
-                )
-            }
+            MemosList(
+                lazyListState = listState,
+                contentPadding = innerPadding,
+                onRefresh = { requestManualSync() },
+                onTagClick = { tag ->
+                    navController.navigateToTagPage(tag)
+                }
+            )
         }
     )
 
