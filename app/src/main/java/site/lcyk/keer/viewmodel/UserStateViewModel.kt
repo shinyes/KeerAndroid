@@ -56,6 +56,7 @@ class UserStateViewModel @Inject constructor(
         private set
     val okHttpClient: OkHttpClient get() = accountService.httpClient
     private val collaboratorAvatarMutex = Mutex()
+    private var lastCurrentUserLoadAtMillis: Long = 0L
     private val _collaboratorProfiles = MutableStateFlow<Map<String, CollaboratorProfile>>(emptyMap())
     val collaboratorProfiles: StateFlow<Map<String, CollaboratorProfile>> = _collaboratorProfiles.asStateFlow()
     val accounts = accountService.accounts.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
@@ -74,11 +75,25 @@ class UserStateViewModel @Inject constructor(
     }
 
     suspend fun loadCurrentUser(): ApiResponse<User> = withContext(viewModelScope.coroutineContext) {
+        val loadedAt = System.currentTimeMillis()
         accountService.getRepository().getCurrentUser().suspendOnSuccess {
             currentUser = data
+            lastCurrentUserLoadAtMillis = loadedAt
             offlineSyncTaskScheduler.dispatch(OfflineSyncTask.AVATAR)
         }.suspendOnNotLogin {
             currentUser = null
+            lastCurrentUserLoadAtMillis = loadedAt
+        }
+    }
+
+    suspend fun loadCurrentUserIfStale(
+        maxAgeMillis: Long = currentUserStaleThresholdMillis
+    ) = withContext(viewModelScope.coroutineContext) {
+        val now = System.currentTimeMillis()
+        val hasFreshCache = currentUser != null &&
+                now - lastCurrentUserLoadAtMillis in 0 until maxAgeMillis
+        if (!hasFreshCache) {
+            loadCurrentUser()
         }
     }
 
@@ -294,6 +309,7 @@ class UserStateViewModel @Inject constructor(
     private companion object {
         private const val userBatchQueryChunkSize = 200
         private const val userFallbackLookupChunkSize = 8
+        private const val currentUserStaleThresholdMillis = 30_000L
     }
 }
 

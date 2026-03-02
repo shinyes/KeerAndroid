@@ -63,7 +63,7 @@ fun Navigation() {
         if (!userStateViewModel.hasAnyAccount()) {
             return
         }
-        userStateViewModel.loadCurrentUser()
+        userStateViewModel.loadCurrentUserIfStale()
         memosViewModel.loadMemos(
             syncAfterLoad = true,
             trigger = trigger

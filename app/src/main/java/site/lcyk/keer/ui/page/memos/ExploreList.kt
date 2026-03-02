@@ -17,6 +17,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +38,7 @@ import site.lcyk.keer.ui.component.MemoActionMenuButton
 import site.lcyk.keer.ui.component.MemoMenuAction
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.component.rememberListEdgeHaptics
+import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
@@ -57,18 +59,34 @@ fun ExploreList(
     val memos = viewModel.exploreMemos.collectAsLazyPagingItems()
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsState()
     val mutationErrorMessage by viewModel.mutationErrorMessage.collectAsState()
     val rootNavController = LocalRootNavController.current
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val avatarImageLoader = rememberAuthorizedImageLoader()
     var editingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
     var editingContent by remember { mutableStateOf("") }
     var deletingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
     val accountKey = currentAccount?.accountKey() ?: "explore"
+    val snapshotItems = memos.itemSnapshotList.items
+    val collaboratorIdsToPrefetch = remember(snapshotItems) {
+        snapshotItems
+            .asSequence()
+            .flatMap { item -> extractCollaboratorIds(item.memo.tags).asSequence() }
+            .distinct()
+            .toList()
+    }
     val currentUserId = when (val account = currentAccount) {
         is Account.KeerV2 -> account.info.id.toString()
         is Account.Local -> "local"
         null -> ""
+    }
+
+    LaunchedEffect(collaboratorIdsToPrefetch) {
+        if (collaboratorIdsToPrefetch.isNotEmpty()) {
+            userStateViewModel.prefetchCollaboratorAvatars(collaboratorIdsToPrefetch)
+        }
     }
 
     val atTop = !listState.canScrollBackward
@@ -126,7 +144,10 @@ fun ExploreList(
                     },
                     onTagClick = { tag ->
                         rootNavController.navigateToTagPage(tag)
-                    }
+                    },
+                    collaboratorProfiles = collaboratorProfiles,
+                    avatarImageLoader = avatarImageLoader,
+                    prefetchCollaborators = false
                 )
             }
         }

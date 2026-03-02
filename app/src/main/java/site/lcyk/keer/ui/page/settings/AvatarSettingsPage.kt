@@ -12,18 +12,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material3.DrawerState
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,9 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
-import coil3.ImageLoader
 import coil3.compose.AsyncImage
-import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import site.lcyk.keer.R
@@ -46,14 +40,18 @@ import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.page.common.navigateToTopLevel
+import site.lcyk.keer.ui.page.common.PageScaffold
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.viewmodel.LocalUserState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AvatarSettingsPage(
-    navController: NavHostController
+    drawerState: DrawerState? = null,
+    navController: NavHostController,
+    onMenuButtonOpenRequested: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -71,11 +69,7 @@ fun AvatarSettingsPage(
         else -> null
     }
     val displayAvatarModel = if (localAvatarUri.isNotBlank()) localAvatarUri else accountAvatarUrl
-    val imageLoader = ImageLoader.Builder(context)
-        .components {
-            add(OkHttpNetworkFetcherFactory(callFactory = { userStateViewModel.okHttpClient }))
-        }
-        .build()
+    val imageLoader = rememberAuthorizedImageLoader()
 
     val avatarPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -96,19 +90,14 @@ fun AvatarSettingsPage(
         userStateViewModel.loadCurrentUser()
     }
 
-    Scaffold(
-        topBar = {
-            LargeTopAppBar(
-                title = { Text(R.string.settings.string) },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = R.string.back.string)
-                    }
-                },
-                scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-            )
+    PageScaffold(
+        title = R.string.settings.string,
+        drawerState = drawerState,
+        onMenuButtonOpenRequested = onMenuButtonOpenRequested,
+        onBack = if (drawerState == null) {
+            { navController.popBackStackIfLifecycleIsResumed(lifecycleOwner) }
+        } else {
+            null
         }
     ) { innerPadding ->
         LazyColumn(

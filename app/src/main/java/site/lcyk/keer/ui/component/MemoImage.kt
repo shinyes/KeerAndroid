@@ -23,10 +23,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import com.skydoves.sandwich.ApiResponse
-import coil3.ImageLoader
 import coil3.annotation.ExperimentalCoilApi
 import coil3.compose.AsyncImage
-import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -52,17 +50,7 @@ fun MemoImage(
     val memosViewModel = LocalMemos.current
     val scope = rememberCoroutineScope()
     var opening by remember(resource.remoteId, resource.uri, resource.localUri) { mutableStateOf(false) }
-    val imageLoader = remember(context, userStateViewModel.okHttpClient) {
-        ImageLoader.Builder(context)
-            .components {
-                add(
-                    OkHttpNetworkFetcherFactory(
-                        callFactory = { userStateViewModel.okHttpClient }
-                    )
-                )
-            }
-            .build()
-    }
+    val imageLoader = rememberAuthorizedImageLoader()
     val previewModel = remember(resource.thumbnailLocalUri, resource.thumbnailUri, resource.localUri, resource.uri) {
         resolveMemoImagePreviewUri(resource)
     }

@@ -12,17 +12,12 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredGridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,6 +36,7 @@ import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.Attachment
 import site.lcyk.keer.ui.component.MemoMedia
 import site.lcyk.keer.ui.component.isMediaResource
+import site.lcyk.keer.ui.page.common.PageScaffold
 import site.lcyk.keer.viewmodel.ResourceListViewModel
 
 private enum class ResourceFilter {
@@ -51,7 +47,9 @@ private enum class ResourceFilter {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ResourceListPage(
+    drawerState: DrawerState? = null,
     navController: NavHostController,
+    onMenuButtonOpenRequested: (() -> Unit)? = null,
     viewModel: ResourceListViewModel = hiltViewModel()
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -59,19 +57,15 @@ fun ResourceListPage(
     val imageResources = viewModel.resources.filter { it.isMediaResource() }
     val otherResources = viewModel.resources.filterNot { it.isMediaResource() }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(text = R.string.resources.string) },
-                navigationIcon = {
-                    IconButton(onClick = {
-                        navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = R.string.back.string)
-                    }
-                },
-            )
-        },
+    PageScaffold(
+        title = R.string.resources.string,
+        drawerState = drawerState,
+        onMenuButtonOpenRequested = onMenuButtonOpenRequested,
+        onBack = if (drawerState == null) {
+            { navController.popBackStackIfLifecycleIsResumed(lifecycleOwner) }
+        } else {
+            null
+        }
     ) { innerPadding ->
         Column(
             modifier = Modifier

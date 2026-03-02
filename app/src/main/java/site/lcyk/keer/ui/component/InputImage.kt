@@ -24,14 +24,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
-import coil3.ImageLoader
 import coil3.compose.AsyncImage
-import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 
 @Composable
@@ -41,19 +38,7 @@ fun InputImage(
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    val userStateViewModel = LocalUserState.current
-    val imageLoader = remember(context, userStateViewModel.okHttpClient) {
-        ImageLoader.Builder(context)
-            .components {
-                add(
-                    OkHttpNetworkFetcherFactory(
-                        callFactory = { userStateViewModel.okHttpClient }
-                    )
-                )
-            }
-            .build()
-    }
+    val imageLoader = rememberAuthorizedImageLoader()
 
     Box {
         AsyncImage(

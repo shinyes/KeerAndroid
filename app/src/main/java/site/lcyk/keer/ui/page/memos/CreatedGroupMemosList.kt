@@ -11,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -24,6 +25,8 @@ import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.component.RefreshableListContainer
+import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
+import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.viewmodel.LocalUserState
 
@@ -40,7 +43,22 @@ fun CreatedGroupMemosList(
     val refreshState = rememberPullToRefreshState()
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsState()
     val accountKey = currentAccount?.accountKey() ?: "created-group"
+    val avatarImageLoader = rememberAuthorizedImageLoader()
+    val collaboratorIdsToPrefetch = remember(memos) {
+        memos
+            .asSequence()
+            .flatMap { memo -> extractCollaboratorIds(memo.tags).asSequence() }
+            .distinct()
+            .toList()
+    }
+
+    LaunchedEffect(collaboratorIdsToPrefetch) {
+        if (collaboratorIdsToPrefetch.isNotEmpty()) {
+            userStateViewModel.prefetchCollaboratorAvatars(collaboratorIdsToPrefetch)
+        }
+    }
 
     RefreshableListContainer(
         isRefreshing = loading,
@@ -79,7 +97,10 @@ fun CreatedGroupMemosList(
                     showSyncStatus = false,
                     authorAvatarUrl = memo.creator?.avatarUrl,
                     authorName = memo.creator?.name,
-                    actionButton = { }
+                    actionButton = { },
+                    collaboratorProfiles = collaboratorProfiles,
+                    avatarImageLoader = avatarImageLoader,
+                    prefetchCollaborators = false
                 )
             }
 

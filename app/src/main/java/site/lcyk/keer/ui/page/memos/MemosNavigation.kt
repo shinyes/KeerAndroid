@@ -16,6 +16,9 @@ import site.lcyk.keer.ui.page.group.GroupChatPage
 import site.lcyk.keer.ui.page.group.GroupManagementPage
 import site.lcyk.keer.ui.page.group.GroupMemoInputPage
 import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.ui.page.resource.ResourceListPage
+import site.lcyk.keer.ui.page.settings.AvatarSettingsPage
+import site.lcyk.keer.ui.page.settings.SettingsPage
 import site.lcyk.keer.viewmodel.LocalUserState
 
 @Composable
@@ -85,6 +88,30 @@ fun MemosNavigation(
 
         composable(RouteName.SEARCH) {
             SearchPage(navController = navController)
+        }
+
+        composable(RouteName.RESOURCE) {
+            ResourceListPage(
+                drawerState = drawerState,
+                navController = navController,
+                onMenuButtonOpenRequested = onMenuButtonOpenRequested
+            )
+        }
+
+        composable(RouteName.SETTINGS) {
+            AvatarSettingsPage(
+                drawerState = drawerState,
+                navController = navController,
+                onMenuButtonOpenRequested = onMenuButtonOpenRequested
+            )
+        }
+
+        composable(RouteName.CONFIG) {
+            SettingsPage(
+                drawerState = drawerState,
+                navController = navController,
+                onMenuButtonOpenRequested = onMenuButtonOpenRequested
+            )
         }
 
         composable(RouteName.GROUP_MANAGEMENT) {

@@ -22,6 +22,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,8 +48,10 @@ import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.handleManualSyncResult
 import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.component.MemosCard
+import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
+import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import timber.log.Timber
@@ -68,6 +71,7 @@ fun MemosList(
     val viewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsState()
     val syncStatus by viewModel.syncStatus.collectAsState()
     val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
     val editGesture = settings.usersList
@@ -77,29 +81,39 @@ fun MemosList(
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
+    val avatarImageLoader = rememberAuthorizedImageLoader()
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
-    val filteredMemos = remember(viewModel.memos.toList(), tag, searchString) {
-        val pinned = viewModel.memos.filter { it.pinned }
-        val nonPinned = viewModel.memos.filter { !it.pinned }
-        var fullList = pinned + nonPinned
+    val filteredMemos by remember(viewModel.memos, tag, searchString) {
+        derivedStateOf {
+            val normalizedTag = tag?.takeIf { it.isNotBlank() }
+            val normalizedQuery = searchString?.takeIf { it.isNotBlank() }
+            val pinned = mutableListOf<site.lcyk.keer.data.local.entity.MemoEntity>()
+            val normal = mutableListOf<site.lcyk.keer.data.local.entity.MemoEntity>()
 
-        tag?.let { tag ->
-            fullList = fullList.filter { memo ->
-                memo.tags.any { memoTag ->
-                    memoTag == tag || memoTag.startsWith("$tag/")
+            for (memo in viewModel.memos) {
+                if (normalizedTag != null) {
+                    val matchedTag = memo.tags.any { memoTag ->
+                        memoTag == normalizedTag || memoTag.startsWith("$normalizedTag/")
+                    }
+                    if (!matchedTag) {
+                        continue
+                    }
+                }
+                if (normalizedQuery != null && !memo.content.contains(normalizedQuery, ignoreCase = true)) {
+                    continue
+                }
+                if (memo.pinned) {
+                    pinned += memo
+                } else {
+                    normal += memo
                 }
             }
-        }
 
-        searchString?.let { searchString ->
-            if (searchString.isNotEmpty()) {
-                fullList = fullList.filter { memo ->
-                    memo.content.contains(searchString, true)
-                }
+            buildList(pinned.size + normal.size) {
+                addAll(pinned)
+                addAll(normal)
             }
         }
-
-        fullList
     }
     val atTop = !lazyListState.canScrollBackward
     val atBottom = filteredMemos.isNotEmpty() && !lazyListState.canScrollForward
@@ -109,6 +123,20 @@ fun MemosList(
         atTop = atTop,
         atBottom = atBottom
     )
+
+    val collaboratorIdsToPrefetch = remember(filteredMemos) {
+        filteredMemos
+            .asSequence()
+            .flatMap { memo -> extractCollaboratorIds(memo.tags).asSequence() }
+            .distinct()
+            .toList()
+    }
+
+    LaunchedEffect(collaboratorIdsToPrefetch) {
+        if (collaboratorIdsToPrefetch.isNotEmpty()) {
+            userStateViewModel.prefetchCollaboratorAvatars(collaboratorIdsToPrefetch)
+        }
+    }
 
     var listTopId: String? by rememberSaveable {
         mutableStateOf(null)
@@ -199,7 +227,10 @@ fun MemosList(
                     editGesture = editGesture ?: MemoEditGesture.NONE,
                     previewMode = true,
                     showSyncStatus = currentAccount !is Account.Local,
-                    onTagClick = onTagClick
+                    onTagClick = onTagClick,
+                    collaboratorProfiles = collaboratorProfiles,
+                    avatarImageLoader = avatarImageLoader,
+                    prefetchCollaborators = false
                 )
             }
         }

@@ -62,7 +62,6 @@ import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToTopLevel
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.isValidTagName
@@ -104,7 +103,6 @@ fun SideDrawer(
         ?.settings
     val joinedGroups = currentUserSettings?.groups.orEmpty()
     val groupIdAliases = currentUserSettings?.groupIdAliases.orEmpty()
-    val rootNavController = LocalRootNavController.current
     val navBackStackEntry by memosNavController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val hapticFeedback = LocalHapticFeedback.current
@@ -251,13 +249,13 @@ fun SideDrawer(
             NavigationDrawerItem(
                 label = { Text(R.string.resources.string) },
                 icon = { Icon(Icons.Outlined.PhotoLibrary, contentDescription = null) },
-                selected = false,
+                selected = isSelected(RouteName.RESOURCE),
                 onClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
+                        memosNavController.navigateToTopLevel(RouteName.RESOURCE)
                         onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
-                        rootNavController.navigateToTopLevel(RouteName.RESOURCE)
                     }
                 },
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
@@ -283,13 +281,13 @@ fun SideDrawer(
             NavigationDrawerItem(
                 label = { Text(R.string.settings.string) },
                 icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
-                selected = false,
+                selected = isSelected(RouteName.SETTINGS),
                 onClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
+                        memosNavController.navigateToTopLevel(RouteName.SETTINGS)
                         onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
-                        rootNavController.navigateToTopLevel(RouteName.SETTINGS)
                     }
                 },
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
@@ -299,13 +297,13 @@ fun SideDrawer(
             NavigationDrawerItem(
                 label = { Text(R.string.config.string) },
                 icon = { Icon(Icons.Outlined.Tune, contentDescription = null) },
-                selected = false,
+                selected = isSelected(RouteName.CONFIG),
                 onClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
+                        memosNavController.navigateToTopLevel(RouteName.CONFIG)
                         onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
-                        rootNavController.navigateToTopLevel(RouteName.CONFIG)
                     }
                 },
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)

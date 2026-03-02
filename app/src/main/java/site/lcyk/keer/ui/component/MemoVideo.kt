@@ -37,10 +37,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.net.toUri
-import coil3.ImageLoader
 import coil3.annotation.ExperimentalCoilApi
 import coil3.compose.AsyncImage
-import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.skydoves.sandwich.ApiResponse
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -78,17 +76,7 @@ fun MemoVideo(
     var showPlayerDialog by remember(resource.remoteId, resource.uri, resource.localUri) {
         mutableStateOf(false)
     }
-    val imageLoader = remember(context, userStateViewModel.okHttpClient) {
-        ImageLoader.Builder(context)
-            .components {
-                add(
-                    OkHttpNetworkFetcherFactory(
-                        callFactory = { userStateViewModel.okHttpClient }
-                    )
-                )
-            }
-            .build()
-    }
+    val imageLoader = rememberAuthorizedImageLoader()
     val previewModel = remember(
         resource.thumbnailLocalUri,
         resource.thumbnailUri,

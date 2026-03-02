@@ -64,11 +64,13 @@ import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.handleManualSyncResult
 import site.lcyk.keer.ui.component.rememberListEdgeHaptics
+import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToSearchPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
 import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.viewmodel.GroupChatViewModel
 import site.lcyk.keer.viewmodel.LocalMemos
@@ -91,7 +93,9 @@ fun GroupChatPage(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsState()
     val syncStatus by memosViewModel.syncStatus.collectAsState()
+    val avatarImageLoader = rememberAuthorizedImageLoader()
 
     val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
     val currentUserSettings = settings.usersList
@@ -152,6 +156,20 @@ fun GroupChatPage(
         atTop = atTop,
         atBottom = atBottom
     )
+
+    val collaboratorIdsToPrefetch = remember(memos) {
+        memos
+            .asSequence()
+            .flatMap { memo -> extractCollaboratorIds(memo.tags).asSequence() }
+            .distinct()
+            .toList()
+    }
+
+    LaunchedEffect(collaboratorIdsToPrefetch) {
+        if (collaboratorIdsToPrefetch.isNotEmpty()) {
+            userStateViewModel.prefetchCollaboratorAvatars(collaboratorIdsToPrefetch)
+        }
+    }
 
     LaunchedEffect(syncStatus.syncing, group?.id) {
         val wasRunning = syncWasRunning
@@ -328,7 +346,10 @@ fun GroupChatPage(
                         },
                         onTagClick = { tag ->
                             navController.navigateToTagPage(tag)
-                        }
+                        },
+                        collaboratorProfiles = collaboratorProfiles,
+                        avatarImageLoader = avatarImageLoader,
+                        prefetchCollaborators = false
                     )
                 }
 
