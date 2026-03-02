@@ -21,6 +21,15 @@ fun handleManualSyncResult(result: ManualSyncResult): SyncAlertState? {
     }
 }
 
+fun processManualSyncResult(
+    result: ManualSyncResult,
+    onAlert: (SyncAlertState) -> Unit
+): Boolean {
+    val alert = handleManualSyncResult(result) ?: return true
+    onAlert(alert)
+    return false
+}
+
 @Composable
 fun SyncAlertDialog(
     alert: SyncAlertState?,

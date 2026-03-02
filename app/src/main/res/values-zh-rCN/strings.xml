@@ -16,8 +16,10 @@
     <string name="archived">归档</string>
     <string name="config">配置</string>
     <string name="settings">管理</string>
+    <string name="profile_settings">个人资料</string>
     <string name="tags">标签</string>
     <string name="memo">灵感</string>
+    <string name="memo_detail">详情</string>
     <string name="tag">标签</string>
     <string name="tag_actions">标签操作</string>
     <string name="rename_tag">重命名标签</string>

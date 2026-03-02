@@ -49,6 +49,7 @@ class MemosViewModel @Inject constructor(
 
     var memos = mutableStateListOf<MemoEntity>()
         private set
+    private val transientDetailMemos = linkedMapOf<String, MemoEntity>()
     var tags = mutableStateListOf<String>()
         private set
     var errorMessage: String? by mutableStateOf(null)
@@ -239,6 +240,19 @@ class MemosViewModel @Inject constructor(
         }
     }
 
+    fun cacheMemoForDetail(memo: MemoEntity) {
+        transientDetailMemos[memo.identifier] = memo
+        if (transientDetailMemos.size > MAX_TRANSIENT_DETAIL_MEMO_COUNT) {
+            val eldestKey = transientDetailMemos.keys.firstOrNull() ?: return
+            transientDetailMemos.remove(eldestKey)
+        }
+    }
+
+    fun getMemoForDetail(memoIdentifier: String): MemoEntity? {
+        return memos.firstOrNull { it.identifier == memoIdentifier }
+            ?: transientDetailMemos[memoIdentifier]
+    }
+
     private suspend fun triggerSyncAfterMutation() {
         memoService.requestSync(trigger = SyncTrigger.MUTATION, force = false)
     }
@@ -254,6 +268,10 @@ class MemosViewModel @Inject constructor(
         return DailyUsageStat.initialMatrix.map {
             it.copy(count = countMap[it.date] ?: 0)
         }
+    }
+
+    private companion object {
+        private const val MAX_TRANSIENT_DETAIL_MEMO_COUNT = 200
     }
 }
 

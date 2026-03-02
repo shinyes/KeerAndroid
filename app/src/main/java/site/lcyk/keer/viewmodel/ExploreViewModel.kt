@@ -310,6 +310,11 @@ class ExploreViewModel @Inject constructor(
         _mutationErrorMessage.value = null
     }
 
+    suspend fun refreshExploreMemos() {
+        syncGroupsFromRemote()
+        refreshSignal.update { current -> current + 1 }
+    }
+
     private suspend fun syncGroupsFromRemote() {
         val remoteRepository = accountService.getRemoteRepository() ?: return
         when (val response = remoteRepository.listGroups()) {

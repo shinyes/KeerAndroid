@@ -61,6 +61,7 @@ import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.normalizeTagList
+import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import java.net.URLEncoder
@@ -81,7 +82,7 @@ fun MemoDetailPage(
     val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
     val scope = rememberCoroutineScope()
     val localMemo = remember(memosViewModel.memos.toList(), memoIdentifier) {
-        memosViewModel.memos.firstOrNull { it.identifier == memoIdentifier }
+        memosViewModel.getMemoForDetail(memoIdentifier)
     }
     val fallbackMemo = remember(memoIdentifier, settings.currentUser, settings.usersList) {
         resolveFallbackMemoEntity(
@@ -116,7 +117,7 @@ fun MemoDetailPage(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(text = R.string.memo.string) },
+                title = { Text(text = R.string.memo_detail.string) },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStackIfLifecycleIsResumed(lifecycleOwner) }) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = R.string.back.string)
@@ -330,26 +331,17 @@ private fun CachedMemoItem.toMemoEntity(
     accountKey: String,
     pinnedOverride: Boolean? = null
 ): MemoEntity {
-    val memo = toMemo()
-    val syncedAt = memo.updatedAt ?: memo.date
-    val entity = MemoEntity(
+    val resolvedMemo = toMemo().let { memo ->
+        if (pinnedOverride == null) memo else memo.copy(pinned = pinnedOverride)
+    }
+    val syncedAt = resolvedMemo.updatedAt ?: resolvedMemo.date
+    return resolvedMemo.toMemoEntityForCard(
         identifier = identifier,
-        remoteId = memo.remoteId,
         accountKey = accountKey,
-        content = memo.content,
-        date = memo.date,
-        visibility = memo.visibility,
-        pinned = pinnedOverride ?: memo.pinned,
-        archived = memo.archived,
-        latitude = memo.latitude,
-        longitude = memo.longitude,
         needsSync = false,
-        isDeleted = false,
         lastModified = syncedAt,
         lastSyncedAt = syncedAt
     )
-    entity.tags = memo.tags
-    return entity
 }
 
 private fun PendingGroupMemo.toMemoEntity(

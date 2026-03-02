@@ -31,7 +31,7 @@ import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.SyncStatusBadge
-import site.lcyk.keer.ui.component.handleManualSyncResult
+import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToSearchPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
@@ -63,7 +63,7 @@ fun MemosHomePage(
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
 
     suspend fun requestManualSync() {
-        handleManualSyncResult(memosViewModel.refreshMemos())?.let { alert ->
+        processManualSyncResult(memosViewModel.refreshMemos()) { alert ->
             syncAlert = alert
         }
     }
@@ -85,7 +85,7 @@ fun MemosHomePage(
                     }
                 },
                 actions = {
-                    if (currentAccount !is Account.Local) {
+                    if (currentAccount !is Account.Local && syncStatus.syncing) {
                         SyncStatusBadge(
                             syncing = syncStatus.syncing,
                             unsyncedCount = syncStatus.unsyncedCount,

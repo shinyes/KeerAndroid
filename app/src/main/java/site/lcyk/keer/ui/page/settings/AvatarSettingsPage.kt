@@ -4,7 +4,6 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,7 +13,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Group
-import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,7 +23,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -91,7 +88,7 @@ fun AvatarSettingsPage(
     }
 
     PageScaffold(
-        title = R.string.settings.string,
+        title = R.string.profile_settings.string,
         drawerState = drawerState,
         onMenuButtonOpenRequested = onMenuButtonOpenRequested,
         onBack = if (drawerState == null) {
@@ -107,7 +104,7 @@ fun AvatarSettingsPage(
         ) {
             item {
                 Text(
-                    text = R.string.settings.string,
+                    text = R.string.profile_settings.string,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(24.dp, 10.dp),
@@ -118,7 +115,7 @@ fun AvatarSettingsPage(
             item {
                 SettingItem(
                     icon = Icons.Outlined.AccountCircle,
-                    text = R.string.avatar.string,
+                    text = R.string.set_avatar.string,
                     trailingIcon = {
                         if (displayAvatarModel.isNullOrBlank()) {
                             Icon(
@@ -142,27 +139,6 @@ fun AvatarSettingsPage(
                         avatarPickerLauncher.launch(arrayOf("image/*"))
                     }
                 )
-            }
-            item {
-                SettingItem(
-                    icon = Icons.Outlined.Image,
-                    text = R.string.set_avatar.string,
-                    onClick = {
-                        avatarPickerLauncher.launch(arrayOf("image/*"))
-                    }
-                )
-            }
-            item {
-                Column(
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                    horizontalAlignment = Alignment.Start
-                ) {
-                    Text(
-                        text = R.string.avatar_hint.string,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                }
             }
             item {
                 SettingItem(

@@ -56,6 +56,7 @@ class UserStateViewModel @Inject constructor(
         private set
     val okHttpClient: OkHttpClient get() = accountService.httpClient
     private val collaboratorAvatarMutex = Mutex()
+    private val collaboratorAvatarInFlightIds = mutableSetOf<String>()
     private var lastCurrentUserLoadAtMillis: Long = 0L
     private val _collaboratorProfiles = MutableStateFlow<Map<String, CollaboratorProfile>>(emptyMap())
     val collaboratorProfiles: StateFlow<Map<String, CollaboratorProfile>> = _collaboratorProfiles.asStateFlow()
@@ -191,86 +192,96 @@ class UserStateViewModel @Inject constructor(
         }
 
         val missingIds = collaboratorAvatarMutex.withLock {
-            normalizedIds.filterNot { _collaboratorProfiles.value.containsKey(it) }
+            normalizedIds.filterNot { userId ->
+                _collaboratorProfiles.value.containsKey(userId) || collaboratorAvatarInFlightIds.contains(userId)
+            }.also { pendingIds ->
+                collaboratorAvatarInFlightIds.addAll(pendingIds)
+            }
         }
         if (missingIds.isEmpty()) {
             return@withContext
         }
 
-        val api = accountService.createKeerV2Client(account.info.host, account.info.accessToken).second
-        val currentUserID = account.info.id.toString()
-        val remoteIDs = missingIds.filterNot { userId -> userId == currentUserID }
-        val remoteUsersByID = hashMapOf<String, KeerV2User>()
-        if (remoteIDs.isNotEmpty()) {
-            val unresolved = linkedSetOf<String>()
-            remoteIDs.chunked(userBatchQueryChunkSize).forEach { chunk ->
-                val batch = api.getUsersBatch(chunk.joinToString(",")).getOrNull()
-                if (batch == null) {
-                    unresolved += chunk
-                } else {
-                    batch.users.forEach { user ->
-                        val userID = normalizeCollaboratorUserID(user.name)
-                        if (userID != null) {
-                            remoteUsersByID[userID] = user
+        try {
+            val api = accountService.createKeerV2Client(account.info.host, account.info.accessToken).second
+            val currentUserID = account.info.id.toString()
+            val remoteIDs = missingIds.filterNot { userId -> userId == currentUserID }
+            val remoteUsersByID = hashMapOf<String, KeerV2User>()
+            if (remoteIDs.isNotEmpty()) {
+                val unresolved = linkedSetOf<String>()
+                remoteIDs.chunked(userBatchQueryChunkSize).forEach { chunk ->
+                    val batch = api.getUsersBatch(chunk.joinToString(",")).getOrNull()
+                    if (batch == null) {
+                        unresolved += chunk
+                    } else {
+                        batch.users.forEach { user ->
+                            val userID = normalizeCollaboratorUserID(user.name)
+                            if (userID != null) {
+                                remoteUsersByID[userID] = user
+                            }
+                        }
+                        chunk.forEach { userID ->
+                            if (!remoteUsersByID.containsKey(userID)) {
+                                unresolved += userID
+                            }
                         }
                     }
-                    chunk.forEach { userID ->
-                        if (!remoteUsersByID.containsKey(userID)) {
-                            unresolved += userID
+                }
+
+                if (unresolved.isNotEmpty()) {
+                    unresolved.chunked(userFallbackLookupChunkSize).forEach { chunk ->
+                        val fallbackUsers = kotlinx.coroutines.coroutineScope {
+                            chunk.map { userId ->
+                                async { userId to api.getUser(userId).getOrNull() }
+                            }.awaitAll()
+                        }
+                        fallbackUsers.forEach { (userId, user) ->
+                            if (user != null) {
+                                remoteUsersByID[userId] = user
+                            }
                         }
                     }
                 }
             }
 
-            if (unresolved.isNotEmpty()) {
-                unresolved.chunked(userFallbackLookupChunkSize).forEach { chunk ->
-                    val fallbackUsers = kotlinx.coroutines.coroutineScope {
-                        chunk.map { userId ->
-                            async { userId to api.getUser(userId).getOrNull() }
-                        }.awaitAll()
-                    }
-                    fallbackUsers.forEach { (userId, user) ->
-                        if (user != null) {
-                            remoteUsersByID[userId] = user
-                        }
-                    }
-                }
-            }
-        }
-
-        val fetched = missingIds.associateWith { userId ->
-            if (userId == currentUserID) {
-                val current = currentUser
-                CollaboratorProfile(
-                    id = userId,
-                    name = current?.name?.takeIf { it.isNotBlank() }
-                        ?: account.info.name.ifBlank { userId },
-                    avatarUrl = resolveAvatarUrl(
-                        account.info.host,
-                        current?.avatarUrl.orEmpty().ifBlank { account.info.avatarUrl }
+            val fetched = missingIds.associateWith { userId ->
+                if (userId == currentUserID) {
+                    val current = currentUser
+                    CollaboratorProfile(
+                        id = userId,
+                        name = current?.name?.takeIf { it.isNotBlank() }
+                            ?: account.info.name.ifBlank { userId },
+                        avatarUrl = resolveAvatarUrl(
+                            account.info.host,
+                            current?.avatarUrl.orEmpty().ifBlank { account.info.avatarUrl }
+                        )
                     )
-                )
-            } else {
-                val user = remoteUsersByID[userId]
-                CollaboratorProfile(
-                    id = userId,
-                    name = user?.displayName?.takeIf { it.isNotBlank() }
-                        ?: user?.username?.takeIf { it.isNotBlank() }
-                        ?: userId,
-                    avatarUrl = resolveAvatarUrl(account.info.host, user?.avatarUrl.orEmpty())
-                )
-            }
-        }
-
-        collaboratorAvatarMutex.withLock {
-            val merged = _collaboratorProfiles.value.toMutableMap()
-            missingIds.forEach { userId ->
-                val profile = fetched[userId]
-                if (profile != null) {
-                    merged[userId] = profile
+                } else {
+                    val user = remoteUsersByID[userId]
+                    CollaboratorProfile(
+                        id = userId,
+                        name = user?.displayName?.takeIf { it.isNotBlank() }
+                            ?: user?.username?.takeIf { it.isNotBlank() }
+                            ?: userId,
+                        avatarUrl = resolveAvatarUrl(account.info.host, user?.avatarUrl.orEmpty())
+                    )
                 }
             }
-            _collaboratorProfiles.value = merged
+
+            collaboratorAvatarMutex.withLock {
+                val merged = _collaboratorProfiles.value.toMutableMap()
+                missingIds.forEach { userId ->
+                    val profile = fetched[userId]
+                    if (profile != null) {
+                        merged[userId] = profile
+                    }
+                }
+                _collaboratorProfiles.value = merged
+            }
+        } finally {
+            collaboratorAvatarMutex.withLock {
+                collaboratorAvatarInFlightIds.removeAll(missingIds.toSet())
+            }
         }
     }
 

@@ -19,34 +19,29 @@ fun RefreshableListContainer(
     indicator: (@Composable BoxScope.() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    if (indicator != null) {
+    val contentBlock: @Composable BoxScope.() -> Unit = {
+        if (isEmpty && !isRefreshing && emptyContent != null) {
+            emptyContent()
+        } else {
+            content()
+        }
+    }
+    if (indicator == null) {
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = onRefresh,
             state = state,
             modifier = modifier,
-            indicator = indicator
-        ) {
-            if (isEmpty && !isRefreshing && emptyContent != null) {
-                emptyContent()
-                return@PullToRefreshBox
-            }
-
-            content()
-        }
+            content = contentBlock
+        )
     } else {
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = onRefresh,
             state = state,
-            modifier = modifier
-        ) {
-            if (isEmpty && !isRefreshing && emptyContent != null) {
-                emptyContent()
-                return@PullToRefreshBox
-            }
-
-            content()
-        }
+            modifier = modifier,
+            indicator = indicator,
+            content = contentBlock
+        )
     }
 }

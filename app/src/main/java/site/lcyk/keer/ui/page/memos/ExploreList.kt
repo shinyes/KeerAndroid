@@ -4,7 +4,7 @@ import android.net.Uri
 import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -16,6 +16,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -24,6 +25,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -37,6 +40,11 @@ import site.lcyk.keer.R
 import site.lcyk.keer.ui.component.MemoActionMenuButton
 import site.lcyk.keer.ui.component.MemoMenuAction
 import site.lcyk.keer.ui.component.MemosCard
+import site.lcyk.keer.ui.component.PullSyncLineIndicator
+import site.lcyk.keer.ui.component.RefreshableListContainer
+import site.lcyk.keer.ui.component.SyncAlertDialog
+import site.lcyk.keer.ui.component.SyncAlertState
+import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
@@ -48,6 +56,7 @@ import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.viewmodel.ExploreMemoItem
 import site.lcyk.keer.viewmodel.ExploreViewModel
+import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import kotlinx.coroutines.launch
 
@@ -57,14 +66,19 @@ fun ExploreList(
     contentPadding: PaddingValues
 ) {
     val memos = viewModel.exploreMemos.collectAsLazyPagingItems()
+    val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsState()
+    val syncStatus by memosViewModel.syncStatus.collectAsState()
     val mutationErrorMessage by viewModel.mutationErrorMessage.collectAsState()
     val rootNavController = LocalRootNavController.current
     val listState = rememberLazyListState()
+    val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
+    val hapticFeedback = LocalHapticFeedback.current
     val avatarImageLoader = rememberAuthorizedImageLoader()
+    var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     var editingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
     var editingContent by remember { mutableStateOf("") }
     var deletingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
@@ -98,57 +112,87 @@ fun ExploreList(
         atBottom = atBottom
     )
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.consumeWindowInsets(contentPadding),
-        contentPadding = contentPadding
+    RefreshableListContainer(
+        isRefreshing = syncStatus.syncing,
+        onRefresh = {
+            if (syncStatus.syncing) {
+                return@RefreshableListContainer
+            }
+            scope.launch {
+                val completed = processManualSyncResult(memosViewModel.refreshMemos()) { alert ->
+                    syncAlert = alert
+                }
+                if (!completed) {
+                    return@launch
+                }
+                viewModel.refreshExploreMemos()
+            }
+        },
+        state = refreshState,
+        indicator = {
+            PullSyncLineIndicator(
+                refreshState = refreshState,
+                syncing = syncStatus.syncing,
+                hapticFeedback = hapticFeedback
+            )
+        },
+        modifier = Modifier.padding(contentPadding)
     ) {
-        items(memos.itemCount) { index ->
-            val memoItem = memos[index]
-            memoItem?.let { item ->
-                val adaptedMemo = remember(item.memo, accountKey) {
-                    item.memo.toExploreMemoEntity(accountKey)
-                }
-                val canManageMemo = remember(item.memo, currentUserId) {
-                    canManageExploreMemo(item.memo, currentUserId)
-                }
-                MemosCard(
-                    memo = adaptedMemo,
-                    onClick = { selectedMemo ->
-                        rootNavController.navigateToMemoDetailPage(selectedMemo.identifier)
-                    },
-                    editGesture = MemoEditGesture.NONE,
-                    previewMode = true,
-                    showSyncStatus = false,
-                    authorAvatarUrl = item.memo.creator?.avatarUrl,
-                    authorName = item.memo.creator?.name,
-                    actionButton = { memoEntity ->
-                        ExploreMemoCardActionButton(
-                            memo = memoEntity,
-                            canManage = canManageMemo,
-                            onEdit = {
-                                val groupId = item.groupId
-                                if (!groupId.isNullOrBlank()) {
-                                    rootNavController.navigate(
-                                        "${RouteName.GROUP_INPUT}?groupId=${Uri.encode(groupId)}&memoId=${Uri.encode(item.memo.remoteId)}"
-                                    )
-                                } else {
-                                    editingMemo = item
-                                    editingContent = item.memo.content
+        LazyColumn(
+            state = listState
+        ) {
+            items(
+                count = memos.itemCount,
+                key = { index -> memos[index]?.memo?.remoteId ?: "explore-placeholder-$index" },
+                contentType = { "memo" }
+            ) { index ->
+                val memoItem = memos[index]
+                memoItem?.let { item ->
+                    val adaptedMemo = remember(item.memo, accountKey) {
+                        item.memo.toExploreMemoEntity(accountKey)
+                    }
+                    val canManageMemo = remember(item.memo, currentUserId) {
+                        canManageExploreMemo(item.memo, currentUserId)
+                    }
+                    MemosCard(
+                        memo = adaptedMemo,
+                        onClick = { selectedMemo ->
+                            memosViewModel.cacheMemoForDetail(selectedMemo)
+                            rootNavController.navigateToMemoDetailPage(selectedMemo.identifier)
+                        },
+                        editGesture = MemoEditGesture.NONE,
+                        previewMode = true,
+                        showSyncStatus = false,
+                        authorAvatarUrl = item.memo.creator?.avatarUrl,
+                        authorName = item.memo.creator?.name,
+                        actionButton = { memoEntity ->
+                            ExploreMemoCardActionButton(
+                                memo = memoEntity,
+                                canManage = canManageMemo,
+                                onEdit = {
+                                    val groupId = item.groupId
+                                    if (!groupId.isNullOrBlank()) {
+                                        rootNavController.navigate(
+                                            "${RouteName.GROUP_INPUT}?groupId=${Uri.encode(groupId)}&memoId=${Uri.encode(item.memo.remoteId)}"
+                                        )
+                                    } else {
+                                        editingMemo = item
+                                        editingContent = item.memo.content
+                                    }
+                                },
+                                onDelete = {
+                                    deletingMemo = item
                                 }
-                            },
-                            onDelete = {
-                                deletingMemo = item
-                            }
-                        )
-                    },
-                    onTagClick = { tag ->
-                        rootNavController.navigateToTagPage(tag)
-                    },
-                    collaboratorProfiles = collaboratorProfiles,
-                    avatarImageLoader = avatarImageLoader,
-                    prefetchCollaborators = false
-                )
+                            )
+                        },
+                        onTagClick = { tag ->
+                            rootNavController.navigateToTagPage(tag)
+                        },
+                        collaboratorProfiles = collaboratorProfiles,
+                        avatarImageLoader = avatarImageLoader,
+                        prefetchCollaborators = false
+                    )
+                }
             }
         }
     }
@@ -230,6 +274,11 @@ fun ExploreList(
             }
         )
     }
+
+    SyncAlertDialog(
+        alert = syncAlert,
+        onDismiss = { syncAlert = null }
+    )
 }
 
 private fun Memo.toExploreMemoEntity(accountKey: String): MemoEntity {

@@ -15,8 +15,10 @@
     <string name="archived">Archived</string>
     <string name="config">Config</string>
     <string name="settings">Manage</string>
+    <string name="profile_settings">Profile</string>
     <string name="tags">Tags</string>
     <string name="memo">Memo</string>
+    <string name="memo_detail">Memo detail</string>
     <string name="tag">Tag</string>
     <string name="tag_actions">Tag Actions</string>
     <string name="rename_tag">Rename Tag</string>

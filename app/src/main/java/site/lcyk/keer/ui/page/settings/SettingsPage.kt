@@ -8,10 +8,7 @@ import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PersonAdd
-import androidx.compose.material.icons.outlined.Source
-import androidx.compose.material.icons.outlined.Web
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,7 +25,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
@@ -56,7 +52,6 @@ fun SettingsPage(
     val userStateViewModel = LocalUserState.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
     val scope = rememberCoroutineScope()
     val accounts by userStateViewModel.accounts.collectAsState()
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
@@ -148,40 +143,6 @@ fun SettingsPage(
                 }
             }
 
-            item {
-                Text(
-                    R.string.about.string,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp, 10.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.outline
-                )
-            }
-
-            item {
-                SettingItem(icon = Icons.Outlined.Web, text = R.string.website.string) {
-                    uriHandler.openUri("https://memos.moe")
-                }
-            }
-
-            item {
-                SettingItem(icon = Icons.Outlined.Lock, text = R.string.privacy_policy.string) {
-                    uriHandler.openUri("https://memos.moe/privacy")
-                }
-            }
-
-            item {
-                SettingItem(icon = Icons.Outlined.Source, text = R.string.acknowledgements.string) {
-                    uriHandler.openUri("https://memos.moe/android-acknowledgements")
-                }
-            }
-
-            item {
-                SettingItem(icon = Icons.Outlined.BugReport, text = R.string.report_an_issue.string) {
-                    uriHandler.openUri("https://github.com/mudkipme/KeerAndroid/issues")
-                }
-            }
         }
     }
 

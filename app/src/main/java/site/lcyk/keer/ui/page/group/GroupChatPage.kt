@@ -58,11 +58,12 @@ import site.lcyk.keer.ui.component.MemoActionMenuButton
 import site.lcyk.keer.ui.component.MemoMenuAction
 import site.lcyk.keer.ui.component.MemoMenuConfirmation
 import site.lcyk.keer.ui.component.MemosCard
+import site.lcyk.keer.ui.component.PullSyncLineIndicator
 import site.lcyk.keer.ui.component.RefreshableListContainer
 import site.lcyk.keer.ui.component.SyncStatusBadge
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
-import site.lcyk.keer.ui.component.handleManualSyncResult
+import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
@@ -142,7 +143,7 @@ fun GroupChatPage(
     }
 
     suspend fun requestManualSync() {
-        handleManualSyncResult(memosViewModel.refreshMemos())?.let { alert ->
+        processManualSyncResult(memosViewModel.refreshMemos()) { alert ->
             syncAlert = alert
         }
     }
@@ -243,7 +244,7 @@ fun GroupChatPage(
                     }
                 },
                 actions = {
-                    if (currentAccount !is Account.Local) {
+                    if (currentAccount !is Account.Local && syncStatus.syncing) {
                         SyncStatusBadge(
                             syncing = syncStatus.syncing,
                             unsyncedCount = syncStatus.unsyncedCount,
@@ -276,13 +277,25 @@ fun GroupChatPage(
         }
     ) { innerPadding ->
         RefreshableListContainer(
-            isRefreshing = loading,
+            isRefreshing = syncStatus.syncing,
             onRefresh = {
-                scope.launch { reloadGroup(forceSync = true) }
+                if (syncStatus.syncing) {
+                    return@RefreshableListContainer
+                }
+                scope.launch {
+                    requestManualSync()
+                }
             },
             state = refreshState,
+            indicator = {
+                PullSyncLineIndicator(
+                    refreshState = refreshState,
+                    syncing = syncStatus.syncing,
+                    hapticFeedback = hapticFeedback
+                )
+            },
             modifier = Modifier.padding(innerPadding),
-            isEmpty = memos.isEmpty() && errorMessage.isNullOrBlank(),
+            isEmpty = memos.isEmpty() && errorMessage.isNullOrBlank() && !loading,
             emptyContent = {
                 Text(
                     text = R.string.no_memos.string,
@@ -296,7 +309,11 @@ fun GroupChatPage(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
-                items(memos, key = { it.remoteId }) { memo ->
+                items(
+                    items = memos,
+                    key = { it.remoteId },
+                    contentType = { "memo" }
+                ) { memo ->
                     val adaptedMemo = remember(memo, activeAccountKey, group.id) {
                         memo.toGroupMemoEntity(
                             accountKey = activeAccountKey,
@@ -309,6 +326,7 @@ fun GroupChatPage(
                     MemosCard(
                         memo = adaptedMemo,
                         onClick = { selectedMemo ->
+                            memosViewModel.cacheMemoForDetail(selectedMemo)
                             rootNavController.navigateToMemoDetailPage(selectedMemo.identifier)
                         },
                         editGesture = editGesture,

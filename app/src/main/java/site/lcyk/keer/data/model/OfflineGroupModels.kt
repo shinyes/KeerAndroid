@@ -37,8 +37,21 @@ data class CachedMemoItem(
     val creatorId: String? = null,
     val creatorName: String? = null,
     val creatorAvatarUrl: String? = null,
+    val resources: List<CachedResourceItem> = emptyList(),
     val archived: Boolean = false,
     val updatedAtEpochMillis: Long? = null,
+)
+
+@Serializable
+data class CachedResourceItem(
+    val remoteId: String,
+    val dateEpochMillis: Long,
+    val filename: String,
+    val mimeType: String? = null,
+    val uri: String,
+    val localUri: String? = null,
+    val thumbnailUri: String? = null,
+    val thumbnailLocalUri: String? = null,
 )
 
 @Serializable
@@ -73,7 +86,7 @@ fun CachedMemoItem.toMemo(): Memo {
         date = Instant.ofEpochMilli(dateEpochMillis),
         pinned = pinned,
         visibility = resolvedVisibility,
-        resources = emptyList(),
+        resources = resources.map(CachedResourceItem::toResource),
         tags = tags,
         latitude = latitude,
         longitude = longitude,
@@ -97,7 +110,34 @@ fun Memo.toCachedMemoItem(groupId: String? = null): CachedMemoItem {
         creatorId = creator?.identifier,
         creatorName = creator?.name,
         creatorAvatarUrl = creator?.avatarUrl,
+        resources = resources.map(Resource::toCachedResourceItem),
         archived = archived,
         updatedAtEpochMillis = updatedAt?.toEpochMilli()
+    )
+}
+
+private fun CachedResourceItem.toResource(): Resource {
+    return Resource(
+        remoteId = remoteId,
+        date = Instant.ofEpochMilli(dateEpochMillis),
+        filename = filename,
+        mimeType = mimeType,
+        uri = uri,
+        localUri = localUri,
+        thumbnailUri = thumbnailUri,
+        thumbnailLocalUri = thumbnailLocalUri
+    )
+}
+
+private fun Resource.toCachedResourceItem(): CachedResourceItem {
+    return CachedResourceItem(
+        remoteId = remoteId,
+        dateEpochMillis = date.toEpochMilli(),
+        filename = filename,
+        mimeType = mimeType,
+        uri = uri,
+        localUri = localUri,
+        thumbnailUri = thumbnailUri,
+        thumbnailLocalUri = thumbnailLocalUri
     )
 }
