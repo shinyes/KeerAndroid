@@ -47,7 +47,7 @@ fun DebugLogPage(
     val lifecycleOwner = LocalLifecycleOwner.current
     val settings by viewModel.settings.collectAsState()
     val logs by viewModel.logs.collectAsState()
-    val displayLogs = remember(logs) { logs.asReversed() }
+    val displayLogs = remember(logs) { logs.asReversed().toList() }
 
     Scaffold(
         topBar = {

@@ -38,8 +38,10 @@ import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.MemosIcon
+import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.PageScaffold
 import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.ui.page.common.navigateSingleTop
 import site.lcyk.keer.viewmodel.LocalUserState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -50,6 +52,7 @@ fun SettingsPage(
     onMenuButtonOpenRequested: (() -> Unit)? = null
 ) {
     val userStateViewModel = LocalUserState.current
+    val rootNavController = LocalRootNavController.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -139,7 +142,10 @@ fun SettingsPage(
 
             item {
                 SettingItem(icon = Icons.Outlined.BugReport, text = R.string.debug_logs.string) {
-                    navController.navigate(RouteName.DEBUG_LOGS)
+                    val destination = RouteName.DEBUG_LOGS
+                    runCatching {
+                        rootNavController.navigateSingleTop(destination)
+                    }
                 }
             }
 
