@@ -38,6 +38,7 @@ import site.lcyk.keer.ui.page.memos.MemoDetailPage
 import site.lcyk.keer.ui.page.memos.MemosPage
 import site.lcyk.keer.ui.page.memos.SearchPage
 import site.lcyk.keer.ui.page.memos.TagMemoPage
+import site.lcyk.keer.ui.page.group.GroupManagementPage
 import site.lcyk.keer.ui.page.resource.ResourceListPage
 import site.lcyk.keer.ui.page.settings.AvatarSettingsPage
 import site.lcyk.keer.ui.page.settings.DebugLogPage
@@ -101,7 +102,7 @@ fun Navigation() {
                 }
 
                 composable(RouteName.GROUP_MANAGEMENT) {
-                    MemosPage(startDestination = RouteName.GROUP_MANAGEMENT)
+                    GroupManagementPage(navController = navController)
                 }
 
                 composable(RouteName.ADD_ACCOUNT) {
@@ -232,7 +233,7 @@ fun Navigation() {
             Intent.ACTION_VIEW -> {
                 when (intent.getStringExtra("action")) {
                     "compose" -> navController.navigate(RouteName.INPUT)
-                    "search" -> navController.navigate(RouteName.SEARCH)
+                    "search" -> navController.navigateToSearchPage()
                 }
             }
             MainActivity.ACTION_NEW_MEMO -> {
@@ -247,7 +248,7 @@ fun Navigation() {
             MainActivity.ACTION_VIEW_MEMO -> {
                 val memoId = intent.getStringExtra(MainActivity.EXTRA_MEMO_ID)
                 if (memoId != null) {
-                    navController.navigate("${RouteName.MEMO_DETAIL}?memoId=${Uri.encode(memoId)}")
+                    navController.navigateToMemoDetailPage(memoId)
                 }
             }
         }

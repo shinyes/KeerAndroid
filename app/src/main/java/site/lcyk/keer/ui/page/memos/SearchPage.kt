@@ -30,8 +30,7 @@ import kotlinx.coroutines.delay
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.ui.page.common.RouteName
-import java.net.URLEncoder
+import site.lcyk.keer.ui.page.common.navigateToTagPage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,10 +74,7 @@ fun SearchPage(navController: NavHostController) {
                 contentPadding = innerPadding,
                 searchString = searchText.text,
                 onTagClick = { tag ->
-                    navController.navigate("${RouteName.TAG}/${URLEncoder.encode(tag, "UTF-8")}") {
-                        launchSingleTop = true
-                        restoreState = true
-                    }
+                    navController.navigateToTagPage(tag)
                 }
             )
         }

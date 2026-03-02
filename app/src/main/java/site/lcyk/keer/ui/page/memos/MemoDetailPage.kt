@@ -56,6 +56,7 @@ import site.lcyk.keer.ui.component.CollaboratorListDialog
 import site.lcyk.keer.ui.component.KeerTagChip
 import site.lcyk.keer.ui.component.MemoContent
 import site.lcyk.keer.ui.component.MemosCardActionButton
+import site.lcyk.keer.ui.page.common.navigateToTagPage
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.isCollaboratorTag
@@ -181,10 +182,7 @@ fun MemoDetailPage(
                             KeerTagChip(
                                 tag = tag,
                                 onClick = {
-                                    navController.navigate("${RouteName.TAG}/${URLEncoder.encode(tag, "UTF-8")}") {
-                                        launchSingleTop = true
-                                        restoreState = true
-                                    }
+                                    navController.navigateToTagPage(tag)
                                 }
                             )
                         }

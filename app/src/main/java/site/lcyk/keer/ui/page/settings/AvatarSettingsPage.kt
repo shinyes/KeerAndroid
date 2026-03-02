@@ -46,6 +46,7 @@ import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ui.page.common.navigateToTopLevel
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.viewmodel.LocalUserState
 
@@ -179,7 +180,7 @@ fun AvatarSettingsPage(
                     icon = Icons.Outlined.Group,
                     text = R.string.group_management.string,
                     onClick = {
-                        navController.navigate(RouteName.GROUP_MANAGEMENT)
+                        navController.navigateToTopLevel(RouteName.GROUP_MANAGEMENT)
                     }
                 )
             }

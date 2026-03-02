@@ -64,12 +64,15 @@ import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.handleManualSyncResult
 import site.lcyk.keer.ui.component.rememberListEdgeHaptics
+import site.lcyk.keer.ui.page.common.LocalRootNavController
+import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
+import site.lcyk.keer.ui.page.common.navigateToSearchPage
+import site.lcyk.keer.ui.page.common.navigateToTagPage
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.viewmodel.GroupChatViewModel
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
-import java.net.URLEncoder
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,6 +84,7 @@ fun GroupChatPage(
     viewModel: GroupChatViewModel = hiltViewModel()
 ) {
     val context = navController.context
+    val rootNavController = LocalRootNavController.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
@@ -234,7 +238,7 @@ fun GroupChatPage(
                         )
                     }
                     IconButton(onClick = {
-                        navController.navigate(RouteName.SEARCH)
+                        navController.navigateToSearchPage()
                     }) {
                         Icon(Icons.Filled.Search, contentDescription = R.string.search.string)
                     }
@@ -287,9 +291,7 @@ fun GroupChatPage(
                     MemosCard(
                         memo = adaptedMemo,
                         onClick = { selectedMemo ->
-                            navController.navigate(
-                                "${RouteName.MEMO_DETAIL}?memoId=${Uri.encode(selectedMemo.identifier)}"
-                            )
+                            rootNavController.navigateToMemoDetailPage(selectedMemo.identifier)
                         },
                         editGesture = editGesture,
                         previewMode = true,
@@ -325,10 +327,7 @@ fun GroupChatPage(
                             )
                         },
                         onTagClick = { tag ->
-                            navController.navigate("${RouteName.TAG}/${URLEncoder.encode(tag, "UTF-8")}") {
-                                launchSingleTop = true
-                                restoreState = true
-                            }
+                            navController.navigateToTagPage(tag)
                         }
                     )
                 }

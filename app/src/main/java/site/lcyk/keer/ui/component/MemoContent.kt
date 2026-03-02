@@ -18,7 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import site.lcyk.keer.ui.page.common.LocalRootNavController
-import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.ui.page.common.navigateToTagPage
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.MemoRepresentable
 import site.lcyk.keer.ext.string
@@ -31,7 +31,6 @@ import org.intellij.markdown.flavours.gfm.GFMElementTypes
 import org.intellij.markdown.flavours.gfm.GFMFlavourDescriptor
 import org.intellij.markdown.parser.MarkdownParser
 import kotlin.math.ceil
-import java.net.URLEncoder
 
 @Composable
 fun MemoContent(
@@ -52,10 +51,7 @@ fun MemoContent(
     }
     val handleTagClick = remember(rootNavController, onTagClick) {
         onTagClick ?: { tag ->
-            rootNavController.navigate("${RouteName.TAG}/${URLEncoder.encode(tag, "UTF-8")}") {
-                launchSingleTop = true
-                restoreState = true
-            }
+            rootNavController.navigateToTagPage(tag)
         }
     }
 

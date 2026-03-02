@@ -1,6 +1,5 @@
 package site.lcyk.keer.ui.page.memos
 
-import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -49,7 +48,7 @@ import site.lcyk.keer.ui.component.handleManualSyncResult
 import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.page.common.LocalRootNavController
-import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import timber.log.Timber
@@ -195,9 +194,7 @@ fun MemosList(
                 MemosCard(
                     memo = memo,
                     onClick = { selectedMemo ->
-                        navController.navigate(
-                            "${RouteName.MEMO_DETAIL}?memoId=${Uri.encode(selectedMemo.identifier)}"
-                        )
+                        navController.navigateToMemoDetailPage(selectedMemo.identifier)
                     },
                     editGesture = editGesture ?: MemoEditGesture.NONE,
                     previewMode = true,

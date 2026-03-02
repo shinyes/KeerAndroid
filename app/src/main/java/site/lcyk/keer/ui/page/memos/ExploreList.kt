@@ -38,6 +38,8 @@ import site.lcyk.keer.ui.component.MemoMenuAction
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.page.common.LocalRootNavController
+import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
+import site.lcyk.keer.ui.page.common.navigateToTagPage
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.normalizeCollaboratorId
@@ -95,9 +97,7 @@ fun ExploreList(
                 MemosCard(
                     memo = adaptedMemo,
                     onClick = { selectedMemo ->
-                        rootNavController.navigate(
-                            "${RouteName.MEMO_DETAIL}?memoId=${Uri.encode(selectedMemo.identifier)}"
-                        )
+                        rootNavController.navigateToMemoDetailPage(selectedMemo.identifier)
                     },
                     editGesture = MemoEditGesture.NONE,
                     previewMode = true,
@@ -125,10 +125,7 @@ fun ExploreList(
                         )
                     },
                     onTagClick = { tag ->
-                        rootNavController.navigate("${RouteName.TAG}/${Uri.encode(tag)}") {
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                        rootNavController.navigateToTagPage(tag)
                     }
                 )
             }

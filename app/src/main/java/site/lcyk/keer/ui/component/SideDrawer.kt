@@ -63,6 +63,7 @@ import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.LocalRootNavController
+import site.lcyk.keer.ui.page.common.navigateToTopLevel
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.isValidTagName
 import site.lcyk.keer.util.normalizeTagList
@@ -201,10 +202,7 @@ fun SideDrawer(
                 onClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
-                        memosNavController.navigate(RouteName.MEMOS) {
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                        memosNavController.navigateToTopLevel(RouteName.MEMOS)
                         onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
                     }
@@ -221,10 +219,7 @@ fun SideDrawer(
                     onClick = {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         scope.launch {
-                            memosNavController.navigate(RouteName.EXPLORE) {
-                                launchSingleTop = true
-                                restoreState = true
-                            }
+                            memosNavController.navigateToTopLevel(RouteName.EXPLORE)
                             onDrawerItemCloseRequested?.invoke()
                             drawerState?.close()
                         }
@@ -242,10 +237,7 @@ fun SideDrawer(
                         onClick = {
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                             scope.launch {
-                                memosNavController.navigate("${RouteName.GROUP_CHAT}?groupId=${Uri.encode(group.id)}") {
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
+                                memosNavController.navigateToTopLevel("${RouteName.GROUP_CHAT}?groupId=${Uri.encode(group.id)}")
                                 onDrawerItemCloseRequested?.invoke()
                                 drawerState?.close()
                             }
@@ -265,7 +257,7 @@ fun SideDrawer(
                     scope.launch {
                         onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
-                        rootNavController.navigate(RouteName.RESOURCE)
+                        rootNavController.navigateToTopLevel(RouteName.RESOURCE)
                     }
                 },
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
@@ -279,10 +271,7 @@ fun SideDrawer(
                 onClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
-                        memosNavController.navigate(RouteName.ARCHIVED) {
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                        memosNavController.navigateToTopLevel(RouteName.ARCHIVED)
                         onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
                     }
@@ -300,7 +289,7 @@ fun SideDrawer(
                     scope.launch {
                         onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
-                        rootNavController.navigate(RouteName.SETTINGS)
+                        rootNavController.navigateToTopLevel(RouteName.SETTINGS)
                     }
                 },
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
@@ -316,7 +305,7 @@ fun SideDrawer(
                     scope.launch {
                         onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
-                        rootNavController.navigate(RouteName.CONFIG)
+                        rootNavController.navigateToTopLevel(RouteName.CONFIG)
                     }
                 },
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
@@ -461,12 +450,9 @@ fun SideDrawer(
                                             oldPrefix = normalizedSourceTag,
                                             newPrefix = normalizedNewTag
                                         )
-                                        memosNavController.navigate(
+                                        memosNavController.navigateToTopLevel(
                                             "${RouteName.TAG}/${URLEncoder.encode(renamedSelected, "UTF-8")}"
-                                        ) {
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
+                                        )
                                     }
                                 renameTargetTag = null
                                 renameValue = ""
@@ -536,10 +522,7 @@ fun SideDrawer(
                                     currentSelectedTag
                                         ?.takeIf { matchesTagOrDescendant(it, normalizedTag) }
                                         ?.let {
-                                            memosNavController.navigate(RouteName.MEMOS) {
-                                                launchSingleTop = true
-                                                restoreState = true
-                                            }
+                                            memosNavController.navigateToTopLevel(RouteName.MEMOS)
                                         }
                                     deleteTargetTag = null
                                 } else {
@@ -604,10 +587,7 @@ fun SideDrawer(
                                 currentSelectedTag
                                     ?.takeIf { matchesTagOrDescendant(it, targetTag) }
                                     ?.let {
-                                        memosNavController.navigate(RouteName.MEMOS) {
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
+                                        memosNavController.navigateToTopLevel(RouteName.MEMOS)
                                     }
                                 confirmDeleteAndMemosTargetTag = null
                                 confirmDeleteAndMemosInput = ""

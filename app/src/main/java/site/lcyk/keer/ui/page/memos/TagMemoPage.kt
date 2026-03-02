@@ -6,7 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.navigation.NavHostController
 import site.lcyk.keer.ui.page.common.PageScaffold
-import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.ui.page.common.navigateToTagPage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,10 +30,7 @@ fun TagMemoPage(
                     if (normalizeTag(clickedTag) == normalizedCurrentTag) {
                         return@MemosList
                     }
-                    navController.navigate("${RouteName.TAG}/${java.net.URLEncoder.encode(clickedTag, "UTF-8")}") {
-                        launchSingleTop = true
-                        restoreState = true
-                    }
+                    navController.navigateToTagPage(clickedTag)
                 }
             )
     }

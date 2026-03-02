@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import site.lcyk.keer.ui.page.common.navigateToTopLevel
 import site.lcyk.keer.ui.page.common.RouteName
 import java.net.URLEncoder
 
@@ -62,10 +63,7 @@ fun TagDrawerItem(
         }
         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
         scope.launch {
-            memosNavController.navigate("${RouteName.TAG}/${URLEncoder.encode(tag, "UTF-8")}") {
-                launchSingleTop = true
-                restoreState = true
-            }
+            memosNavController.navigateToTopLevel("${RouteName.TAG}/${URLEncoder.encode(tag, "UTF-8")}")
             onDrawerItemCloseRequested?.invoke()
             drawerState?.close()
         }
