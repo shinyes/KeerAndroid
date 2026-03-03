@@ -38,6 +38,35 @@ fun NavHostController.navigateToSearchPage() {
     navigateSingleTop(RouteName.SEARCH)
 }
 
+fun NavHostController.navigateToAccountPage(accountKey: String) {
+    navigateSingleTop("${RouteName.ACCOUNT}?accountKey=${Uri.encode(accountKey)}")
+}
+
+fun NavHostController.navigateToAddAccountPage() {
+    navigateSingleTop(RouteName.ADD_ACCOUNT)
+}
+
+fun NavHostController.navigateToDebugLogsPage() {
+    navigateSingleTop(RouteName.DEBUG_LOGS)
+}
+
+fun NavHostController.navigateToGroupChatPage(groupId: String) {
+    navigateToTopLevel("${RouteName.GROUP_CHAT}?groupId=${Uri.encode(groupId)}")
+}
+
+fun NavHostController.navigateToGroupInputPage(
+    groupId: String,
+    memoId: String? = null
+) {
+    val encodedGroupId = Uri.encode(groupId)
+    val route = if (memoId.isNullOrBlank()) {
+        "${RouteName.GROUP_INPUT}?groupId=$encodedGroupId"
+    } else {
+        "${RouteName.GROUP_INPUT}?groupId=$encodedGroupId&memoId=${Uri.encode(memoId)}"
+    }
+    navigateSingleTop(route)
+}
+
 fun NavHostController.navigateToTagPage(tag: String) {
     navigateReplacingCurrent(
         route = "${RouteName.TAG}/${Uri.encode(tag)}",

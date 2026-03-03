@@ -1,4 +1,5 @@
-﻿<resources>
+﻿<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="MissingTranslation,PrivateResource">
     <string name="app_name">keer</string>
     <string name="default_card_content" translatable="false">It is what you do with the gift of life that determines who you are.      — Mewtwo</string>
     <string name="search">Search</string>
@@ -110,7 +111,8 @@
     <string name="delete_group">Delete Group</string>
     <string name="leave_group">Leave Group</string>
     <string name="group_chat">Group Chat</string>
-    <string name="group_all">All Groups</string>`r`n    <string name="select_group">Select a group</string>
+    <string name="group_all">All Groups</string>
+    <string name="select_group">Select a group</string>
     <string name="group_name">Group name</string>
     <string name="group_description">Group description</string>
     <string name="group_error_name_required">Group name cannot be empty</string>
@@ -183,3 +185,5 @@
     <string name="no_memos">No memos found</string>
     <string name="memo_not_found">Memo not found</string>
 </resources>
+
+

@@ -1,12 +1,14 @@
 package site.lcyk.keer.data.service
 
 import android.content.Context
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import java.io.File
 
+@UnstableApi
 object VideoPlayerCache {
     private const val CACHE_DIR_NAME = "video_player_cache"
     private const val MAX_CACHE_SIZE_BYTES: Long = 512L * 1024L * 1024L

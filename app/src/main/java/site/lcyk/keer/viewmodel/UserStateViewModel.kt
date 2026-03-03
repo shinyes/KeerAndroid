@@ -55,6 +55,7 @@ class UserStateViewModel @Inject constructor(
     var host: String = ""
         private set
     val okHttpClient: OkHttpClient get() = accountService.httpClient
+    // Guards shared prefetch state and prevents duplicate avatar lookups during concurrent list recompositions.
     private val collaboratorAvatarMutex = Mutex()
     private val collaboratorAvatarInFlightIds = mutableSetOf<String>()
     private var lastCurrentUserLoadAtMillis: Long = 0L
@@ -228,6 +229,7 @@ class UserStateViewModel @Inject constructor(
                     }
                 }
 
+                // Batch endpoint may miss partial users; fallback to single-user lookup only for unresolved IDs.
                 if (unresolved.isNotEmpty()) {
                     unresolved.chunked(userFallbackLookupChunkSize).forEach { chunk ->
                         val fallbackUsers = kotlinx.coroutines.coroutineScope {

@@ -40,8 +40,9 @@ import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.MemosIcon
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.PageScaffold
-import site.lcyk.keer.ui.page.common.RouteName
-import site.lcyk.keer.ui.page.common.navigateSingleTop
+import site.lcyk.keer.ui.page.common.navigateToAccountPage
+import site.lcyk.keer.ui.page.common.navigateToAddAccountPage
+import site.lcyk.keer.ui.page.common.navigateToDebugLogsPage
 import site.lcyk.keer.viewmodel.LocalUserState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -58,6 +59,7 @@ fun SettingsPage(
     val scope = rememberCoroutineScope()
     val accounts by userStateViewModel.accounts.collectAsState()
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val currentAccountKey = currentAccount?.accountKey()
     val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
     var showEditGestureDialog by remember { mutableStateOf(false) }
     val currentEditGesture = settings.usersList
@@ -91,37 +93,33 @@ fun SettingsPage(
             accounts.forEach { account ->
                 when (account) {
                     is Account.KeerV2 -> item {
-                        SettingItem(icon = MemosIcon, text = account.info.name, trailingIcon = {
-                            if (currentAccount?.accountKey() == account.accountKey()) {
-                                Icon(Icons.Outlined.Check,
-                                    contentDescription = R.string.selected.string,
-                                    modifier = Modifier.padding(start = 16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                        AccountSettingItem(
+                            icon = MemosIcon,
+                            text = account.info.name,
+                            accountKey = account.accountKey(),
+                            currentAccountKey = currentAccountKey,
+                            onClick = {
+                                rootNavController.navigateToAccountPage(account.accountKey())
                             }
-                        }) {
-                            navController.navigate("${RouteName.ACCOUNT}?accountKey=${account.accountKey()}")
-                        }
+                        )
                     }
                     is Account.Local -> item {
-                        SettingItem(icon = Icons.Outlined.Home, text = R.string.local_account.string, trailingIcon = {
-                            if (currentAccount?.accountKey() == account.accountKey()) {
-                                Icon(Icons.Outlined.Check,
-                                    contentDescription = R.string.selected.string,
-                                    modifier = Modifier.padding(start = 16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
+                        AccountSettingItem(
+                            icon = Icons.Outlined.Home,
+                            text = R.string.local_account.string,
+                            accountKey = account.accountKey(),
+                            currentAccountKey = currentAccountKey,
+                            onClick = {
+                                rootNavController.navigateToAccountPage(account.accountKey())
                             }
-                        }) {
-                            navController.navigate("${RouteName.ACCOUNT}?accountKey=${account.accountKey()}")
-                        }
+                        )
                     }
                 }
             }
 
             item {
                 SettingItem(icon = Icons.Outlined.PersonAdd, text = R.string.add_account.string) {
-                    navController.navigate(RouteName.ADD_ACCOUNT)
+                    rootNavController.navigateToAddAccountPage()
                 }
             }
 
@@ -142,10 +140,7 @@ fun SettingsPage(
 
             item {
                 SettingItem(icon = Icons.Outlined.BugReport, text = R.string.debug_logs.string) {
-                    val destination = RouteName.DEBUG_LOGS
-                    runCatching {
-                        rootNavController.navigateSingleTop(destination)
-                    }
+                    rootNavController.navigateToDebugLogsPage()
                 }
             }
 
@@ -202,6 +197,31 @@ fun SettingsPage(
             }
         )
     }
+}
+
+@Composable
+private fun AccountSettingItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    accountKey: String,
+    currentAccountKey: String?,
+    onClick: () -> Unit
+) {
+    SettingItem(
+        icon = icon,
+        text = text,
+        trailingIcon = {
+            if (currentAccountKey == accountKey) {
+                Icon(
+                    Icons.Outlined.Check,
+                    contentDescription = R.string.selected.string,
+                    modifier = Modifier.padding(start = 16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        onClick = onClick
+    )
 }
 
 private val MemoEditGesture.titleResource: Int

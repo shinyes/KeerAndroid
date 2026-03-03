@@ -23,7 +23,11 @@ fun ArchivedMemoList(
             modifier = Modifier.consumeWindowInsets(contentPadding),
             contentPadding = contentPadding
         ) {
-            items(viewModel.memos, key = { it.identifier }) { memo ->
+            items(
+                items = viewModel.memos,
+                key = { it.identifier },
+                contentType = { "memo" }
+            ) { memo ->
                 ArchivedMemoCard(memo)
             }
         }

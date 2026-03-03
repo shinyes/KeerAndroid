@@ -1,6 +1,5 @@
 ﻿package site.lcyk.keer.ui.page.group
 
-import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -46,7 +45,7 @@ import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.PageScaffold
-import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
 import site.lcyk.keer.viewmodel.GroupManagementViewModel
 import site.lcyk.keer.viewmodel.LocalUserState
 
@@ -195,7 +194,7 @@ fun GroupManagementPage(
                         ) {
                             TextButton(
                                 onClick = {
-                                    navController.navigate("${RouteName.GROUP_CHAT}?groupId=${Uri.encode(group.id)}")
+                                    navController.navigateToGroupChatPage(group.id)
                                 }
                             ) {
                                 Icon(Icons.Outlined.Tag, contentDescription = null)

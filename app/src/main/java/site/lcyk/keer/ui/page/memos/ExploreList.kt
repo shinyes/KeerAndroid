@@ -1,6 +1,5 @@
 package site.lcyk.keer.ui.page.memos
 
-import android.net.Uri
 import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.compose.foundation.layout.PaddingValues
@@ -31,7 +30,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.LazyPagingItems
 import androidx.compose.ui.res.stringResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Memo
@@ -48,9 +49,9 @@ import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
+import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
-import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.toMemoEntityForCard
@@ -68,10 +69,10 @@ fun ExploreList(
     val memos = viewModel.exploreMemos.collectAsLazyPagingItems()
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
-    val currentAccount by userStateViewModel.currentAccount.collectAsState()
-    val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsState()
-    val syncStatus by memosViewModel.syncStatus.collectAsState()
-    val mutationErrorMessage by viewModel.mutationErrorMessage.collectAsState()
+    val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
+    val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
+    val syncStatus by memosViewModel.syncStatus.collectAsStateWithLifecycle()
+    val mutationErrorMessage by viewModel.mutationErrorMessage.collectAsStateWithLifecycle()
     val rootNavController = LocalRootNavController.current
     val listState = rememberLazyListState()
     val refreshState = rememberPullToRefreshState()
@@ -112,11 +113,20 @@ fun ExploreList(
         atBottom = atBottom
     )
 
-    RefreshableListContainer(
-        isRefreshing = syncStatus.syncing,
+    ExploreMemoFeed(
+        memos = memos,
+        listState = listState,
+        refreshState = refreshState,
+        contentPadding = contentPadding,
+        syncStatus = syncStatus,
+        hapticFeedback = hapticFeedback,
+        collaboratorProfiles = collaboratorProfiles,
+        avatarImageLoader = avatarImageLoader,
+        accountKey = accountKey,
+        currentUserId = currentUserId,
         onRefresh = {
             if (syncStatus.syncing) {
-                return@RefreshableListContainer
+                return@ExploreMemoFeed
             }
             scope.launch {
                 val completed = processManualSyncResult(memosViewModel.refreshMemos()) { alert ->
@@ -128,74 +138,29 @@ fun ExploreList(
                 viewModel.refreshExploreMemos()
             }
         },
-        state = refreshState,
-        indicator = {
-            PullSyncLineIndicator(
-                refreshState = refreshState,
-                syncing = syncStatus.syncing,
-                hapticFeedback = hapticFeedback
-            )
+        onOpenMemoDetail = { selectedMemo ->
+            memosViewModel.cacheMemoForDetail(selectedMemo)
+            rootNavController.navigateToMemoDetailPage(selectedMemo.identifier)
         },
-        modifier = Modifier.padding(contentPadding)
-    ) {
-        LazyColumn(
-            state = listState
-        ) {
-            items(
-                count = memos.itemCount,
-                key = { index -> memos[index]?.memo?.remoteId ?: "explore-placeholder-$index" },
-                contentType = { "memo" }
-            ) { index ->
-                val memoItem = memos[index]
-                memoItem?.let { item ->
-                    val adaptedMemo = remember(item.memo, accountKey) {
-                        item.memo.toExploreMemoEntity(accountKey)
-                    }
-                    val canManageMemo = remember(item.memo, currentUserId) {
-                        canManageExploreMemo(item.memo, currentUserId)
-                    }
-                    MemosCard(
-                        memo = adaptedMemo,
-                        onClick = { selectedMemo ->
-                            memosViewModel.cacheMemoForDetail(selectedMemo)
-                            rootNavController.navigateToMemoDetailPage(selectedMemo.identifier)
-                        },
-                        editGesture = MemoEditGesture.NONE,
-                        previewMode = true,
-                        showSyncStatus = false,
-                        authorAvatarUrl = item.memo.creator?.avatarUrl,
-                        authorName = item.memo.creator?.name,
-                        actionButton = { memoEntity ->
-                            ExploreMemoCardActionButton(
-                                memo = memoEntity,
-                                canManage = canManageMemo,
-                                onEdit = {
-                                    val groupId = item.groupId
-                                    if (!groupId.isNullOrBlank()) {
-                                        rootNavController.navigate(
-                                            "${RouteName.GROUP_INPUT}?groupId=${Uri.encode(groupId)}&memoId=${Uri.encode(item.memo.remoteId)}"
-                                        )
-                                    } else {
-                                        editingMemo = item
-                                        editingContent = item.memo.content
-                                    }
-                                },
-                                onDelete = {
-                                    deletingMemo = item
-                                }
-                            )
-                        },
-                        onTagClick = { tag ->
-                            rootNavController.navigateToTagPage(tag)
-                        },
-                        collaboratorProfiles = collaboratorProfiles,
-                        avatarImageLoader = avatarImageLoader,
-                        prefetchCollaborators = false
-                    )
-                }
+        onTagClick = { tag ->
+            rootNavController.navigateToTagPage(tag)
+        },
+        onRequestEdit = { item ->
+            val groupId = item.groupId
+            if (!groupId.isNullOrBlank()) {
+                rootNavController.navigateToGroupInputPage(
+                    groupId = groupId,
+                    memoId = item.memo.remoteId
+                )
+            } else {
+                editingMemo = item
+                editingContent = item.memo.content
             }
+        },
+        onRequestDelete = { item ->
+            deletingMemo = item
         }
-    }
+    )
 
     if (editingMemo != null) {
         AlertDialog(
@@ -279,6 +244,79 @@ fun ExploreList(
         alert = syncAlert,
         onDismiss = { syncAlert = null }
     )
+}
+
+@Composable
+private fun ExploreMemoFeed(
+    memos: LazyPagingItems<ExploreMemoItem>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState,
+    contentPadding: PaddingValues,
+    syncStatus: site.lcyk.keer.data.model.SyncStatus,
+    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
+    collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
+    avatarImageLoader: coil3.ImageLoader,
+    accountKey: String,
+    currentUserId: String,
+    onRefresh: () -> Unit,
+    onOpenMemoDetail: (MemoEntity) -> Unit,
+    onTagClick: (String) -> Unit,
+    onRequestEdit: (ExploreMemoItem) -> Unit,
+    onRequestDelete: (ExploreMemoItem) -> Unit
+) {
+    RefreshableListContainer(
+        isRefreshing = syncStatus.syncing,
+        onRefresh = onRefresh,
+        state = refreshState,
+        indicator = {
+            PullSyncLineIndicator(
+                refreshState = refreshState,
+                syncing = syncStatus.syncing,
+                hapticFeedback = hapticFeedback
+            )
+        },
+        modifier = Modifier.padding(contentPadding)
+    ) {
+        LazyColumn(state = listState) {
+            items(
+                count = memos.itemCount,
+                key = { index -> memos[index]?.memo?.remoteId ?: "explore-placeholder-$index" },
+                contentType = { "memo" }
+            ) { index ->
+                val memoItem = memos[index]
+                if (memoItem == null) {
+                    return@items
+                }
+                val adaptedMemo = remember(memoItem.memo, accountKey) {
+                    memoItem.memo.toExploreMemoEntity(accountKey)
+                }
+                val canManageMemo = remember(memoItem.memo, currentUserId) {
+                    canManageExploreMemo(memoItem.memo, currentUserId)
+                }
+                MemosCard(
+                    memo = adaptedMemo,
+                    onClick = onOpenMemoDetail,
+                    editGesture = MemoEditGesture.NONE,
+                    previewMode = true,
+                    showSyncStatus = false,
+                    authorAvatarUrl = memoItem.memo.creator?.avatarUrl,
+                    authorName = memoItem.memo.creator?.name,
+                    actionButton = { memoEntity ->
+                        ExploreMemoCardActionButton(
+                            memo = memoEntity,
+                            canManage = canManageMemo,
+                            onEdit = { onRequestEdit(memoItem) },
+                            onDelete = { onRequestDelete(memoItem) }
+                        )
+                    },
+                    onTagClick = onTagClick,
+                    collaboratorProfiles = collaboratorProfiles,
+                    avatarImageLoader = avatarImageLoader,
+                    prefetchCollaborators = false
+                )
+            }
+        }
+    }
 }
 
 private fun Memo.toExploreMemoEntity(accountKey: String): MemoEntity {

@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
@@ -58,9 +59,9 @@ fun MemosList(
     val navController = LocalRootNavController.current
     val viewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
-    val currentAccount by userStateViewModel.currentAccount.collectAsState()
-    val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsState()
-    val syncStatus by viewModel.syncStatus.collectAsState()
+    val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
+    val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
+    val syncStatus by viewModel.syncStatus.collectAsStateWithLifecycle()
     val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
     val editGesture = settings.usersList
         .firstOrNull { it.accountKey == settings.currentUser }
@@ -130,11 +131,20 @@ fun MemosList(
         mutableStateOf(null)
     }
 
-    RefreshableListContainer(
-        isRefreshing = syncStatus.syncing,
+    MemoFeedList(
+        memos = filteredMemos,
+        lazyListState = lazyListState,
+        refreshState = refreshState,
+        contentPadding = contentPadding,
+        syncStatus = syncStatus,
+        hapticFeedback = hapticFeedback,
+        showSyncStatus = currentAccount !is Account.Local,
+        editGesture = editGesture ?: MemoEditGesture.NONE,
+        collaboratorProfiles = collaboratorProfiles,
+        avatarImageLoader = avatarImageLoader,
         onRefresh = {
             if (syncStatus.syncing) {
-                return@RefreshableListContainer
+                return@MemoFeedList
             }
             scope.launch {
                 if (onRefresh != null) {
@@ -146,42 +156,12 @@ fun MemosList(
                 }
             }
         },
-        state = refreshState,
-        indicator = {
-            PullSyncLineIndicator(
-                refreshState = refreshState,
-                syncing = syncStatus.syncing,
-                hapticFeedback = hapticFeedback
-            )
+        onOpenMemoDetail = { selectedMemo ->
+            viewModel.cacheMemoForDetail(selectedMemo)
+            navController.navigateToMemoDetailPage(selectedMemo.identifier)
         },
-        modifier = Modifier.padding(contentPadding)
-    ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            state = lazyListState
-        ) {
-            items(
-                items = filteredMemos,
-                key = { it.identifier },
-                contentType = { "memo" }
-            ) { memo ->
-                MemosCard(
-                    memo = memo,
-                    onClick = { selectedMemo ->
-                        viewModel.cacheMemoForDetail(selectedMemo)
-                        navController.navigateToMemoDetailPage(selectedMemo.identifier)
-                    },
-                    editGesture = editGesture ?: MemoEditGesture.NONE,
-                    previewMode = true,
-                    showSyncStatus = currentAccount !is Account.Local,
-                    onTagClick = onTagClick,
-                    collaboratorProfiles = collaboratorProfiles,
-                    avatarImageLoader = avatarImageLoader,
-                    prefetchCollaborators = false
-                )
-            }
-        }
-    }
+        onTagClick = onTagClick
+    )
 
     LaunchedEffect(viewModel.errorMessage) {
         viewModel.errorMessage?.let {
@@ -205,4 +185,59 @@ fun MemosList(
         alert = syncAlert,
         onDismiss = { syncAlert = null }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MemoFeedList(
+    memos: List<site.lcyk.keer.data.local.entity.MemoEntity>,
+    lazyListState: LazyListState,
+    refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState,
+    contentPadding: PaddingValues,
+    syncStatus: site.lcyk.keer.data.model.SyncStatus,
+    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
+    showSyncStatus: Boolean,
+    editGesture: MemoEditGesture,
+    collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
+    avatarImageLoader: coil3.ImageLoader,
+    onRefresh: () -> Unit,
+    onOpenMemoDetail: (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit,
+    onTagClick: ((String) -> Unit)?
+) {
+    RefreshableListContainer(
+        isRefreshing = syncStatus.syncing,
+        onRefresh = onRefresh,
+        state = refreshState,
+        indicator = {
+            PullSyncLineIndicator(
+                refreshState = refreshState,
+                syncing = syncStatus.syncing,
+                hapticFeedback = hapticFeedback
+            )
+        },
+        modifier = Modifier.padding(contentPadding)
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            state = lazyListState
+        ) {
+            items(
+                items = memos,
+                key = { it.identifier },
+                contentType = { "memo" }
+            ) { memo ->
+                MemosCard(
+                    memo = memo,
+                    onClick = onOpenMemoDetail,
+                    editGesture = editGesture,
+                    previewMode = true,
+                    showSyncStatus = showSyncStatus,
+                    onTagClick = onTagClick,
+                    collaboratorProfiles = collaboratorProfiles,
+                    avatarImageLoader = avatarImageLoader,
+                    prefetchCollaborators = false
+                )
+            }
+        }
+    }
 }

@@ -1,18 +1,18 @@
 package site.lcyk.keer.ui.page.group
 
-import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.PinDrop
@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshState
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,16 +34,18 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
@@ -51,6 +54,7 @@ import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoEditGesture
 import site.lcyk.keer.data.model.Settings
+import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
@@ -60,17 +64,17 @@ import site.lcyk.keer.ui.component.MemoMenuConfirmation
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.component.PullSyncLineIndicator
 import site.lcyk.keer.ui.component.RefreshableListContainer
-import site.lcyk.keer.ui.component.SyncStatusBadge
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
+import site.lcyk.keer.ui.component.SyncStatusBadge
 import site.lcyk.keer.ui.component.processManualSyncResult
-import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
+import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.page.common.LocalRootNavController
+import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToSearchPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
-import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.viewmodel.GroupChatViewModel
@@ -87,15 +91,15 @@ fun GroupChatPage(
     viewModel: GroupChatViewModel = hiltViewModel()
 ) {
     val context = navController.context
-    val rootNavController = LocalRootNavController.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val rootNavController = LocalRootNavController.current
     val scope = rememberCoroutineScope()
     val hapticFeedback = LocalHapticFeedback.current
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
-    val currentAccount by userStateViewModel.currentAccount.collectAsState()
-    val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsState()
-    val syncStatus by memosViewModel.syncStatus.collectAsState()
+    val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
+    val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
+    val syncStatus by memosViewModel.syncStatus.collectAsStateWithLifecycle()
     val avatarImageLoader = rememberAuthorizedImageLoader()
 
     val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
@@ -106,7 +110,7 @@ fun GroupChatPage(
     val resolvedGroupId = currentUserSettings
         ?.groupIdAliases
         .orEmpty()
-        .firstOrNull { it.localId == groupId }
+        .firstOrNull { alias -> alias.localId == groupId }
         ?.remoteId
         ?: groupId
     val activeAccountKey = settings.currentUser
@@ -115,27 +119,24 @@ fun GroupChatPage(
         is Account.Local -> "local"
         null -> ""
     }
-    val editGesture = settings.usersList
-        .firstOrNull { it.accountKey == settings.currentUser }
-        ?.settings
-        ?.editGesture
-        ?: MemoEditGesture.NONE
+    val editGesture = currentUserSettings?.editGesture ?: MemoEditGesture.NONE
     val group = groups.firstOrNull { it.id == resolvedGroupId }
 
-    val memos by viewModel.memos.collectAsState()
-    val loading by viewModel.loading.collectAsState()
-    val errorMessage by viewModel.errorMessage.collectAsState()
+    val memos by viewModel.memos.collectAsStateWithLifecycle()
+    val loading by viewModel.loading.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val refreshState = rememberPullToRefreshState()
     val expandedFab by remember {
-        derivedStateOf {
-            listState.firstVisibleItemIndex == 0
-        }
+        derivedStateOf { listState.firstVisibleItemIndex == 0 }
     }
     val atTop = !listState.canScrollBackward
     val atBottom = memos.isNotEmpty() && !listState.canScrollForward
+
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     var syncWasRunning by remember { mutableStateOf(syncStatus.syncing) }
+
+    val navigationIcon = if (drawerState != null) Icons.Filled.Menu else Icons.AutoMirrored.Filled.ArrowBack
+    val navigationContentDescription = if (drawerState != null) R.string.menu.string else R.string.back.string
 
     suspend fun reloadGroup(forceSync: Boolean = false) {
         val resolvedGroup = group ?: return
@@ -145,6 +146,16 @@ fun GroupChatPage(
     suspend fun requestManualSync() {
         processManualSyncResult(memosViewModel.refreshMemos()) { alert ->
             syncAlert = alert
+        }
+    }
+
+    fun handleNavigationClick() {
+        if (drawerState != null) {
+            onMenuButtonOpenRequested?.invoke()
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+            scope.launch { drawerState.open() }
+        } else {
+            navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
         }
     }
 
@@ -183,26 +194,15 @@ fun GroupChatPage(
     if (group == null) {
         Scaffold(
             topBar = {
-                TopAppBar(
-                    title = { Text(R.string.group_not_found.string) },
-                    navigationIcon = {
-                        IconButton(
-                            onClick = {
-                                if (drawerState != null) {
-                                    onMenuButtonOpenRequested?.invoke()
-                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    scope.launch { drawerState.open() }
-                                } else {
-                                    navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
-                                }
-                            }
-                        ) {
-                            Icon(
-                                imageVector = if (drawerState != null) Icons.Filled.Menu else Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = if (drawerState != null) R.string.menu.string else R.string.back.string
-                            )
-                        }
-                    }
+                GroupChatTopBar(
+                    title = R.string.group_not_found.string,
+                    navigationIcon = navigationIcon,
+                    navigationContentDescription = navigationContentDescription,
+                    onNavigationClick = ::handleNavigationClick,
+                    syncStatus = syncStatus,
+                    showSyncBadge = false,
+                    onManualSync = {},
+                    onSearch = null
                 )
             }
         ) { innerPadding ->
@@ -223,171 +223,241 @@ fun GroupChatPage(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text(group.name) },
-                navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            if (drawerState != null) {
-                                onMenuButtonOpenRequested?.invoke()
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                scope.launch { drawerState.open() }
-                            } else {
-                                navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
-                            }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = if (drawerState != null) Icons.Filled.Menu else Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = if (drawerState != null) R.string.menu.string else R.string.back.string
-                        )
+            GroupChatTopBar(
+                title = group.name,
+                navigationIcon = navigationIcon,
+                navigationContentDescription = navigationContentDescription,
+                onNavigationClick = ::handleNavigationClick,
+                syncStatus = syncStatus,
+                showSyncBadge = currentAccount !is Account.Local && syncStatus.syncing,
+                onManualSync = {
+                    scope.launch {
+                        requestManualSync()
                     }
                 },
-                actions = {
-                    if (currentAccount !is Account.Local && syncStatus.syncing) {
-                        SyncStatusBadge(
-                            syncing = syncStatus.syncing,
-                            unsyncedCount = syncStatus.unsyncedCount,
-                            progress = syncStatus.progress,
-                            onSync = {
-                                scope.launch {
-                                    requestManualSync()
-                                }
-                            }
-                        )
-                    }
-                    IconButton(onClick = {
-                        navController.navigateToSearchPage()
-                    }) {
-                        Icon(Icons.Filled.Search, contentDescription = R.string.search.string)
-                    }
+                onSearch = {
+                    navController.navigateToSearchPage()
                 }
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
+            GroupChatFab(
+                expanded = expandedFab,
                 onClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    navController.navigate("${RouteName.GROUP_INPUT}?groupId=${Uri.encode(group.id)}")
-                },
-                expanded = expandedFab,
-                text = { Text(R.string.new_memo.string) },
-                icon = { Icon(Icons.Filled.Add, contentDescription = R.string.compose.string) }
+                    navController.navigateToGroupInputPage(groupId = group.id)
+                }
             )
         }
     ) { innerPadding ->
-        RefreshableListContainer(
-            isRefreshing = syncStatus.syncing,
+        GroupChatList(
+            groupId = group.id,
+            memos = memos,
+            loading = loading,
+            activeAccountKey = activeAccountKey,
+            currentUserId = currentUserId,
+            editGesture = editGesture,
+            listState = listState,
+            refreshState = refreshState,
+            syncStatus = syncStatus,
+            contentPadding = innerPadding,
+            hapticFeedback = hapticFeedback,
+            collaboratorProfiles = collaboratorProfiles,
+            avatarImageLoader = avatarImageLoader,
             onRefresh = {
                 if (syncStatus.syncing) {
-                    return@RefreshableListContainer
+                    return@GroupChatList
                 }
                 scope.launch {
                     requestManualSync()
                 }
             },
-            state = refreshState,
-            indicator = {
-                PullSyncLineIndicator(
-                    refreshState = refreshState,
-                    syncing = syncStatus.syncing,
-                    hapticFeedback = hapticFeedback
-                )
+            canManageMemo = { memo ->
+                viewModel.canManageGroupMemo(memo, currentUserId)
             },
-            modifier = Modifier.padding(innerPadding),
-            isEmpty = memos.isEmpty() && errorMessage.isNullOrBlank() && !loading,
-            emptyContent = {
-                Text(
-                    text = R.string.no_memos.string,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 8.dp)
-            ) {
-                items(
-                    items = memos,
-                    key = { it.remoteId },
-                    contentType = { "memo" }
-                ) { memo ->
-                    val adaptedMemo = remember(memo, activeAccountKey, group.id) {
-                        memo.toGroupMemoEntity(
-                            accountKey = activeAccountKey,
-                            groupId = group.id
-                        )
-                    }
-                    val canManageMemo = remember(memo, currentUserId) {
-                        viewModel.canManageGroupMemo(memo, currentUserId)
-                    }
-                    MemosCard(
-                        memo = adaptedMemo,
-                        onClick = { selectedMemo ->
-                            memosViewModel.cacheMemoForDetail(selectedMemo)
-                            rootNavController.navigateToMemoDetailPage(selectedMemo.identifier)
-                        },
-                        editGesture = editGesture,
-                        previewMode = true,
-                        showSyncStatus = true,
-                        authorAvatarUrl = memo.creator?.avatarUrl,
-                        authorName = memo.creator?.name,
-                        actionButton = { memoEntity ->
-                            GroupMemoCardActionButton(
-                                pinned = memoEntity.pinned,
-                                canManage = canManageMemo,
-                                onTogglePinned = {
-                                    scope.launch {
-                                        viewModel.setGroupMemoPinned(
-                                            groupId = group.id,
-                                            memoRemoteId = memo.remoteId,
-                                            pinned = !memoEntity.pinned
-                                        )
-                                    }
-                                },
-                                onEdit = {
-                                    navController.navigate(
-                                        "${RouteName.GROUP_INPUT}?groupId=${Uri.encode(group.id)}&memoId=${Uri.encode(memo.remoteId)}"
-                                    )
-                                },
-                                onDelete = {
-                                    scope.launch {
-                                        viewModel.deleteGroupMemo(
-                                            groupId = group.id,
-                                            memoRemoteId = memo.remoteId
-                                        )
-                                    }
-                                }
-                            )
-                        },
-                        onTagClick = { tag ->
-                            navController.navigateToTagPage(tag)
-                        },
-                        collaboratorProfiles = collaboratorProfiles,
-                        avatarImageLoader = avatarImageLoader,
-                        prefetchCollaborators = false
+            onOpenMemoDetail = { selectedMemo ->
+                memosViewModel.cacheMemoForDetail(selectedMemo)
+                rootNavController.navigateToMemoDetailPage(selectedMemo.identifier)
+            },
+            onTogglePinned = { memo, pinned ->
+                scope.launch {
+                    viewModel.setGroupMemoPinned(
+                        groupId = group.id,
+                        memoRemoteId = memo.remoteId,
+                        pinned = pinned
                     )
                 }
-
-                if (!errorMessage.isNullOrBlank()) {
-                    item {
-                        Text(
-                            text = errorMessage.orEmpty(),
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
-                    }
+            },
+            onEditMemo = { memo ->
+                navController.navigateToGroupInputPage(
+                    groupId = group.id,
+                    memoId = memo.remoteId
+                )
+            },
+            onDeleteMemo = { memo ->
+                scope.launch {
+                    viewModel.deleteGroupMemo(
+                        groupId = group.id,
+                        memoRemoteId = memo.remoteId
+                    )
                 }
+            },
+            onTagClick = { tag ->
+                navController.navigateToTagPage(tag)
             }
-        }
+        )
     }
 
     SyncAlertDialog(
         alert = syncAlert,
         onDismiss = { syncAlert = null }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GroupChatTopBar(
+    title: String,
+    navigationIcon: androidx.compose.ui.graphics.vector.ImageVector,
+    navigationContentDescription: String,
+    onNavigationClick: () -> Unit,
+    syncStatus: SyncStatus,
+    showSyncBadge: Boolean,
+    onManualSync: () -> Unit,
+    onSearch: (() -> Unit)?
+) {
+    TopAppBar(
+        title = { Text(title) },
+        navigationIcon = {
+            IconButton(onClick = onNavigationClick) {
+                Icon(
+                    imageVector = navigationIcon,
+                    contentDescription = navigationContentDescription
+                )
+            }
+        },
+        actions = {
+            if (showSyncBadge) {
+                SyncStatusBadge(
+                    syncing = syncStatus.syncing,
+                    unsyncedCount = syncStatus.unsyncedCount,
+                    progress = syncStatus.progress,
+                    onSync = onManualSync
+                )
+            }
+            if (onSearch != null) {
+                IconButton(onClick = onSearch) {
+                    Icon(Icons.Filled.Search, contentDescription = R.string.search.string)
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun GroupChatFab(
+    expanded: Boolean,
+    onClick: () -> Unit
+) {
+    ExtendedFloatingActionButton(
+        onClick = onClick,
+        expanded = expanded,
+        text = { Text(R.string.new_memo.string) },
+        icon = { Icon(Icons.Filled.Add, contentDescription = R.string.compose.string) }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GroupChatList(
+    groupId: String,
+    memos: List<Memo>,
+    loading: Boolean,
+    activeAccountKey: String,
+    currentUserId: String,
+    editGesture: MemoEditGesture,
+    listState: LazyListState,
+    refreshState: PullToRefreshState,
+    syncStatus: SyncStatus,
+    contentPadding: PaddingValues,
+    hapticFeedback: HapticFeedback,
+    collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
+    avatarImageLoader: coil3.ImageLoader,
+    onRefresh: () -> Unit,
+    canManageMemo: (Memo) -> Boolean,
+    onOpenMemoDetail: (MemoEntity) -> Unit,
+    onTogglePinned: (Memo, Boolean) -> Unit,
+    onEditMemo: (Memo) -> Unit,
+    onDeleteMemo: (Memo) -> Unit,
+    onTagClick: (String) -> Unit
+) {
+    RefreshableListContainer(
+        isRefreshing = syncStatus.syncing,
+        onRefresh = onRefresh,
+        state = refreshState,
+        indicator = {
+            PullSyncLineIndicator(
+                refreshState = refreshState,
+                syncing = syncStatus.syncing,
+                hapticFeedback = hapticFeedback
+            )
+        },
+        modifier = Modifier.padding(contentPadding),
+        isEmpty = memos.isEmpty() && !loading,
+        emptyContent = {
+            Text(
+                text = R.string.no_memos.string,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 24.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    ) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = 8.dp)
+        ) {
+            items(
+                items = memos,
+                key = { it.remoteId },
+                contentType = { "memo" }
+            ) { memo ->
+                val adaptedMemo = remember(memo, activeAccountKey, groupId) {
+                    memo.toGroupMemoEntity(
+                        accountKey = activeAccountKey,
+                        groupId = groupId
+                    )
+                }
+                val manageable = remember(memo, currentUserId) {
+                    canManageMemo(memo)
+                }
+                MemosCard(
+                    memo = adaptedMemo,
+                    onClick = onOpenMemoDetail,
+                    editGesture = editGesture,
+                    previewMode = true,
+                    showSyncStatus = true,
+                    authorAvatarUrl = memo.creator?.avatarUrl,
+                    authorName = memo.creator?.name,
+                    actionButton = { memoEntity ->
+                        GroupMemoCardActionButton(
+                            pinned = memoEntity.pinned,
+                            canManage = manageable,
+                            onTogglePinned = {
+                                onTogglePinned(memo, !memoEntity.pinned)
+                            },
+                            onEdit = { onEditMemo(memo) },
+                            onDelete = { onDeleteMemo(memo) }
+                        )
+                    },
+                    onTagClick = onTagClick,
+                    collaboratorProfiles = collaboratorProfiles,
+                    avatarImageLoader = avatarImageLoader,
+                    prefetchCollaborators = false
+                )
+            }
+        }
+    }
 }
 
 private fun Memo.toGroupMemoEntity(

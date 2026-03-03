@@ -62,6 +62,7 @@ import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
 import site.lcyk.keer.ui.page.common.navigateToTopLevel
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.isValidTagName
@@ -235,7 +236,7 @@ fun SideDrawer(
                         onClick = {
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                             scope.launch {
-                                memosNavController.navigateToTopLevel("${RouteName.GROUP_CHAT}?groupId=${Uri.encode(group.id)}")
+                                memosNavController.navigateToGroupChatPage(group.id)
                                 onDrawerItemCloseRequested?.invoke()
                                 drawerState?.close()
                             }

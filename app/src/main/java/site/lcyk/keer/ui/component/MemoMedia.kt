@@ -2,6 +2,7 @@ package site.lcyk.keer.ui.component
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.media3.common.util.UnstableApi
 import site.lcyk.keer.data.model.ResourceRepresentable
 
 private val imageExtensions = setOf(
@@ -32,6 +33,7 @@ fun ResourceRepresentable.isMediaResource(): Boolean {
 }
 
 @Composable
+@UnstableApi
 fun MemoMedia(
     resource: ResourceRepresentable,
     modifier: Modifier = Modifier

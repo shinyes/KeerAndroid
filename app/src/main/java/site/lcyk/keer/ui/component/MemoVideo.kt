@@ -43,6 +43,7 @@ import com.skydoves.sandwich.ApiResponse
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
@@ -64,6 +65,7 @@ import timber.log.Timber
 import java.io.File
 
 @OptIn(ExperimentalCoilApi::class)
+@UnstableApi
 @Composable
 fun MemoVideo(
     resource: ResourceRepresentable,
@@ -162,6 +164,7 @@ fun MemoVideo(
     }
 }
 
+@UnstableApi
 @Composable
 private fun MemoVideoPlayerDialog(
     resource: ResourceRepresentable,
@@ -320,6 +323,7 @@ private fun sanitizeMemoVideoThumbnailFilename(filename: String): String {
     return filename.replace(Regex("[^A-Za-z0-9._-]"), "_")
 }
 
+@UnstableApi
 private fun buildVideoPlayer(
     context: Context,
     sourceUri: Uri,
