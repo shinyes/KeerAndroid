@@ -532,7 +532,10 @@ class GroupChatViewModel @Inject constructor(
             val pendingMemos = target.settings.pendingGroupMemos.map { pendingMemo ->
                 if (pendingMemo.groupId == groupId && pendingMemo.localId == localId) {
                     updated = true
-                    pendingMemo.copy(content = content, tags = tags)
+                    pendingMemo.copy(
+                        content = content,
+                        tags = tags
+                    )
                 } else {
                     pendingMemo
                 }

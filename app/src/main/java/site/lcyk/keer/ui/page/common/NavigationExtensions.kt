@@ -59,11 +59,11 @@ fun NavHostController.navigateToGroupInputPage(
     memoId: String? = null
 ) {
     val encodedGroupId = Uri.encode(groupId)
-    val route = if (memoId.isNullOrBlank()) {
-        "${RouteName.GROUP_INPUT}?groupId=$encodedGroupId"
-    } else {
-        "${RouteName.GROUP_INPUT}?groupId=$encodedGroupId&memoId=${Uri.encode(memoId)}"
+    val params = mutableListOf("groupId=$encodedGroupId")
+    if (!memoId.isNullOrBlank()) {
+        params += "memoId=${Uri.encode(memoId)}"
     }
+    val route = "${RouteName.GROUP_INPUT}?${params.joinToString("&")}"
     navigateSingleTop(route)
 }
 
@@ -79,4 +79,8 @@ fun NavHostController.navigateToMemoDetailPage(memoIdentifier: String) {
         route = "${RouteName.MEMO_DETAIL}?memoId=${Uri.encode(memoIdentifier)}",
         destinationPattern = "${RouteName.MEMO_DETAIL}?memoId={memoId}"
     )
+}
+
+fun NavHostController.navigateToMemoInputPage() {
+    navigateSingleTop(RouteName.INPUT)
 }

@@ -79,7 +79,12 @@ class MemoInputViewModel @Inject constructor(
         response
     }
 
-    suspend fun editMemo(identifier: String, content: String, visibility: MemoVisibility, tags: List<String>): ApiResponse<MemoEntity> = withContext(viewModelScope.coroutineContext) {
+    suspend fun editMemo(
+        identifier: String,
+        content: String,
+        visibility: MemoVisibility,
+        tags: List<String>
+    ): ApiResponse<MemoEntity> = withContext(viewModelScope.coroutineContext) {
         val resolvedTags = normalizeTagList(tags)
         val response = memoService.getRepository().updateMemo(
             identifier,

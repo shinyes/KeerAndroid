@@ -194,9 +194,13 @@ fun MemoInputPage(
             normalizedSelectedTags,
             normalizedSelectedCollaborators
         )
-
         memo?.let {
-            viewModel.editMemo(memo.identifier, text.text, resolvedVisibility, mergedTags).suspendOnSuccess {
+            viewModel.editMemo(
+                identifier = memo.identifier,
+                content = text.text,
+                visibility = resolvedVisibility,
+                tags = mergedTags
+            ).suspendOnSuccess {
                 memosViewModel.refreshLocalSnapshot()
                 navController.popBackStack()
             }.suspendOnErrorMessage { message ->

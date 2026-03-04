@@ -192,7 +192,12 @@ class MemosViewModel @Inject constructor(
     }
 
     suspend fun editMemo(memoIdentifier: String, content: String, resourceList: List<ResourceEntity>?, visibility: MemoVisibility): ApiResponse<MemoEntity> = withContext(viewModelScope.coroutineContext) {
-        memoService.getRepository().updateMemo(memoIdentifier, content, resourceList, visibility).suspendOnSuccess {
+        memoService.getRepository().updateMemo(
+            identifier = memoIdentifier,
+            content = content,
+            resources = resourceList,
+            visibility = visibility
+        ).suspendOnSuccess {
             updateMemo(data)
             // Update widgets after editing a memo
             WidgetUpdater.updateWidgets(appContext)

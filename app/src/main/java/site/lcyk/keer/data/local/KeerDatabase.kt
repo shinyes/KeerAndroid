@@ -15,7 +15,7 @@ import site.lcyk.keer.data.local.entity.TagEntity
 
 @Database(
     entities = [MemoEntity::class, ResourceEntity::class, TagEntity::class, MemoTagCrossRef::class],
-    version = 5
+    version = 7
 )
 @TypeConverters(Converters::class)
 abstract class KeerDatabase : RoomDatabase() {
@@ -36,6 +36,8 @@ abstract class KeerDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_2_3)
                     .addMigrations(MIGRATION_3_4)
                     .addMigrations(MIGRATION_4_5)
+                    .addMigrations(MIGRATION_5_6)
+                    .addMigrations(MIGRATION_6_7)
                     .build()
                 INSTANCE = instance
                 instance
@@ -92,6 +94,87 @@ abstract class KeerDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE memos ADD COLUMN latitude REAL")
                 db.execSQL("ALTER TABLE memos ADD COLUMN longitude REAL")
+            }
+        }
+
+        private val MIGRATION_5_6: Migration = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE memos ADD COLUMN quoteSourceKind TEXT")
+                db.execSQL("ALTER TABLE memos ADD COLUMN quoteSource TEXT")
+                db.execSQL("ALTER TABLE memos ADD COLUMN quoteStatus TEXT")
+                db.execSQL("ALTER TABLE memos ADD COLUMN quoteContentPreview TEXT")
+            }
+        }
+
+        private val MIGRATION_6_7: Migration = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("PRAGMA foreign_keys=OFF")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `memos_new` (
+                        `identifier` TEXT NOT NULL,
+                        `remoteId` TEXT,
+                        `accountKey` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `date` INTEGER NOT NULL,
+                        `visibility` TEXT NOT NULL,
+                        `pinned` INTEGER NOT NULL,
+                        `archived` INTEGER NOT NULL,
+                        `latitude` REAL,
+                        `longitude` REAL,
+                        `needsSync` INTEGER NOT NULL,
+                        `isDeleted` INTEGER NOT NULL,
+                        `lastModified` INTEGER NOT NULL,
+                        `lastSyncedAt` INTEGER,
+                        PRIMARY KEY(`identifier`)
+                    )
+                    """.trimIndent()
+                )
+
+                db.execSQL(
+                    """
+                    INSERT INTO `memos_new` (
+                        `identifier`,
+                        `remoteId`,
+                        `accountKey`,
+                        `content`,
+                        `date`,
+                        `visibility`,
+                        `pinned`,
+                        `archived`,
+                        `latitude`,
+                        `longitude`,
+                        `needsSync`,
+                        `isDeleted`,
+                        `lastModified`,
+                        `lastSyncedAt`
+                    )
+                    SELECT
+                        `identifier`,
+                        `remoteId`,
+                        `accountKey`,
+                        `content`,
+                        `date`,
+                        `visibility`,
+                        `pinned`,
+                        `archived`,
+                        `latitude`,
+                        `longitude`,
+                        `needsSync`,
+                        `isDeleted`,
+                        `lastModified`,
+                        `lastSyncedAt`
+                    FROM `memos`
+                    """.trimIndent()
+                )
+
+                db.execSQL("DROP TABLE `memos`")
+                db.execSQL("ALTER TABLE `memos_new` RENAME TO `memos`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_memos_accountKey` ON `memos` (`accountKey`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_memos_accountKey_remoteId` ON `memos` (`accountKey`, `remoteId`)")
+
+                db.execSQL("PRAGMA foreign_keys=ON")
             }
         }
     }

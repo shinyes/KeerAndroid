@@ -148,7 +148,11 @@ fun GroupMemoInputPage(
                 tags = mergedTags
             )
         } else {
-            groupViewModel.sendGroupMemo(groupId, payload, mergedTags)
+            groupViewModel.sendGroupMemo(
+                groupId = groupId,
+                content = payload,
+                tags = mergedTags
+            )
         }
         if (!saved) {
             snackbarState.showSnackbar(errorMessage ?: R.string.sync_failed.string)

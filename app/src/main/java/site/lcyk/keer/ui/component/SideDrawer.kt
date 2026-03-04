@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
@@ -26,6 +28,7 @@ import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.NavigationDrawerItem
@@ -42,6 +45,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -107,6 +111,7 @@ fun SideDrawer(
     val navBackStackEntry by memosNavController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val hapticFeedback = LocalHapticFeedback.current
+    var exploreExpanded by rememberSaveable { mutableStateOf(true) }
     val expandedTagNodes = remember { mutableStateMapOf<String, Boolean>() }
     var activeTagActionTarget by remember { mutableStateOf<String?>(null) }
     var renameTargetTag by remember { mutableStateOf<String?>(null) }
@@ -212,7 +217,35 @@ fun SideDrawer(
         if (hasExplore) {
             item {
                 NavigationDrawerItem(
-                    label = { Text(R.string.explore.string) },
+                    label = {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = R.string.explore.string,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = {
+                                    exploreExpanded = !exploreExpanded
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = if (exploreExpanded) {
+                                        Icons.Filled.ExpandMore
+                                    } else {
+                                        Icons.AutoMirrored.Filled.KeyboardArrowRight
+                                    },
+                                    contentDescription = if (exploreExpanded) {
+                                        R.string.collapse.string
+                                    } else {
+                                        R.string.expand.string
+                                    }
+                                )
+                            }
+                        }
+                    },
                     icon = { Icon(Icons.Outlined.Home, contentDescription = null) },
                     selected = isSelected(RouteName.EXPLORE),
                     onClick = {
@@ -226,23 +259,25 @@ fun SideDrawer(
                     modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
             }
-            joinedGroups.forEach { group ->
-                item("drawer_group_${group.id}") {
-                    NavigationDrawerItem(
-                        label = { Text(group.name) },
-                        icon = { Icon(Icons.Outlined.Group, contentDescription = null) },
-                        selected = isSelected("${RouteName.GROUP_CHAT}?groupId={groupId}") &&
-                                currentSelectedGroupId == group.id,
-                        onClick = {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                            scope.launch {
-                                memosNavController.navigateToGroupChatPage(group.id)
-                                onDrawerItemCloseRequested?.invoke()
-                                drawerState?.close()
-                            }
-                        },
-                        modifier = Modifier.padding(start = 30.dp, end = 8.dp)
-                    )
+            if (exploreExpanded) {
+                joinedGroups.forEach { group ->
+                    item("drawer_group_${group.id}") {
+                        NavigationDrawerItem(
+                            label = { Text(group.name) },
+                            icon = { Icon(Icons.Outlined.Group, contentDescription = null) },
+                            selected = isSelected("${RouteName.GROUP_CHAT}?groupId={groupId}") &&
+                                    currentSelectedGroupId == group.id,
+                            onClick = {
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                scope.launch {
+                                    memosNavController.navigateToGroupChatPage(group.id)
+                                    onDrawerItemCloseRequested?.invoke()
+                                    drawerState?.close()
+                                }
+                            },
+                            modifier = Modifier.padding(start = 30.dp, end = 8.dp)
+                        )
+                    }
                 }
             }
         }

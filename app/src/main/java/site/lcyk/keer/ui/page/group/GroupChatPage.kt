@@ -302,6 +302,8 @@ fun GroupChatPage(
                     )
                 }
             },
+            onRequestQuote = {},
+            onOpenTopic = { _, _ -> },
             onTagClick = { tag ->
                 navController.navigateToTagPage(tag)
             }
@@ -389,6 +391,8 @@ private fun GroupChatList(
     onTogglePinned: (Memo, Boolean) -> Unit,
     onEditMemo: (Memo) -> Unit,
     onDeleteMemo: (Memo) -> Unit,
+    onRequestQuote: (Memo) -> Unit,
+    onOpenTopic: (String, String) -> Unit,
     onTagClick: (String) -> Unit
 ) {
     RefreshableListContainer(
@@ -441,6 +445,7 @@ private fun GroupChatList(
                     authorName = memo.creator?.name,
                     actionButton = { memoEntity ->
                         GroupMemoCardActionButton(
+                            memo = memoEntity,
                             pinned = memoEntity.pinned,
                             canManage = manageable,
                             onTogglePinned = {
@@ -473,6 +478,7 @@ private fun Memo.toGroupMemoEntity(
 
 @Composable
 private fun GroupMemoCardActionButton(
+    memo: MemoEntity,
     pinned: Boolean,
     canManage: Boolean,
     onTogglePinned: () -> Unit,

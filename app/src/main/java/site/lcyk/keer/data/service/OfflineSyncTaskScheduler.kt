@@ -272,13 +272,13 @@ class OfflineSyncTaskScheduler @Inject constructor(
                 .firstOrNull()
                 ?: return ApiResponse.Success(Unit)
 
-            when (
-                val response = remoteRepository.createGroupMessage(
-                    groupId = pending.groupId,
-                    content = pending.content,
-                    tags = pending.tags
-                )
-            ) {
+            val response = remoteRepository.createGroupMessage(
+                groupId = pending.groupId,
+                content = pending.content,
+                tags = pending.tags
+            )
+
+            when (response) {
                 is ApiResponse.Success -> {
                     removePendingMemoAndMigratePin(
                         groupId = pending.groupId,

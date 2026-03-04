@@ -159,7 +159,9 @@ fun ExploreList(
         },
         onRequestDelete = { item ->
             deletingMemo = item
-        }
+        },
+        onRequestQuote = {},
+        onOpenTopic = { _, _ -> }
     )
 
     if (editingMemo != null) {
@@ -262,7 +264,9 @@ private fun ExploreMemoFeed(
     onOpenMemoDetail: (MemoEntity) -> Unit,
     onTagClick: (String) -> Unit,
     onRequestEdit: (ExploreMemoItem) -> Unit,
-    onRequestDelete: (ExploreMemoItem) -> Unit
+    onRequestDelete: (ExploreMemoItem) -> Unit,
+    onRequestQuote: (ExploreMemoItem) -> Unit,
+    onOpenTopic: (String, String) -> Unit
 ) {
     RefreshableListContainer(
         isRefreshing = syncStatus.syncing,
