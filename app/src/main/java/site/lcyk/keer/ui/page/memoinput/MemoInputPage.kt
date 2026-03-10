@@ -27,6 +27,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,16 +49,29 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
+import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
+import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.suspendOnErrorMessage
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ui.component.MemoQuoteReferenceCard
 import site.lcyk.keer.ui.page.common.LocalRootNavController
+import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
+import site.lcyk.keer.util.MemoQuoteDescriptor
+import site.lcyk.keer.util.MemoQuoteSourceKind
+import site.lcyk.keer.util.buildMemoQuoteDescriptor
 import site.lcyk.keer.util.extractCollaboratorIds
-import site.lcyk.keer.util.mergeTagsWithCollaborators
+import site.lcyk.keer.util.isCollaboratorTag
+import site.lcyk.keer.util.isQuoteTag
+import site.lcyk.keer.util.mergeTagsWithCollaboratorsAndQuote
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.normalizeTagName
+import site.lcyk.keer.util.parseMemoQuoteDescriptor
+import site.lcyk.keer.util.resolveMemoByIdentifier
+import site.lcyk.keer.util.resolveMemoByRemoteId
 import site.lcyk.keer.util.stripCollaboratorTags
+import site.lcyk.keer.util.stripQuoteTags
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 import kotlin.coroutines.resume
@@ -65,7 +79,8 @@ import kotlin.coroutines.resume
 @Composable
 fun MemoInputPage(
     viewModel: MemoInputViewModel = hiltViewModel(),
-    memoIdentifier: String? = null
+    memoIdentifier: String? = null,
+    quoteSourceMemoIdentifier: String? = null
 ) {
     val focusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
@@ -73,9 +88,66 @@ fun MemoInputPage(
     val navController = LocalRootNavController.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val memosViewModel = LocalMemos.current
-    val memo = remember { memosViewModel.memos.toList().find { it.identifier == memoIdentifier } }
+    val settings by navController.context.settingsDataStore.data.collectAsState(initial = Settings())
+    val memoSnapshot = remember(memosViewModel.memos) { memosViewModel.memos.toList() }
+    val memo = remember(memoIdentifier, memoSnapshot, settings.currentUser, settings.usersList) {
+        if (memoIdentifier.isNullOrBlank()) {
+            null
+        } else {
+            memosViewModel.getMemoForDetail(memoIdentifier)
+                ?: resolveMemoByIdentifier(
+                    memoIdentifier = memoIdentifier,
+                    memos = memoSnapshot,
+                    settings = settings
+                )
+        }
+    }
+    val existingQuoteDescriptor = remember(memo?.tags) {
+        parseMemoQuoteDescriptor(memo?.tags.orEmpty())
+    }
+    val requestedQuoteDescriptor = remember(quoteSourceMemoIdentifier) {
+        val source = quoteSourceMemoIdentifier?.trim().orEmpty()
+        if (source.isEmpty()) {
+            null
+        } else {
+            MemoQuoteDescriptor(
+                sourceKind = MemoQuoteSourceKind.LOCAL,
+                source = source
+            )
+        }
+    }
+    val activeQuoteDescriptor = if (memo != null) existingQuoteDescriptor else requestedQuoteDescriptor
+    val quotedMemo = remember(activeQuoteDescriptor, memoSnapshot, settings.currentUser, settings.usersList) {
+        val descriptor = activeQuoteDescriptor ?: return@remember null
+        when (descriptor.sourceKind) {
+            MemoQuoteSourceKind.LOCAL -> {
+                memosViewModel.getMemoForDetail(descriptor.source)
+                    ?: resolveMemoByIdentifier(
+                        memoIdentifier = descriptor.source,
+                        memos = memoSnapshot,
+                        settings = settings
+                    )
+            }
+            MemoQuoteSourceKind.REMOTE -> {
+                resolveMemoByRemoteId(
+                    remoteId = descriptor.source,
+                    memos = memoSnapshot,
+                    settings = settings
+                )
+            }
+        }
+    }
+    val quoteDescriptorForSubmit = remember(activeQuoteDescriptor, quotedMemo) {
+        quotedMemo?.let(::buildMemoQuoteDescriptor) ?: activeQuoteDescriptor
+    }
     var initialContent by remember { mutableStateOf(memo?.content ?: "") }
-    var initialTags by remember { mutableStateOf(normalizeTagList(stripCollaboratorTags(memo?.tags ?: emptyList()))) }
+    var initialTags by remember {
+        mutableStateOf(
+            normalizeTagList(
+                stripQuoteTags(stripCollaboratorTags(memo?.tags ?: emptyList()))
+            )
+        )
+    }
     var initialCollaborators by remember {
         mutableStateOf(
             memo?.tags
@@ -90,7 +162,11 @@ fun MemoInputPage(
         mutableStateOf(TextFieldValue(memo?.content ?: "", TextRange(memo?.content?.length ?: 0)))
     }
     var selectedTags by rememberSaveable {
-        mutableStateOf(normalizeTagList(stripCollaboratorTags(memo?.tags ?: emptyList())))
+        mutableStateOf(
+            normalizeTagList(
+                stripQuoteTags(stripCollaboratorTags(memo?.tags ?: emptyList()))
+            )
+        )
     }
     var selectedCollaborators by rememberSaveable {
         mutableStateOf(
@@ -190,9 +266,10 @@ fun MemoInputPage(
             return@launch
         }
 
-        val mergedTags = mergeTagsWithCollaborators(
+        val mergedTags = mergeTagsWithCollaboratorsAndQuote(
             normalizedSelectedTags,
-            normalizedSelectedCollaborators
+            normalizedSelectedCollaborators,
+            quoteDescriptorForSubmit
         )
         memo?.let {
             viewModel.editMemo(
@@ -419,6 +496,19 @@ fun MemoInputPage(
                 text = updated
             },
             focusRequester = focusRequester,
+            quotePreview = quoteDescriptorForSubmit?.let {
+                {
+                    MemoQuoteReferenceCard(
+                        quotedMemo = quotedMemo,
+                        onClick = quotedMemo?.let { source ->
+                            {
+                                memosViewModel.cacheMemoForDetail(source)
+                                navController.navigateToMemoDetailPage(source.identifier)
+                            }
+                        }
+                    )
+                }
+            },
             validMimeTypePrefixes = validMimeTypePrefixes,
             onDroppedText = { droppedText ->
                 text = text.copy(text = text.text + droppedText)
@@ -432,7 +522,10 @@ fun MemoInputPage(
 
     if (showTagSelector) {
         MemoTagSelectorDialog(
-            availableTags = memosViewModel.tags.toList(),
+            availableTags = memosViewModel.tags
+                .toList()
+                .filterNot(::isCollaboratorTag)
+                .filterNot(::isQuoteTag),
             selectedTags = selectedTags,
             onSelectedTagsChange = { selectedTags = normalizeTagList(it) },
             onDismiss = { showTagSelector = false }
@@ -472,7 +565,9 @@ fun MemoInputPage(
             memo != null -> {
                 viewModel.uploadResources.addAll(memo.resources)
                 initialContent = memo.content
-                val strippedTags = normalizeTagList(stripCollaboratorTags(memo.tags))
+                val strippedTags = normalizeTagList(
+                    stripQuoteTags(stripCollaboratorTags(memo.tags))
+                )
                 val collaboratorIds = memo.tags
                     .let(::extractCollaboratorIds)
                     .map(::normalizeCollaboratorId)

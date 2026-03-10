@@ -33,9 +33,9 @@ import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.SyncStatusBadge
 import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.page.common.LocalRootNavController
+import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToSearchPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
-import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 
@@ -110,7 +110,7 @@ fun MemosHomePage(
             ExtendedFloatingActionButton(
                 onClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    rootNavController.navigate(RouteName.INPUT)
+                    rootNavController.navigateToMemoInputPage()
                 },
                 expanded = expandedFab,
                 text = { Text(R.string.new_memo.string) },

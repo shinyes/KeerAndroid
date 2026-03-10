@@ -117,6 +117,20 @@ fun Navigation() {
                     MemoInputPage()
                 }
 
+                composable(
+                    "${RouteName.INPUT}?quoteMemoId={quoteMemoId}",
+                    arguments = listOf(
+                        navArgument("quoteMemoId") {
+                            type = NavType.StringType
+                            nullable = true
+                            defaultValue = null
+                        }
+                    )
+                ) { entry ->
+                    val quoteMemoId = entry.arguments?.getString("quoteMemoId")?.let(Uri::decode)
+                    MemoInputPage(quoteSourceMemoIdentifier = quoteMemoId)
+                }
+
                 composable("${RouteName.EDIT}?memoId={id}"
                 ) { entry ->
                     MemoInputPage(memoIdentifier = entry.arguments?.getString("id"))
@@ -232,12 +246,12 @@ fun Navigation() {
         when(intent.action) {
             Intent.ACTION_VIEW -> {
                 when (intent.getStringExtra("action")) {
-                    "compose" -> navController.navigate(RouteName.INPUT)
+                    "compose" -> navController.navigateToMemoInputPage()
                     "search" -> navController.navigateToSearchPage()
                 }
             }
             MainActivity.ACTION_NEW_MEMO -> {
-                navController.navigate(RouteName.INPUT)
+                navController.navigateToMemoInputPage()
             }
             MainActivity.ACTION_EDIT_MEMO -> {
                 val memoId = intent.getStringExtra(MainActivity.EXTRA_MEMO_ID)

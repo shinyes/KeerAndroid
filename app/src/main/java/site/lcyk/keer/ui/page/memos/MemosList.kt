@@ -142,6 +142,7 @@ fun MemosList(
         editGesture = editGesture ?: MemoEditGesture.NONE,
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
+        quoteResolverSettings = settings,
         onRefresh = {
             if (syncStatus.syncing) {
                 return@MemoFeedList
@@ -200,6 +201,7 @@ private fun MemoFeedList(
     editGesture: MemoEditGesture,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
+    quoteResolverSettings: Settings,
     onRefresh: () -> Unit,
     onOpenMemoDetail: (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit,
     onTagClick: ((String) -> Unit)?
@@ -235,7 +237,8 @@ private fun MemoFeedList(
                     onTagClick = onTagClick,
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
-                    prefetchCollaborators = false
+                    prefetchCollaborators = false,
+                    quoteResolverSettings = quoteResolverSettings
                 )
             }
         }

@@ -692,6 +692,7 @@ internal fun MemoInputEditor(
     text: TextFieldValue,
     onTextChange: (TextFieldValue) -> Unit,
     focusRequester: FocusRequester,
+    quotePreview: (@Composable () -> Unit)? = null,
     validMimeTypePrefixes: Set<String>,
     onDroppedText: (String) -> Unit,
     uploadResources: List<ResourceEntity>,
@@ -735,6 +736,16 @@ internal fun MemoInputEditor(
                 }
             )
     ) {
+        if (quotePreview != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 20.dp, bottom = 12.dp)
+            ) {
+                quotePreview()
+            }
+        }
+
         OutlinedTextField(
             modifier = Modifier
                 .fillMaxWidth()

@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -50,6 +51,7 @@ import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
+import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
 import site.lcyk.keer.util.extractCollaboratorIds
@@ -160,7 +162,11 @@ fun ExploreList(
         onRequestDelete = { item ->
             deletingMemo = item
         },
-        onRequestQuote = {},
+        onRequestQuote = { item ->
+            val sourceMemo = item.memo.toExploreMemoEntity(accountKey)
+            memosViewModel.cacheMemoForDetail(sourceMemo)
+            rootNavController.navigateToMemoInputPage(quoteMemoIdentifier = sourceMemo.identifier)
+        },
         onOpenTopic = { _, _ -> }
     )
 
@@ -309,6 +315,7 @@ private fun ExploreMemoFeed(
                         ExploreMemoCardActionButton(
                             memo = memoEntity,
                             canManage = canManageMemo,
+                            onQuote = { onRequestQuote(memoItem) },
                             onEdit = { onRequestEdit(memoItem) },
                             onDelete = { onRequestDelete(memoItem) }
                         )
@@ -334,6 +341,7 @@ private fun Memo.toExploreMemoEntity(accountKey: String): MemoEntity {
 private fun ExploreMemoCardActionButton(
     memo: MemoEntity,
     canManage: Boolean,
+    onQuote: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
@@ -351,6 +359,14 @@ private fun ExploreMemoCardActionButton(
                 )
             )
         }
+        add(
+            MemoMenuAction(
+                key = "quote",
+                label = stringResource(R.string.quote),
+                icon = Icons.Outlined.RecordVoiceOver,
+                onSelected = onQuote
+            )
+        )
         add(
             MemoMenuAction(
                 key = "copy",

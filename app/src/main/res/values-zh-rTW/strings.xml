@@ -96,6 +96,7 @@
     <string name="still_sync">仍要同步</string>
     <string name="pin">置頂</string>
     <string name="share">分享</string>
+    <string name="quote">引用</string>
     <string name="copy">複製</string>
     <string name="copy_link">複製連結</string>
     <string name="open">打開</string>
@@ -172,4 +173,7 @@
     <string name="error_unknown">未知錯誤</string>
     <string name="no_memos">找不到 MEMO</string>
     <string name="memo_not_found">找不到 MEMO</string>
+    <string name="quoted_memo_unavailable">引用的 MEMO 不可用。</string>
+    <string name="quoted_memo_empty">空 MEMO</string>
+    <string name="quoted_memo_media_only">僅含媒體的 MEMO</string>
 </resources>

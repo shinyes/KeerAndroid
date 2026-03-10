@@ -3,11 +3,10 @@ package site.lcyk.keer.ui.component
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.text.format.DateUtils
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,7 +47,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
@@ -58,12 +56,19 @@ import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.model.CollaboratorProfile
 import site.lcyk.keer.data.model.MemoEditGesture
+import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
+import site.lcyk.keer.util.MemoQuoteSourceKind
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.isCollaboratorTag
+import site.lcyk.keer.util.isQuoteTag
 import site.lcyk.keer.util.normalizeTagList
+import site.lcyk.keer.util.parseMemoQuoteDescriptor
+import site.lcyk.keer.util.resolveMemoByIdentifier
+import site.lcyk.keer.util.resolveMemoByRemoteId
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -81,7 +86,8 @@ fun MemosCard(
     actionButton: (@Composable (MemoEntity) -> Unit)? = null,
     collaboratorProfiles: Map<String, CollaboratorProfile> = emptyMap(),
     avatarImageLoader: ImageLoader? = null,
-    prefetchCollaborators: Boolean = true
+    prefetchCollaborators: Boolean = true,
+    quoteResolverSettings: Settings = Settings()
 ) {
     val memosViewModel = LocalMemos.current
     val rootNavController = LocalRootNavController.current
@@ -89,9 +95,35 @@ fun MemosCard(
     val imageLoader = avatarImageLoader ?: rememberAuthorizedImageLoader()
     val scope = rememberCoroutineScope()
     val displayTags = remember(memo.tags) {
-        normalizeTagList(memo.tags.filterNot(::isCollaboratorTag))
+        normalizeTagList(
+            memo.tags
+                .filterNot(::isCollaboratorTag)
+                .filterNot(::isQuoteTag)
+        )
     }
     val collaboratorIds = remember(memo.tags) { extractCollaboratorIds(memo.tags) }
+    val memoSnapshot = remember(memosViewModel.memos) { memosViewModel.memos.toList() }
+    val quoteDescriptor = remember(memo.tags) { parseMemoQuoteDescriptor(memo.tags) }
+    val quotedMemo = remember(quoteDescriptor, memoSnapshot, quoteResolverSettings.currentUser, quoteResolverSettings.usersList) {
+        val descriptor = quoteDescriptor ?: return@remember null
+        when (descriptor.sourceKind) {
+            MemoQuoteSourceKind.LOCAL -> {
+                memosViewModel.getMemoForDetail(descriptor.source)
+                    ?: resolveMemoByIdentifier(
+                        memoIdentifier = descriptor.source,
+                        memos = memoSnapshot,
+                        settings = quoteResolverSettings
+                    )
+            }
+            MemoQuoteSourceKind.REMOTE -> {
+                resolveMemoByRemoteId(
+                    remoteId = descriptor.source,
+                    memos = memoSnapshot,
+                    settings = quoteResolverSettings
+                )
+            }
+        }
+    }
     val hasAuthorIdentity = !authorAvatarUrl.isNullOrBlank() || !authorName.isNullOrBlank()
     val resolvedAuthorAvatarUrl = remember(authorAvatarUrl, userStateViewModel.host) {
         resolveAvatarUrl(userStateViewModel.host, authorAvatarUrl.orEmpty())
@@ -263,6 +295,19 @@ fun MemosCard(
                 },
                 onTagClick = onTagClick
             )
+
+            if (quoteDescriptor != null) {
+                MemoQuoteReferenceCard(
+                    quotedMemo = quotedMemo,
+                    modifier = Modifier
+                        .padding(start = 15.dp, end = 15.dp, bottom = 10.dp),
+                    onClick = quotedMemo?.let { source ->
+                        {
+                            onClick(source)
+                        }
+                    }
+                )
+            }
         }
     }
 
@@ -291,6 +336,7 @@ private fun resolveAvatarUrl(host: String, avatarUrl: String): String? {
 @Composable
 fun MemosCardActionButton(
     memo: MemoEntity,
+    onRequestQuote: ((MemoEntity) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val clipboardManager = context.getSystemService(ClipboardManager::class.java)
@@ -319,6 +365,20 @@ fun MemosCardActionButton(
                 icon = Icons.Outlined.Edit,
                 onSelected = {
                     rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
+                }
+            )
+        )
+        add(
+            MemoMenuAction(
+                key = "quote",
+                label = R.string.quote.string,
+                icon = Icons.Outlined.RecordVoiceOver,
+                onSelected = {
+                    if (onRequestQuote != null) {
+                        onRequestQuote(memo)
+                    } else {
+                        rootNavController.navigateToMemoInputPage(quoteMemoIdentifier = memo.identifier)
+                    }
                 }
             )
         )

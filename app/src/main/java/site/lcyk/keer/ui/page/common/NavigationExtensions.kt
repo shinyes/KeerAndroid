@@ -81,6 +81,10 @@ fun NavHostController.navigateToMemoDetailPage(memoIdentifier: String) {
     )
 }
 
-fun NavHostController.navigateToMemoInputPage() {
-    navigateSingleTop(RouteName.INPUT)
+fun NavHostController.navigateToMemoInputPage(quoteMemoIdentifier: String? = null) {
+    if (quoteMemoIdentifier.isNullOrBlank()) {
+        navigateSingleTop(RouteName.INPUT)
+        return
+    }
+    navigateSingleTop("${RouteName.INPUT}?quoteMemoId=${Uri.encode(quoteMemoIdentifier)}")
 }

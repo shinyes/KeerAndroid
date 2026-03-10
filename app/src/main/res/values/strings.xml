@@ -96,6 +96,7 @@
     <string name="still_sync">Still Sync</string>
     <string name="pin">Pin</string>
     <string name="share">Share</string>
+    <string name="quote">Quote</string>
     <string name="copy">Copy</string>
     <string name="copy_link">Copy Link</string>
     <string name="open">Open</string>
@@ -184,6 +185,9 @@
     <string name="error_unknown">Unknown error</string>
     <string name="no_memos">No memos found</string>
     <string name="memo_not_found">Memo not found</string>
+    <string name="quoted_memo_unavailable">Quoted memo is unavailable.</string>
+    <string name="quoted_memo_empty">Empty memo</string>
+    <string name="quoted_memo_media_only">Media-only memo</string>
 </resources>
 
 

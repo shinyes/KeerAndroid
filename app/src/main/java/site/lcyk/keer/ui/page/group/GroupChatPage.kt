@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.PinDrop
 import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -72,6 +73,7 @@ import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
+import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToSearchPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
@@ -302,7 +304,14 @@ fun GroupChatPage(
                     )
                 }
             },
-            onRequestQuote = {},
+            onRequestQuote = { source ->
+                val sourceMemo = source.toGroupMemoEntity(
+                    accountKey = activeAccountKey,
+                    groupId = group.id
+                )
+                memosViewModel.cacheMemoForDetail(sourceMemo)
+                rootNavController.navigateToMemoInputPage(quoteMemoIdentifier = sourceMemo.identifier)
+            },
             onOpenTopic = { _, _ -> },
             onTagClick = { tag ->
                 navController.navigateToTagPage(tag)
@@ -451,6 +460,7 @@ private fun GroupChatList(
                             onTogglePinned = {
                                 onTogglePinned(memo, !memoEntity.pinned)
                             },
+                            onQuote = { onRequestQuote(memo) },
                             onEdit = { onEditMemo(memo) },
                             onDelete = { onDeleteMemo(memo) }
                         )
@@ -482,10 +492,19 @@ private fun GroupMemoCardActionButton(
     pinned: Boolean,
     canManage: Boolean,
     onTogglePinned: () -> Unit,
+    onQuote: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
     val actions = buildList {
+        add(
+            MemoMenuAction(
+                key = "quote",
+                label = R.string.quote.string,
+                icon = Icons.Outlined.RecordVoiceOver,
+                onSelected = onQuote
+            )
+        )
         add(
             MemoMenuAction(
                 key = if (pinned) "unpin" else "pin",

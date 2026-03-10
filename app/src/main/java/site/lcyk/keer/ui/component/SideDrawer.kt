@@ -69,6 +69,8 @@ import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
 import site.lcyk.keer.ui.page.common.navigateToTopLevel
 import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.util.isCollaboratorTag
+import site.lcyk.keer.util.isQuoteTag
 import site.lcyk.keer.util.isValidTagName
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.normalizeTagName
@@ -122,7 +124,13 @@ fun SideDrawer(
     var tagActionErrorMessage by remember { mutableStateOf<String?>(null) }
     var tagActionInProgress by remember { mutableStateOf(false) }
     val rawTags = memosViewModel.tags.toList()
-    val availableTags = remember(rawTags) { normalizeTagList(rawTags) }
+    val availableTags = remember(rawTags) {
+        normalizeTagList(
+            rawTags
+                .filterNot(::isCollaboratorTag)
+                .filterNot(::isQuoteTag)
+        )
+    }
     val tagTree = remember(availableTags) { buildTagTree(availableTags) }
     val currentSelectedTag = remember(navBackStackEntry) {
         navBackStackEntry
