@@ -18,13 +18,13 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import site.lcyk.keer.data.api.KeerV2Api
-import site.lcyk.keer.data.api.AddGroupTagRequest
 import site.lcyk.keer.data.api.CreateGroupMessageRequest
 import site.lcyk.keer.data.api.CreateGroupRequest
 import site.lcyk.keer.data.api.KeerV2Group
 import site.lcyk.keer.data.api.KeerV2GroupMessage
 import site.lcyk.keer.data.api.KeerV2CreateMemoRequest
 import site.lcyk.keer.data.api.KeerV2Memo
+import site.lcyk.keer.data.api.KeerV2PayloadEnvelope
 import site.lcyk.keer.data.api.KeerV2Resource
 import site.lcyk.keer.data.api.KeerV2State
 import site.lcyk.keer.data.api.KeerV2User
@@ -40,9 +40,16 @@ import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.Resource
 import site.lcyk.keer.data.model.User
+import site.lcyk.keer.data.security.AccountKeyManager
+import site.lcyk.keer.data.security.AttachmentEncryptionManager
+import site.lcyk.keer.data.security.AttachmentEncryptionMetadata
+import site.lcyk.keer.data.security.E2eeKeyEnvelope
+import site.lcyk.keer.data.security.EncryptedBlobMetadata
+import site.lcyk.keer.data.security.EncryptedBlobVariant
+import site.lcyk.keer.data.security.PreparedEncryptedThumbnail
 import site.lcyk.keer.data.security.MemoContentCodec
-import site.lcyk.keer.data.security.PlaintextMemoContentCodec
-import site.lcyk.keer.util.buildCollaboratorFilterExpression
+import site.lcyk.keer.data.security.WrappedContentKey
+import site.lcyk.keer.util.extractCollaboratorIds
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -69,6 +76,8 @@ private const val maxSyncedUserIDs = 180
 private const val maxUserBatchRequestSize = 200
 private const val userFallbackRequestChunkSize = 12
 private const val syncedUserIDPersistDebounceMillis = 15_000L
+private const val encryptedAttachmentFilename = "payload.bin"
+private const val encryptedThumbnailFilename = "thumbnail.bin"
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 private val uploadChunkMediaType = "application/offset+octet-stream".toMediaType()
 private val uploadJson = Json {
@@ -86,7 +95,9 @@ class KeerV2Repository(
     private val writeUserSyncAnchor: suspend (Instant) -> Unit = {},
     private val readSyncedUserIDs: suspend () -> List<String> = { emptyList() },
     private val writeSyncedUserIDs: suspend (List<String>) -> Unit = {},
-    private val memoContentCodec: MemoContentCodec = PlaintextMemoContentCodec
+    private val attachmentEncryptionManager: AttachmentEncryptionManager,
+    private val accountKeyManager: AccountKeyManager,
+    private val memoContentCodec: MemoContentCodec
 ): RemoteRepository() {
     private val uploadCheckpointStore = ResumableUploadCheckpointStore(
         File(
@@ -110,27 +121,41 @@ class KeerV2Repository(
     private var lastSyncedUserIDsPersistAtMillis: Long = 0L
 
     private fun convertResource(resource: KeerV2Resource): Resource {
+        val descriptor = decodeResourceDescriptor(
+            ciphertext = resource.descriptorCiphertext,
+            envelope = resource.descriptorEnvelope,
+        )
+        val encryptionMetadata = buildLocalAttachmentEncryptionMetadata(
+            resource = resource,
+            descriptor = descriptor,
+        )
         return Resource(
             remoteId = requireNotNull(resource.name),
             date = resource.createTime ?: Instant.now(),
-            filename = resource.filename ?: "",
+            filename = descriptor?.filename ?: resource.filename ?: "",
             uri = resource.uri(account.info.host).toString(),
-            mimeType = resource.type,
+            mimeType = descriptor?.originalMimeType
+                ?: AttachmentEncryptionManager.resolveOriginalMimeType(encryptionMetadata, resource.type),
+            encryptionMetadata = encryptionMetadata,
             thumbnailUri = resource.thumbnailUri(account.info.host)?.toString()
         )
     }
 
     private fun convertMemo(memo: KeerV2Memo): Memo {
+        val payload = decodeMemoPayload(
+            encryptedPayload = memo.encryptedPayload.orEmpty(),
+            payloadEnvelope = memo.payloadEnvelope,
+        )
         return Memo(
             remoteId = memo.name,
-            content = decodeMemoContent(memo.content.orEmpty()),
+            content = payload.content,
             date = memo.createTime ?: memo.updateTime ?: Instant.now(),
             pinned = memo.pinned ?: false,
             visibility = memo.visibility?.toMemoVisibility() ?: MemoVisibility.PRIVATE,
             resources = memo.attachments?.map { convertResource(it) } ?: emptyList(),
-            tags = memo.tags ?: emptyList(),
-            latitude = memo.latitude,
-            longitude = memo.longitude,
+            tags = payload.tags,
+            latitude = payload.latitude,
+            longitude = payload.longitude,
             archived = memo.state == KeerV2State.ARCHIVED,
             updatedAt = memo.updateTime
         )
@@ -176,26 +201,30 @@ class KeerV2Repository(
             startDate = Instant.now()
         )
 
+        val payload = decodeMemoPayload(
+            encryptedPayload = groupMessage.encryptedPayload.orEmpty(),
+            payloadEnvelope = groupMessage.payloadEnvelope,
+        )
         return Memo(
             remoteId = groupMessage.name,
-            content = decodeMemoContent(groupMessage.content.orEmpty()),
+            content = payload.content,
             date = groupMessage.createTime ?: groupMessage.updateTime ?: Instant.now(),
             pinned = false,
             visibility = MemoVisibility.PROTECTED,
             resources = groupMessage.attachments?.map { convertResource(it) } ?: emptyList(),
-            tags = groupMessage.tags ?: emptyList(),
+            tags = payload.tags,
             creator = creator,
             archived = false,
             updatedAt = groupMessage.updateTime
         )
     }
 
-    private suspend fun listMemosByFilter(state: KeerV2State, filter: String): ApiResponse<List<Memo>> {
+    private suspend fun listMemosByState(state: KeerV2State): ApiResponse<List<Memo>> {
         var nextPageToken = ""
         val memos = arrayListOf<Memo>()
 
         do {
-            val resp = memosApi.listMemos(PAGE_SIZE, nextPageToken, state, filter)
+            val resp = memosApi.listMemos(PAGE_SIZE, nextPageToken, state, null)
                 .onSuccess { nextPageToken = data.nextPageToken.orEmpty() }
                 .mapSuccess { this.memos.map { convertMemo(it) } }
             if (resp is ApiResponse.Success) {
@@ -478,32 +507,18 @@ class KeerV2Repository(
     }
 
     override suspend fun listMemos(): ApiResponse<List<Memo>> {
-        val accountId = account.info.id
-        val collaboratorFilter = buildCollaboratorFilterExpression(accountId.toString())
-        val filter = if (collaboratorFilter.isNotEmpty()) {
-            "creator_id == $accountId || ($collaboratorFilter)"
-        } else {
-            "creator_id == $accountId"
-        }
-        return listMemosByFilter(KeerV2State.NORMAL, filter)
+        return listMemosByState(KeerV2State.NORMAL)
     }
 
     override suspend fun listArchivedMemos(): ApiResponse<List<Memo>> {
-        return listMemosByFilter(KeerV2State.ARCHIVED, "creator_id == ${account.info.id}")
+        return listMemosByState(KeerV2State.ARCHIVED)
     }
 
     override suspend fun listMemoChanges(since: Instant): ApiResponse<MemoChanges> {
-        val accountId = account.info.id
-        val collaboratorFilter = buildCollaboratorFilterExpression(accountId.toString())
-        val filter = if (collaboratorFilter.isNotEmpty()) {
-            "creator_id == $accountId || ($collaboratorFilter)"
-        } else {
-            "creator_id == $accountId"
-        }
         return memosApi.listMemoChanges(
             since = since.toString(),
             state = null,
-            filter = filter
+            filter = null
         ).mapSuccess {
             MemoChanges(
                 memos = memos.map { memo -> convertMemo(memo) },
@@ -518,54 +533,6 @@ class KeerV2Repository(
         }
     }
 
-    override suspend fun listWorkspaceMemos(
-        pageSize: Int,
-        pageToken: String?,
-        filter: String?
-    ): ApiResponse<Pair<List<Memo>, String?>> {
-        val accountId = account.info.id
-        val collaboratorFilter = buildCollaboratorFilterExpression(accountId.toString())
-        val baseFilterParts = mutableListOf(
-            "visibility in [\"PUBLIC\", \"PROTECTED\"]",
-            "creator_id == $accountId"
-        )
-        if (collaboratorFilter.isNotEmpty()) {
-            baseFilterParts += collaboratorFilter
-        }
-        val baseFilter = baseFilterParts.joinToString(
-            separator = " || ",
-            prefix = "(",
-            postfix = ")"
-        )
-        val resolvedFilter = filter
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { "($baseFilter) && ($it)" }
-            ?: baseFilter
-        val resp = memosApi.listMemos(pageSize, pageToken, filter = resolvedFilter)
-        if (resp !is ApiResponse.Success) {
-            return resp.mapSuccess { emptyList<Memo>() to null }
-        }
-        val users = resp.data.memos.mapNotNull { it.creator }.toSet()
-        val userMap = getUsersByIDs(users)
-
-        return resp
-            .mapSuccess { this.memos.map {
-                convertMemo(it).copy(
-                    creator = it.creator?.let { creator ->
-                        userMap[creator]?.let { user ->
-                            User(
-                                user.name,
-                                user.displayName ?: user.username,
-                                user.createTime ?: Instant.now(),
-                                avatarUrl = resolveAvatarUrl(account.info.host, user.avatarUrl.orEmpty())
-                            )
-                        }
-                    }
-                )
-            } to this.nextPageToken?.ifEmpty { null } }
-    }
-
     override suspend fun createMemo(
         content: String,
         visibility: MemoVisibility,
@@ -575,15 +542,22 @@ class KeerV2Repository(
         latitude: Double?,
         longitude: Double?
     ): ApiResponse<Memo> {
-        val encodedContent = encodeMemoContent(content)
+        val encryptedPayload = buildEncryptedMemoPayload(
+            content = content,
+            tags = tags.orEmpty(),
+            latitude = latitude,
+            longitude = longitude,
+        )
+        val attachmentScope = memoAttachmentEncryptionScope(tags.orEmpty())
         val resp = memosApi.createMemo(
             KeerV2CreateMemoRequest(
-                content = encodedContent,
+                encryptedPayload = encryptedPayload.first,
+                payloadEnvelope = encryptedPayload.second,
                 visibility = MemosVisibility.fromMemoVisibility(visibility),
-                attachments = resourceRemoteIds.map { KeerV2Resource(name = getName(it)) },
-                tags = tags,
-                latitude = latitude,
-                longitude = longitude,
+                attachments = buildAttachmentRequestResources(resourceRemoteIds, attachmentScope),
+                tags = null,
+                latitude = null,
+                longitude = null,
                 createTime = createdAt
             )
         )
@@ -600,15 +574,26 @@ class KeerV2Repository(
         pinned: Boolean?,
         archived: Boolean?
     ): ApiResponse<Memo> {
-        val encodedContent = content?.let(::encodeMemoContent)
+        val encryptedPayload = if (content != null || tags != null || archived != null) {
+            buildEncryptedMemoPayload(
+                content = content.orEmpty(),
+                tags = tags.orEmpty(),
+                latitude = null,
+                longitude = null,
+            )
+        } else {
+            null
+        }
+        val attachmentScope = memoAttachmentEncryptionScope(tags.orEmpty())
         val resp = memosApi.updateMemo(getId(remoteId), UpdateMemoRequest(
-            content = encodedContent,
+            encryptedPayload = encryptedPayload?.first,
+            payloadEnvelope = encryptedPayload?.second,
             visibility = visibility?.let { MemosVisibility.fromMemoVisibility(it) },
             pinned = pinned,
             state = archived?.let { isArchived -> if (isArchived) KeerV2State.ARCHIVED else KeerV2State.NORMAL },
-            tags = tags,
+            tags = null,
             updateTime = Instant.now(),
-            attachments = resourceRemoteIds?.map { KeerV2Resource(name = getName(it)) }
+            attachments = resourceRemoteIds?.let { buildAttachmentRequestResources(it, attachmentScope) }
         )).mapSuccess { convertMemo(this) }
         return resp
     }
@@ -659,6 +644,9 @@ class KeerV2Repository(
         pageSize: Int,
         pageToken: String?
     ): ApiResponse<Pair<List<Memo>, String?>> {
+        runCatching {
+            accountKeyManager.loadCurrentGroupKey(account, memosApi, groupId)
+        }
         val response = memosApi.listGroupMessages(getId(groupId), pageSize, pageToken)
         if (response !is ApiResponse.Success) {
             return response.mapSuccess { emptyList<Memo>() to null }
@@ -679,16 +667,27 @@ class KeerV2Repository(
     override suspend fun createGroupMessage(
         groupId: String,
         content: String,
-        tags: List<String>
+        tags: List<String>,
+        resourceRemoteIds: List<String>
     ): ApiResponse<Memo> {
+        val group = loadGroupById(groupId) ?: return ApiResponse.exception(
+            IllegalStateException("Group not found: $groupId")
+        )
+        val encryptedPayload = buildEncryptedGroupPayload(
+            group = group,
+            content = content,
+            tags = tags,
+        )
         val response = memosApi.createGroupMessage(
             getId(groupId),
             CreateGroupMessageRequest(
-                content = encodeMemoContent(content),
-                tags = tags
-                    .map { tag -> tag.trim() }
-                    .filter { tag -> tag.isNotEmpty() }
-                    .distinct()
+                encryptedPayload = encryptedPayload.first,
+                payloadEnvelope = encryptedPayload.second,
+                tags = null,
+                attachments = buildAttachmentRequestResources(
+                    resourceRemoteIds,
+                    ResourceEncryptionScope.Group(groupId),
+                ),
             )
         )
         if (response !is ApiResponse.Success) {
@@ -703,14 +702,28 @@ class KeerV2Repository(
         groupId: String,
         messageRemoteId: String,
         content: String?,
-        tags: List<String>?
+        tags: List<String>?,
+        resourceRemoteIds: List<String>?
     ): ApiResponse<Memo> {
+        val group = loadGroupById(groupId) ?: return ApiResponse.exception(
+            IllegalStateException("Group not found: $groupId")
+        )
+        val encryptedPayload = if (content != null || tags != null) {
+            buildEncryptedGroupPayload(
+                group = group,
+                content = content.orEmpty(),
+                tags = tags.orEmpty(),
+            )
+        } else {
+            null
+        }
         val request = UpdateGroupMessageRequest(
-            content = content?.let(::encodeMemoContent),
-            tags = tags
-                ?.map { tag -> tag.trim() }
-                ?.filter { tag -> tag.isNotEmpty() }
-                ?.distinct()
+            encryptedPayload = encryptedPayload?.first,
+            payloadEnvelope = encryptedPayload?.second,
+            tags = null,
+            attachments = resourceRemoteIds?.let {
+                buildAttachmentRequestResources(it, ResourceEncryptionScope.Group(groupId))
+            },
         )
         val response = memosApi.updateGroupMessage(
             getId(groupId),
@@ -801,24 +814,39 @@ class KeerV2Repository(
     }
 
     override suspend fun listGroupTags(groupId: String): ApiResponse<List<String>> {
-        return memosApi.listGroupTags(getId(groupId)).mapSuccess {
-            tags
-        }
+        return collectGroupTagsFromMessages(getId(groupId))
     }
 
     override suspend fun addGroupTag(groupId: String, tag: String): ApiResponse<List<String>> {
-        return memosApi.addGroupTag(
-            getId(groupId),
-            AddGroupTagRequest(tag.trim())
-        ).mapSuccess {
-            tags
+        val normalizedTag = tag.trim()
+        if (normalizedTag.isEmpty()) {
+            return ApiResponse.Success(emptyList())
         }
+        val existing = when (val current = collectGroupTagsFromMessages(getId(groupId))) {
+            is ApiResponse.Success -> current.data
+            else -> emptyList()
+        }
+        return ApiResponse.Success(normalizeTags(existing + normalizedTag))
     }
 
     override suspend fun listTags(): ApiResponse<List<String>> {
-        return memosApi.getUserStats(account.info.id.toString()).mapSuccess {
-            tagCount.keys.toList()
-          }
+        val normal = listMemosByState(KeerV2State.NORMAL)
+        if (normal !is ApiResponse.Success) {
+            return normal.mapSuccess { emptyList() }
+        }
+        val archived = listMemosByState(KeerV2State.ARCHIVED)
+        if (archived !is ApiResponse.Success) {
+            return archived.mapSuccess { emptyList() }
+        }
+        return ApiResponse.Success(
+            normalizeTags(
+                normal.data
+                    .asSequence()
+                    .plus(archived.data)
+                    .flatMap { memo -> memo.tags.asSequence() }
+                    .toList()
+            )
+        )
     }
 
     override suspend fun listResources(): ApiResponse<List<Resource>> {
@@ -830,11 +858,12 @@ class KeerV2Repository(
         type: MediaType?,
         file: File,
         memoRemoteId: String?,
+        encryptionScope: ResourceEncryptionScope,
         thumbnail: ResourceUploadThumbnail?,
         onProgress: (uploadedBytes: Long, totalBytes: Long) -> Unit
     ): ApiResponse<Resource> = withContext(Dispatchers.IO) {
-        val totalBytes = file.length()
-        if (totalBytes <= 0L) {
+        val originalTotalBytes = file.length()
+        if (originalTotalBytes <= 0L) {
             return@withContext failure("prepare upload", "file is empty")
         }
 
@@ -847,6 +876,83 @@ class KeerV2Repository(
             memoRemoteId = memoRemoteId,
             thumbnail = thumbnail
         )
+        val encryptedUpload = runCatching {
+            attachmentEncryptionManager.prepareEncryptedUpload(
+                accountKey = account.accountKey(),
+                checkpointKey = checkpointKey,
+                sourceFile = file,
+                originalMimeType = type?.toString(),
+                thumbnail = thumbnail?.let {
+                    PreparedEncryptedThumbnail(
+                        filename = it.filename,
+                        type = it.type,
+                        content = it.content,
+                    )
+                },
+            )
+        }.getOrElse { throwable ->
+            return@withContext failure("prepare upload", "encrypt attachment failed", throwable)
+        }
+        val uploadFile = encryptedUpload.file
+        val uploadTypeValue = encryptedUpload.mimeType
+        val uploadMediaType = runCatching { uploadTypeValue.toMediaType() }.getOrElse { throwable ->
+            return@withContext failure("prepare upload", "invalid encrypted upload mime type", throwable)
+        }
+        val uploadThumbnail = encryptedUpload.thumbnail?.let {
+            ResourceUploadThumbnail(
+                filename = encryptedThumbnailFilename,
+                type = it.type,
+                content = it.content,
+            )
+        }
+        val uploadEncryptionMetadata = AttachmentEncryptionManager.parseMetadata(encryptedUpload.encryptionMetadata)
+            ?: return@withContext failure("prepare upload", "invalid encrypted attachment metadata")
+        val uploadScope = ResourceEncryptionScope.Account
+        val descriptorPayload = runCatching {
+            buildEncryptedAttachmentDescriptor(
+                filename = filename,
+                originalMimeType = type?.toString(),
+                thumbnailMimeType = thumbnail?.type,
+                encryptionScope = uploadScope,
+            )
+        }.getOrElse { throwable ->
+            return@withContext failure("prepare upload", "encrypt attachment descriptor failed", throwable)
+        }
+        val mainWrappedKeys = runCatching {
+            val mainKey = attachmentEncryptionManager.unwrapVariantKey(
+                accountKey = account.accountKey(),
+                rawMetadata = encryptedUpload.encryptionMetadata,
+                variant = EncryptedBlobVariant.MAIN,
+            ) ?: error("missing main attachment key")
+            resolveAttachmentWrappedKeys(uploadScope, mainKey)
+        }.getOrElse { throwable ->
+            return@withContext failure("prepare upload", "wrap main attachment key failed", throwable)
+        }
+        val wrappedMainBlob = uploadEncryptionMetadata.main.withWrappedKeys(mainWrappedKeys)
+        val wrappedThumbnailBlob = uploadEncryptionMetadata.thumbnail?.let { _ ->
+            runCatching {
+                val thumbnailKey = attachmentEncryptionManager.unwrapVariantKey(
+                    accountKey = account.accountKey(),
+                    rawMetadata = encryptedUpload.encryptionMetadata,
+                    variant = EncryptedBlobVariant.THUMBNAIL,
+                ) ?: error("missing thumbnail attachment key")
+                val thumbnailWrappedKeys = resolveAttachmentWrappedKeys(uploadScope, thumbnailKey)
+                uploadEncryptionMetadata.thumbnail.withWrappedKeys(thumbnailWrappedKeys)
+            }.getOrElse { throwable ->
+                return@withContext failure("prepare upload", "wrap thumbnail attachment key failed", throwable)
+            }
+        }
+        val blobEncryption = uploadJson.encodeToString(
+            EncryptedBlobMetadata.serializer(),
+            wrappedMainBlob,
+        )
+        val thumbnailBlobEncryption = wrappedThumbnailBlob?.let { thumb ->
+            uploadJson.encodeToString(EncryptedBlobMetadata.serializer(), thumb)
+        }
+        val totalBytes = uploadFile.length()
+        if (totalBytes <= 0L) {
+            return@withContext failure("prepare upload", "encrypted attachment is empty")
+        }
 
         var uploadId = ""
         var offset = 0L
@@ -870,11 +976,15 @@ class KeerV2Repository(
                 uploadJson.encodeToString(
                     ResumableUploadCreateRequest.serializer(),
                     ResumableUploadCreateRequest(
-                        filename = filename,
-                        type = type?.toString() ?: "application/octet-stream",
+                        descriptorCiphertext = descriptorPayload.first,
+                        descriptorEnvelope = descriptorPayload.second,
+                        blobEncryption = blobEncryption,
+                        thumbnailBlobEncryption = thumbnailBlobEncryption,
+                        filename = encryptedAttachmentFilename,
+                        type = uploadTypeValue,
                         size = totalBytes,
                         memo = memoRemoteId?.let { getName(it) },
-                        thumbnail = thumbnail?.let {
+                        thumbnail = uploadThumbnail?.let {
                             ResumableUploadThumbnailRequest(
                                 filename = it.filename,
                                 type = it.type,
@@ -940,15 +1050,14 @@ class KeerV2Repository(
 
             if (directUploadUrl.isNotEmpty()) {
                 useBackendChunkUpload = false
-                val contentTypeValue = type?.toString() ?: "application/octet-stream"
-                val contentMediaType = contentTypeValue.toMediaType()
+                val contentTypeValue = uploadTypeValue
                 var attempt = 0
                 while (true) {
                     val directBody = ChunkFileRequestBody(
-                        file = file,
+                        file = uploadFile,
                         offset = 0L,
                         length = totalBytes,
-                        mediaType = contentMediaType,
+                        mediaType = uploadMediaType,
                         onProgress = { sent, _ ->
                             onProgress(sent.coerceAtMost(totalBytes), totalBytes)
                         }
@@ -1048,7 +1157,7 @@ class KeerV2Repository(
             while (offset < totalBytes) {
                 val chunkLength = min(uploadChunkSizeBytes, totalBytes - offset)
                 val chunkBody = ChunkFileRequestBody(
-                    file = file,
+                    file = uploadFile,
                     offset = offset,
                     length = chunkLength,
                     mediaType = uploadChunkMediaType,
@@ -1170,12 +1279,11 @@ class KeerV2Repository(
 
                 var retryCount = 0
                 while (true) {
-                    val contentTypeValue = type?.toString() ?: "application/octet-stream"
                     val chunkBody = ChunkFileRequestBody(
-                        file = file,
+                        file = uploadFile,
                         offset = offset,
                         length = chunkLength,
-                        mediaType = contentTypeValue.toMediaType(),
+                        mediaType = uploadMediaType,
                         onProgress = { sent, _ ->
                             onProgress((offset + sent).coerceAtMost(totalBytes), totalBytes)
                         }
@@ -1183,7 +1291,7 @@ class KeerV2Repository(
                     val uploadRequest = Request.Builder()
                         .url(resolvedPartUpload.uploadUrl)
                         .put(chunkBody)
-                        .header("Content-Type", contentTypeValue)
+                        .header("Content-Type", uploadTypeValue)
                         .build()
 
                     val uploadResponse = try {
@@ -1277,6 +1385,7 @@ class KeerV2Repository(
             "missing attachment in response"
         )
         uploadCheckpointStore.remove(checkpointKey)
+        attachmentEncryptionManager.clearPreparedUpload(account.accountKey(), checkpointKey)
 
         return@withContext ApiResponse.Success(convertResource(resolvedResource))
     }
@@ -1533,12 +1642,340 @@ class KeerV2Repository(
         }
     }
 
-    private fun encodeMemoContent(content: String): String {
-        return memoContentCodec.encode(content)
+    private suspend fun buildEncryptedMemoPayload(
+        content: String,
+        tags: List<String>,
+        latitude: Double?,
+        longitude: Double?,
+    ): Pair<String, KeerV2PayloadEnvelope> {
+        val contentKey = E2eeKeyEnvelope.randomBytes(32)
+        val collaboratorIds = extractCollaboratorIds(tags)
+        val wrappedKeys = if (collaboratorIds.isEmpty()) {
+            listOf(accountKeyManager.wrapForAccountMasterKey(account, contentKey))
+        } else {
+            accountKeyManager.encryptForCollaborators(account, memosApi, collaboratorIds, contentKey)
+        }
+        val plaintext = uploadJson.encodeToString(
+            RemoteMemoPayload.serializer(),
+            RemoteMemoPayload(
+                content = content,
+                tags = tags,
+                latitude = latitude,
+                longitude = longitude,
+            )
+        )
+        return encryptPayload(plaintext, contentKey, wrappedKeys)
     }
 
-    private fun decodeMemoContent(content: String): String {
-        return runCatching { memoContentCodec.decode(content) }.getOrDefault(content)
+    private suspend fun buildEncryptedGroupPayload(
+        group: KeerV2Group,
+        content: String,
+        tags: List<String>,
+    ): Pair<String, KeerV2PayloadEnvelope> {
+        val contentKey = E2eeKeyEnvelope.randomBytes(32)
+        val wrappedKey = accountKeyManager.encryptForGroupVersion(account, memosApi, group, contentKey)
+        val plaintext = uploadJson.encodeToString(
+            RemoteMemoPayload.serializer(),
+            RemoteMemoPayload(
+                content = content,
+                tags = tags,
+            )
+        )
+        return encryptPayload(plaintext, contentKey, listOf(wrappedKey))
+    }
+
+    private fun encryptPayload(
+        plaintext: String,
+        contentKey: ByteArray,
+        wrappedKeys: List<WrappedContentKey>,
+    ): Pair<String, KeerV2PayloadEnvelope> {
+        val iv = E2eeKeyEnvelope.randomBytes(12)
+        val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(
+            javax.crypto.Cipher.ENCRYPT_MODE,
+            javax.crypto.spec.SecretKeySpec(contentKey, "AES"),
+            javax.crypto.spec.GCMParameterSpec(128, iv),
+        )
+        val ciphertext = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
+        val payload = RemoteEncryptedPayload(
+            iv = java.util.Base64.getEncoder().encodeToString(iv),
+            ciphertext = java.util.Base64.getEncoder().encodeToString(ciphertext),
+        )
+        return uploadJson.encodeToString(RemoteEncryptedPayload.serializer(), payload) to
+            KeerV2PayloadEnvelope(
+                wrappedKeys = wrappedKeys.map { wrappedKey ->
+                    site.lcyk.keer.data.api.KeerV2WrappedKeySlot(
+                        slotType = wrappedKey.slotType,
+                        slotRef = wrappedKey.slotRef,
+                        wrapAlgorithm = wrappedKey.wrapAlgorithm,
+                        wrappedKey = wrappedKey.wrappedKey,
+                    )
+                }
+            )
+    }
+
+    private fun decodeMemoPayload(
+        encryptedPayload: String,
+        payloadEnvelope: KeerV2PayloadEnvelope?,
+    ): DecodedMemoPayload {
+        val plaintext = decryptPayload(encryptedPayload, payloadEnvelope)
+            ?: return DecodedMemoPayload(
+                content = encryptedContentUnavailablePlaceholder,
+                tags = emptyList(),
+                latitude = null,
+                longitude = null,
+            )
+        return runCatching {
+            uploadJson.decodeFromString(RemoteMemoPayload.serializer(), plaintext)
+        }.map { payload ->
+            DecodedMemoPayload(
+                content = payload.content,
+                tags = payload.tags,
+                latitude = payload.latitude,
+                longitude = payload.longitude,
+            )
+        }.getOrElse {
+            DecodedMemoPayload(
+                content = encryptedContentUnavailablePlaceholder,
+                tags = emptyList(),
+                latitude = null,
+                longitude = null,
+            )
+        }
+    }
+
+    private fun decryptPayload(
+        encryptedPayload: String,
+        payloadEnvelope: KeerV2PayloadEnvelope?,
+    ): String? {
+        if (encryptedPayload.isBlank() || payloadEnvelope == null) {
+            return null
+        }
+        val payload = runCatching {
+            uploadJson.decodeFromString(RemoteEncryptedPayload.serializer(), encryptedPayload)
+        }.getOrNull() ?: return null
+        val contentKey = accountKeyManager.unwrapContentKey(
+            account,
+            payloadEnvelope.wrappedKeys.map { wrappedKey ->
+                WrappedContentKey(
+                    slotType = wrappedKey.slotType,
+                    slotRef = wrappedKey.slotRef,
+                    wrapAlgorithm = wrappedKey.wrapAlgorithm,
+                    wrappedKey = wrappedKey.wrappedKey,
+                )
+            }
+        ) ?: return null
+        return runCatching {
+            val cipher = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(
+                javax.crypto.Cipher.DECRYPT_MODE,
+                javax.crypto.spec.SecretKeySpec(contentKey, "AES"),
+                javax.crypto.spec.GCMParameterSpec(128, java.util.Base64.getDecoder().decode(payload.iv)),
+            )
+            cipher.doFinal(java.util.Base64.getDecoder().decode(payload.ciphertext)).toString(Charsets.UTF_8)
+        }.getOrNull()
+    }
+
+    private fun decodeResourceDescriptor(
+        ciphertext: String?,
+        envelope: KeerV2PayloadEnvelope?,
+    ): RemoteAttachmentDescriptor? {
+        val plaintext = decryptPayload(ciphertext.orEmpty(), envelope) ?: return null
+        return runCatching {
+            uploadJson.decodeFromString(RemoteAttachmentDescriptor.serializer(), plaintext)
+        }.getOrNull()
+    }
+
+    private fun buildLocalAttachmentEncryptionMetadata(
+        resource: KeerV2Resource,
+        descriptor: RemoteAttachmentDescriptor?,
+    ): String? {
+        val main = resource.blobEncryption?.takeIf { it.isNotBlank() }?.let { raw ->
+            runCatching { uploadJson.decodeFromString(EncryptedBlobMetadata.serializer(), raw) }.getOrNull()
+        } ?: return null
+        val thumbnail = resource.thumbnailBlobEncryption?.takeIf { it.isNotBlank() }?.let { raw ->
+            runCatching { uploadJson.decodeFromString(EncryptedBlobMetadata.serializer(), raw) }.getOrNull()
+        }
+        return uploadJson.encodeToString(
+            AttachmentEncryptionMetadata.serializer(),
+            AttachmentEncryptionMetadata(
+                originalMimeType = descriptor?.originalMimeType,
+                main = main,
+                thumbnail = thumbnail,
+            )
+        )
+    }
+
+    private suspend fun buildAttachmentRequestResources(
+        resourceRemoteIds: List<String>,
+        encryptionScope: ResourceEncryptionScope,
+    ): List<KeerV2Resource> {
+        val distinctIds = resourceRemoteIds
+            .map(::getName)
+            .filter { remoteId -> remoteId.isNotBlank() }
+            .distinct()
+        if (distinctIds.isEmpty()) {
+            return emptyList()
+        }
+        val remoteResources = loadResourcesByRemoteIds(distinctIds)
+        return distinctIds.map { remoteId ->
+            val remoteResource = remoteResources[getId(remoteId)]
+            if (remoteResource == null) {
+                KeerV2Resource(name = getName(remoteId))
+            } else {
+                buildAttachmentRequestResource(remoteResource, encryptionScope)
+            }
+        }
+    }
+
+    private suspend fun loadResourcesByRemoteIds(
+        resourceRemoteIds: List<String>,
+    ): Map<String, KeerV2Resource> {
+        if (resourceRemoteIds.isEmpty()) {
+            return emptyMap()
+        }
+        val needed = resourceRemoteIds.map(::getId).toSet()
+        return when (val response = memosApi.listResources()) {
+            is ApiResponse.Success -> response.data.attachments
+                .filter { resource ->
+                    val name = resource.name ?: return@filter false
+                    getId(name) in needed
+                }
+                .associateBy { resource -> getId(resource.name.orEmpty()) }
+            else -> emptyMap()
+        }
+    }
+
+    private suspend fun buildAttachmentRequestResource(
+        resource: KeerV2Resource,
+        encryptionScope: ResourceEncryptionScope,
+    ): KeerV2Resource {
+        val descriptor = decodeResourceDescriptor(
+            ciphertext = resource.descriptorCiphertext,
+            envelope = resource.descriptorEnvelope,
+        )
+        val rawMetadata = buildLocalAttachmentEncryptionMetadata(resource, descriptor)
+            ?.takeIf { metadata -> metadata.isNotBlank() }
+            ?: return KeerV2Resource(name = resource.name)
+        val parsedMetadata = AttachmentEncryptionManager.parseMetadata(rawMetadata)
+            ?: return KeerV2Resource(name = resource.name)
+        val descriptorPayload = runCatching {
+            buildEncryptedAttachmentDescriptor(
+                filename = descriptor?.filename ?: resource.filename ?: encryptedAttachmentFilename,
+                originalMimeType = descriptor?.originalMimeType,
+                thumbnailMimeType = descriptor?.thumbnailMimeType ?: resource.thumbnailType,
+                encryptionScope = encryptionScope,
+            )
+        }.getOrElse {
+            return KeerV2Resource(name = resource.name)
+        }
+        val mainWrappedBlob = runCatching {
+            val mainKey = attachmentEncryptionManager.unwrapVariantKey(
+                accountKey = account.accountKey(),
+                rawMetadata = rawMetadata,
+                variant = EncryptedBlobVariant.MAIN,
+            ) ?: error("missing main attachment key")
+            parsedMetadata.main.withWrappedKeys(resolveAttachmentWrappedKeys(encryptionScope, mainKey))
+        }.getOrElse {
+            return KeerV2Resource(name = resource.name)
+        }
+        val thumbnailWrappedBlob = parsedMetadata.thumbnail?.let {
+            runCatching {
+                val thumbnailKey = attachmentEncryptionManager.unwrapVariantKey(
+                    accountKey = account.accountKey(),
+                    rawMetadata = rawMetadata,
+                    variant = EncryptedBlobVariant.THUMBNAIL,
+                ) ?: error("missing thumbnail attachment key")
+                it.withWrappedKeys(resolveAttachmentWrappedKeys(encryptionScope, thumbnailKey))
+            }.getOrElse {
+                return@let null
+            }
+        }
+        return KeerV2Resource(
+            name = resource.name,
+            descriptorCiphertext = descriptorPayload.first,
+            descriptorEnvelope = descriptorPayload.second,
+            blobEncryption = uploadJson.encodeToString(
+                EncryptedBlobMetadata.serializer(),
+                mainWrappedBlob,
+            ),
+            thumbnailBlobEncryption = thumbnailWrappedBlob?.let { thumb ->
+                uploadJson.encodeToString(EncryptedBlobMetadata.serializer(), thumb)
+            },
+        )
+    }
+
+    private fun memoAttachmentEncryptionScope(tags: List<String>): ResourceEncryptionScope {
+        val collaboratorIds = extractCollaboratorIds(tags)
+            .map(::normalizeUserID)
+            .filter { collaboratorId -> collaboratorId.isNotBlank() }
+            .distinct()
+        return if (collaboratorIds.isEmpty()) {
+            ResourceEncryptionScope.Account
+        } else {
+            ResourceEncryptionScope.Collaborators(collaboratorIds)
+        }
+    }
+
+    private fun EncryptedBlobMetadata.withWrappedKeys(
+        wrappedKeys: List<WrappedContentKey>,
+    ): EncryptedBlobMetadata {
+        return copy(
+            wrappedKeys = wrappedKeys,
+        )
+    }
+
+    private suspend fun buildEncryptedAttachmentDescriptor(
+        filename: String,
+        originalMimeType: String?,
+        thumbnailMimeType: String?,
+        encryptionScope: ResourceEncryptionScope,
+    ): Pair<String, KeerV2PayloadEnvelope> {
+        val descriptorKey = E2eeKeyEnvelope.randomBytes(32)
+        val wrappedKeys = resolveAttachmentWrappedKeys(encryptionScope, descriptorKey)
+        val plaintext = uploadJson.encodeToString(
+            RemoteAttachmentDescriptor.serializer(),
+            RemoteAttachmentDescriptor(
+                filename = filename,
+                originalMimeType = originalMimeType,
+                thumbnailMimeType = thumbnailMimeType,
+            )
+        )
+        return encryptPayload(plaintext, descriptorKey, wrappedKeys)
+    }
+
+    private suspend fun resolveAttachmentWrappedKeys(
+        encryptionScope: ResourceEncryptionScope,
+        rawKey: ByteArray,
+    ): List<WrappedContentKey> {
+        return when (encryptionScope) {
+            ResourceEncryptionScope.Account -> listOf(accountKeyManager.wrapForAccountMasterKey(account, rawKey))
+            is ResourceEncryptionScope.Collaborators -> {
+                val collaboratorIds = encryptionScope.userIds
+                    .map(::normalizeUserID)
+                    .filter { collaboratorId -> collaboratorId.isNotBlank() }
+                    .distinct()
+                if (collaboratorIds.isEmpty()) {
+                    listOf(accountKeyManager.wrapForAccountMasterKey(account, rawKey))
+                } else {
+                    accountKeyManager.encryptForCollaborators(account, memosApi, collaboratorIds, rawKey)
+                }
+            }
+            is ResourceEncryptionScope.Group -> {
+                val group = loadGroupById(encryptionScope.groupId)
+                    ?: throw IllegalStateException("Group not found: ${encryptionScope.groupId}")
+                listOf(accountKeyManager.encryptForGroupVersion(account, memosApi, group, rawKey))
+            }
+        }
+    }
+
+    private suspend fun loadGroupById(groupId: String): KeerV2Group? {
+        return when (val response = memosApi.listGroups()) {
+            is ApiResponse.Success -> response.data.groups.firstOrNull { group ->
+                getId(group.name) == getId(groupId)
+            }
+            else -> null
+        }
     }
 
     private fun resolveAvatarUrl(host: String, avatarUrl: String): String? {
@@ -1553,10 +1990,53 @@ class KeerV2Repository(
             baseUrl.toUrl().toURI().resolve(avatarUrl).toString()
         }.getOrDefault(avatarUrl)
     }
+
+    private suspend fun collectGroupTagsFromMessages(groupId: String): ApiResponse<List<String>> {
+        val normalizedGroupId = groupId.trim()
+        if (normalizedGroupId.isEmpty()) {
+            return ApiResponse.Success(emptyList())
+        }
+        runCatching {
+            accountKeyManager.loadCurrentGroupKey(account, memosApi, normalizedGroupId)
+        }
+        var nextPageToken: String? = null
+        val tags = linkedSetOf<String>()
+        do {
+            val response = memosApi.listGroupMessages(normalizedGroupId, PAGE_SIZE, nextPageToken)
+            if (response !is ApiResponse.Success) {
+                return response.mapSuccess { emptyList() }
+            }
+            response.data.messages.forEach { message ->
+                normalizeTags(
+                    decodeMemoPayload(
+                        encryptedPayload = message.encryptedPayload.orEmpty(),
+                        payloadEnvelope = message.payloadEnvelope,
+                    ).tags
+                ).forEach(tags::add)
+            }
+            nextPageToken = response.data.nextPageToken?.ifBlank { null }
+        } while (!nextPageToken.isNullOrBlank())
+        return ApiResponse.Success(tags.toList())
+    }
+
+    private fun normalizeTags(rawTags: Collection<String>): List<String> {
+        val normalized = linkedSetOf<String>()
+        rawTags.forEach { rawTag ->
+            val trimmed = rawTag.trim()
+            if (trimmed.isNotEmpty()) {
+                normalized += trimmed
+            }
+        }
+        return normalized.toList()
+    }
 }
 
 @Serializable
 private data class ResumableUploadCreateRequest(
+    val descriptorCiphertext: String,
+    val descriptorEnvelope: KeerV2PayloadEnvelope? = null,
+    val blobEncryption: String,
+    val thumbnailBlobEncryption: String? = null,
     val filename: String,
     val type: String,
     val size: Long,
@@ -1768,3 +2248,35 @@ private fun sha256Hex(input: String): String {
         }
     }
 }
+
+@Serializable
+private data class RemoteMemoPayload(
+    val content: String,
+    val tags: List<String> = emptyList(),
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+)
+
+@Serializable
+private data class RemoteEncryptedPayload(
+    val version: Int = 1,
+    val algorithm: String = "AES_GCM_PAYLOAD_V1",
+    val iv: String,
+    val ciphertext: String,
+)
+
+@Serializable
+private data class RemoteAttachmentDescriptor(
+    val filename: String,
+    val originalMimeType: String? = null,
+    val thumbnailMimeType: String? = null,
+)
+
+private data class DecodedMemoPayload(
+    val content: String,
+    val tags: List<String>,
+    val latitude: Double?,
+    val longitude: Double?,
+)
+
+private const val encryptedContentUnavailablePlaceholder = "[Encrypted content unavailable]"

@@ -46,6 +46,10 @@ abstract class AbstractMemoRepository {
         onProgress: (uploadedBytes: Long, totalBytes: Long) -> Unit = { _, _ -> }
     ): ApiResponse<ResourceEntity>
     abstract suspend fun deleteResource(identifier: String): ApiResponse<Unit>
+    abstract suspend fun resolveRemoteResourceIds(
+        resourceIdentifiers: List<String>,
+        encryptionScope: ResourceEncryptionScope = ResourceEncryptionScope.Account
+    ): ApiResponse<List<String>>
 
     abstract suspend fun getCurrentUser(): ApiResponse<User>
 

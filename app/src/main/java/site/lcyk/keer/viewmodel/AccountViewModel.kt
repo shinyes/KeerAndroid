@@ -43,7 +43,7 @@ class AccountViewModel @AssistedInject constructor(
     private val memosApi = selectedAccount.map { account ->
         when (account) {
             is Account.KeerV2 -> {
-                val (_, api) = accountService.createKeerV2Client(account.info.host, account.info.accessToken)
+                val (_, api) = accountService.createKeerV2Client(account.info.host, account.accountKey())
                 return@map RemoteApi.KeerV2(api)
             }
             else -> null

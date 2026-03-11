@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -37,10 +38,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
+import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
@@ -64,6 +67,10 @@ import site.lcyk.keer.util.resolveMemoByIdentifier
 import site.lcyk.keer.util.resolveMemoByRemoteId
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
+import site.lcyk.keer.viewmodel.MemoDetailViewModel
+
+private const val EXPLORE_MEMO_PREFIX = "explore:"
+private const val GROUP_MEMO_PREFIX = "group:"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -75,13 +82,35 @@ fun MemoDetailPage(
     val lifecycleOwner = LocalLifecycleOwner.current
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
+    val detailViewModel: MemoDetailViewModel = hiltViewModel()
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsState()
     val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
     val scope = rememberCoroutineScope()
     val memoSnapshot = remember(memosViewModel.memos) { memosViewModel.memos.toList() }
-    val memo = remember(memoSnapshot, memoIdentifier, settings.currentUser, settings.usersList) {
+    val localMemo = remember(memoSnapshot, memoIdentifier) {
         memosViewModel.getMemoForDetail(memoIdentifier)
+    }
+    val fallbackMemo by produceState<MemoEntity?>(
+        initialValue = null,
+        memoIdentifier,
+        currentAccount?.accountKey()
+    ) {
+        value = detailViewModel.resolveFallbackMemoEntity(
+            accountKey = currentAccount?.accountKey().orEmpty(),
+            memoIdentifier = memoIdentifier
+        )
+    }
+    val memo = remember(
+        localMemo,
+        fallbackMemo,
+        memoSnapshot,
+        memoIdentifier,
+        settings.currentUser,
+        settings.usersList
+    ) {
+        localMemo
+            ?: fallbackMemo
             ?: resolveMemoByIdentifier(
                 memoIdentifier = memoIdentifier,
                 memos = memoSnapshot,
@@ -89,7 +118,7 @@ fun MemoDetailPage(
             )
     }
     val readOnlyMemoDetail = remember(memoIdentifier) {
-        memoIdentifier.startsWith("explore:") || memoIdentifier.startsWith("group:")
+        memoIdentifier.startsWith(EXPLORE_MEMO_PREFIX) || memoIdentifier.startsWith(GROUP_MEMO_PREFIX)
     }
     val collaboratorIds = remember(memo?.tags) { extractCollaboratorIds(memo?.tags.orEmpty()) }
     val displayTags = remember(memo?.tags) {

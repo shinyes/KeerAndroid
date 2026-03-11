@@ -33,6 +33,7 @@ data class ResourceEntity(
     override val uri: String,
     override val localUri: String? = null,
     override val mimeType: String?,
+    override val encryptionMetadata: String? = null,
     override val thumbnailUri: String? = null,
     override val thumbnailLocalUri: String? = null,
     val memoId: String? = null

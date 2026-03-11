@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.media3.common.util.UnstableApi
 import site.lcyk.keer.data.model.ResourceRepresentable
+import site.lcyk.keer.data.security.AttachmentEncryptionManager
 
 private val imageExtensions = setOf(
     "png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif", "avif"
@@ -13,7 +14,10 @@ private val videoExtensions = setOf(
 )
 
 fun ResourceRepresentable.isImageResource(): Boolean {
-    val normalizedMimeType = mimeType?.lowercase().orEmpty()
+    val normalizedMimeType = AttachmentEncryptionManager.resolveOriginalMimeType(
+        encryptionMetadata,
+        mimeType
+    )?.lowercase().orEmpty()
     if (normalizedMimeType.startsWith("image/")) return true
     if (normalizedMimeType.startsWith("video/")) return false
     val extension = filename.substringAfterLast('.', "").lowercase()
@@ -21,7 +25,10 @@ fun ResourceRepresentable.isImageResource(): Boolean {
 }
 
 fun ResourceRepresentable.isVideoResource(): Boolean {
-    val normalizedMimeType = mimeType?.lowercase().orEmpty()
+    val normalizedMimeType = AttachmentEncryptionManager.resolveOriginalMimeType(
+        encryptionMetadata,
+        mimeType
+    )?.lowercase().orEmpty()
     if (normalizedMimeType.startsWith("video/")) return true
     if (normalizedMimeType.startsWith("image/")) return false
     val extension = filename.substringAfterLast('.', "").lowercase()

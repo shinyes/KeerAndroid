@@ -409,6 +409,24 @@ class LocalDatabaseRepository(
         }
     }
 
+    override suspend fun resolveRemoteResourceIds(
+        resourceIdentifiers: List<String>,
+        encryptionScope: ResourceEncryptionScope
+    ): ApiResponse<List<String>> {
+        return try {
+            val resolved = resourceIdentifiers
+                .mapNotNull { identifier ->
+                    val resource = memoDao.getResourceById(identifier, accountKey)
+                        ?: memoDao.getResourceByRemoteId(identifier, accountKey)
+                    resource?.remoteId ?: identifier.trim().takeIf { it.isNotEmpty() }
+                }
+                .distinct()
+            ApiResponse.Success(resolved)
+        } catch (e: Exception) {
+            ApiResponse.Failure.Exception(e)
+        }
+    }
+
     override suspend fun getCurrentUser(): ApiResponse<User> {
         return ApiResponse.Success(account.toUser())
     }

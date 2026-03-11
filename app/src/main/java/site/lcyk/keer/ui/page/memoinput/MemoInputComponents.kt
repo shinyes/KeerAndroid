@@ -796,7 +796,7 @@ internal fun MemoInputEditor(
                 items(attachmentResources, key = { it.identifier }) { resource ->
                     Attachment(
                         resource = resource,
-                        onRemove = { inputViewModel.deleteResource(resource.identifier) }
+                        onRemove = { inputViewModel.removeResourceFromDraft(resource) }
                     )
                 }
             }

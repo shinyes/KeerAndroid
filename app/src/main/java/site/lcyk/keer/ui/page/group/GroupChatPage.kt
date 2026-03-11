@@ -54,7 +54,6 @@ import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoEditGesture
-import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.settingsDataStore
@@ -100,18 +99,17 @@ fun GroupChatPage(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
+    val joinedGroups by userStateViewModel.joinedGroups.collectAsStateWithLifecycle()
+    val groupIdAliases by userStateViewModel.groupIdAliases.collectAsStateWithLifecycle()
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
     val syncStatus by memosViewModel.syncStatus.collectAsStateWithLifecycle()
     val avatarImageLoader = rememberAuthorizedImageLoader()
 
-    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
+    val settings by context.settingsDataStore.data.collectAsState(initial = site.lcyk.keer.data.model.Settings())
     val currentUserSettings = settings.usersList
         .firstOrNull { it.accountKey == settings.currentUser }
         ?.settings
-    val groups = currentUserSettings?.groups.orEmpty()
-    val resolvedGroupId = currentUserSettings
-        ?.groupIdAliases
-        .orEmpty()
+    val resolvedGroupId = groupIdAliases
         .firstOrNull { alias -> alias.localId == groupId }
         ?.remoteId
         ?: groupId
@@ -122,7 +120,7 @@ fun GroupChatPage(
         null -> ""
     }
     val editGesture = currentUserSettings?.editGesture ?: MemoEditGesture.NONE
-    val group = groups.firstOrNull { it.id == resolvedGroupId }
+    val group = joinedGroups.firstOrNull { it.id == resolvedGroupId }
 
     val memos by viewModel.memos.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()

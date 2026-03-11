@@ -1,41 +1,39 @@
 package site.lcyk.keer.viewmodel
 
-import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import com.skydoves.sandwich.ApiResponse
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import site.lcyk.keer.data.local.entity.MemoEntity
+import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Memo
-import site.lcyk.keer.data.model.MemoGroup
-import site.lcyk.keer.data.model.toCachedMemoItem
+import site.lcyk.keer.data.model.Resource
+import site.lcyk.keer.data.model.User
 import site.lcyk.keer.data.model.toMemo
-import site.lcyk.keer.data.repository.RemoteRepository
 import site.lcyk.keer.data.service.AccountService
+import site.lcyk.keer.data.service.MemoService
+import site.lcyk.keer.data.service.OfflineGroupStore
+import site.lcyk.keer.data.service.OfflineSyncTaskScheduler
+import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
-import site.lcyk.keer.ext.settingsDataStore
-import site.lcyk.keer.util.buildCollaboratorFilterExpression
+import site.lcyk.keer.util.extractCollaboratorIds
+import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 
 data class ExploreMemoItem(
@@ -46,59 +44,44 @@ data class ExploreMemoItem(
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
 class ExploreViewModel @Inject constructor(
-    @param:ApplicationContext private val context: Context,
-    private val accountService: AccountService
+    private val accountService: AccountService,
+    private val memoService: MemoService,
+    private val offlineGroupStore: OfflineGroupStore,
+    private val offlineSyncTaskScheduler: OfflineSyncTaskScheduler,
 ) : ViewModel() {
-    private val refreshSignal = MutableStateFlow(0)
     private val _mutationErrorMessage = MutableStateFlow<String?>(null)
     val mutationErrorMessage: StateFlow<String?> = _mutationErrorMessage.asStateFlow()
 
-    val groups = context.settingsDataStore.data
-        .map { settings ->
-            settings.usersList
-                .firstOrNull { it.accountKey == settings.currentUser }
-                ?.settings
-                ?.groups
-                .orEmpty()
+    val groups = accountService.currentAccount
+        .flatMapLatest { account ->
+            val accountKey = account?.accountKey().orEmpty()
+            if (accountKey.isBlank()) {
+                emptyFlow()
+            } else {
+                offlineGroupStore.observeGroups(accountKey)
+            }
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val exploreMemos = combine(
-        accountService.currentAccount,
-        groups,
-        refreshSignal
-    ) { account, currentGroups, _ ->
-        account to currentGroups
-    }
-        .flatMapLatest { (account, currentGroups) ->
-            flow {
-                val cached = readCachedExploreMemos()
-                if (cached.isNotEmpty()) {
-                    emit(PagingData.from(cached))
-                }
-
-                if (account == null || account is Account.Local) {
-                    if (cached.isEmpty()) {
-                        emit(PagingData.empty())
-                    }
-                    return@flow
-                }
-
-                val remoteRepository = accountService.getRemoteRepository()
-                if (remoteRepository == null) {
-                    if (cached.isEmpty()) {
-                        emit(PagingData.empty())
-                    }
-                    return@flow
-                }
-
-                val aggregated = loadAggregatedMemos(account, remoteRepository, currentGroups)
-                if (aggregated.isNotEmpty()) {
-                    persistExploreMemos(aggregated)
-                    emit(PagingData.from(aggregated))
-                } else if (cached.isEmpty()) {
-                    emit(PagingData.empty())
-                }
+    val exploreMemos = accountService.currentAccount
+        .flatMapLatest { account ->
+            val accountKey = account?.accountKey().orEmpty()
+            if (accountKey.isBlank()) {
+                return@flatMapLatest flowOf(PagingData.empty())
+            }
+            combine(
+                memoService.memos,
+                offlineGroupStore.observeAllCachedGroupMemos(accountKey),
+                offlineGroupStore.observePinnedGroupMemoKeys(accountKey),
+            ) { localMemos, cachedGroupMemos, pinnedGroupMemoKeys ->
+                PagingData.from(
+                    buildExploreMemoItems(
+                        account = account,
+                        localMemos = localMemos,
+                        cachedGroupMemos = cachedGroupMemos,
+                        pinnedGroupMemoKeys = pinnedGroupMemoKeys,
+                    )
+                )
             }
         }
         .cachedIn(viewModelScope)
@@ -107,138 +90,10 @@ class ExploreViewModel @Inject constructor(
         viewModelScope.launch {
             accountService.currentAccount.collectLatest { account ->
                 if (account is Account.KeerV2) {
-                    syncGroupsFromRemote()
+                    memoService.requestSync(trigger = SyncTrigger.AUTO, force = false)
+                    offlineSyncTaskScheduler.refreshAllGroupCaches()
                 }
             }
-        }
-    }
-
-    private suspend fun loadAggregatedMemos(
-        account: Account,
-        remoteRepository: RemoteRepository,
-        groups: List<MemoGroup>
-    ): List<ExploreMemoItem> {
-        val collaborative = loadCollaborativeMemos(account, remoteRepository)
-        val groupMemos = loadGroupScopeMemos(remoteRepository, groups)
-        return (collaborative + groupMemos)
-            .distinctBy { item -> item.memo.remoteId }
-            .sortedByDescending { item -> item.memo.date }
-    }
-
-    private fun resolveCollaborativeFilter(account: Account): String? {
-        val remoteAccount = account as? Account.KeerV2 ?: return null
-        val accountId = remoteAccount.info.id
-        val collaboratorFilter = buildCollaboratorFilterExpression(accountId.toString())
-        if (collaboratorFilter.isEmpty()) {
-            return null
-        }
-        return "($collaboratorFilter) && (creator_id != $accountId)"
-    }
-
-    private suspend fun loadCollaborativeMemos(
-        account: Account,
-        remoteRepository: RemoteRepository
-    ): List<ExploreMemoItem> {
-        val filter = resolveCollaborativeFilter(account) ?: return emptyList()
-        val loaded = mutableListOf<Memo>()
-        var pageToken: String? = null
-
-        do {
-            when (val response = remoteRepository.listWorkspaceMemos(pageSize = 100, pageToken = pageToken, filter = filter)) {
-                is ApiResponse.Success -> {
-                    loaded += response.data.first
-                    pageToken = response.data.second
-                }
-                is ApiResponse.Failure.Error,
-                is ApiResponse.Failure.Exception -> {
-                    pageToken = null
-                }
-            }
-        } while (!pageToken.isNullOrBlank())
-
-        return loaded.map { memo ->
-            ExploreMemoItem(memo = memo, groupId = null)
-        }
-    }
-
-    private suspend fun loadGroupScopeMemos(
-        remoteRepository: RemoteRepository,
-        groups: List<MemoGroup>
-    ): List<ExploreMemoItem> {
-        val targets = groups.distinctBy { group -> group.id }
-        if (targets.isEmpty()) {
-            return emptyList()
-        }
-
-        val loaded = coroutineScope {
-            targets.map { group ->
-                async { loadGroupMessages(remoteRepository, group.id) }
-            }.awaitAll()
-        }.flatten()
-
-        return loaded
-    }
-
-    private suspend fun loadGroupMessages(
-        remoteRepository: RemoteRepository,
-        groupId: String
-    ): List<ExploreMemoItem> {
-        val loaded = mutableListOf<Memo>()
-        var pageToken: String? = null
-
-        do {
-            when (val response = remoteRepository.listGroupMessages(groupId, pageSize = 100, pageToken = pageToken)) {
-                is ApiResponse.Success -> {
-                    loaded += response.data.first
-                    pageToken = response.data.second
-                }
-                is ApiResponse.Failure.Error,
-                is ApiResponse.Failure.Exception -> {
-                    pageToken = null
-                }
-            }
-        } while (!pageToken.isNullOrBlank())
-
-        return loaded.map { memo ->
-            ExploreMemoItem(
-                memo = memo,
-                groupId = groupId
-            )
-        }
-    }
-
-    private suspend fun readCachedExploreMemos(): List<ExploreMemoItem> {
-        val settings = context.settingsDataStore.data.first()
-        val userSettings = settings.usersList
-            .firstOrNull { it.accountKey == settings.currentUser }
-            ?.settings
-            ?: return emptyList()
-        return userSettings.cachedExploreMemos
-            .map { item ->
-                ExploreMemoItem(
-                    memo = item.toMemo(),
-                    groupId = item.groupId
-                )
-            }
-            .sortedByDescending { item -> item.memo.date }
-    }
-
-    private suspend fun persistExploreMemos(memos: List<ExploreMemoItem>) {
-        context.settingsDataStore.updateData { existing ->
-            val index = existing.usersList.indexOfFirst { user -> user.accountKey == existing.currentUser }
-            if (index == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[index]
-            users[index] = target.copy(
-                settings = target.settings.copy(
-                    cachedExploreMemos = memos.map { item ->
-                        item.memo.toCachedMemoItem(groupId = item.groupId)
-                    }
-                )
-            )
-            existing.copy(usersList = users)
         }
     }
 
@@ -273,7 +128,7 @@ class ExploreViewModel @Inject constructor(
         return when (response) {
             is ApiResponse.Success -> {
                 _mutationErrorMessage.value = null
-                refreshSignal.update { current -> current + 1 }
+                enqueueExploreRefresh(item.groupId)
                 true
             }
             else -> {
@@ -296,7 +151,7 @@ class ExploreViewModel @Inject constructor(
         return when (response) {
             is ApiResponse.Success -> {
                 _mutationErrorMessage.value = null
-                refreshSignal.update { current -> current + 1 }
+                enqueueExploreRefresh(item.groupId)
                 true
             }
             else -> {
@@ -311,27 +166,91 @@ class ExploreViewModel @Inject constructor(
     }
 
     suspend fun refreshExploreMemos() {
-        syncGroupsFromRemote()
-        refreshSignal.update { current -> current + 1 }
+        val refreshResponse = offlineSyncTaskScheduler.refreshAllGroupCaches()
+        if (refreshResponse !is ApiResponse.Success) {
+            _mutationErrorMessage.value = refreshResponse.getErrorMessage()
+        }
     }
 
-    private suspend fun syncGroupsFromRemote() {
-        val remoteRepository = accountService.getRemoteRepository() ?: return
-        when (val response = remoteRepository.listGroups()) {
-            is ApiResponse.Success -> {
-                context.settingsDataStore.updateData { existing ->
-                    val index = existing.usersList.indexOfFirst { user -> user.accountKey == existing.currentUser }
-                    if (index == -1) {
-                        return@updateData existing
-                    }
-                    val users = existing.usersList.toMutableList()
-                    val target = users[index]
-                    users[index] = target.copy(settings = target.settings.copy(groups = response.data))
-                    existing.copy(usersList = users)
+    private fun enqueueExploreRefresh(groupId: String?) {
+        viewModelScope.launch {
+            if (groupId.isNullOrBlank()) {
+                memoService.requestSync(trigger = SyncTrigger.MUTATION, force = true)
+            } else {
+                offlineSyncTaskScheduler.dispatchGroupMessages(groupId)
+            }
+        }
+    }
+
+    private fun buildExploreMemoItems(
+        account: Account?,
+        localMemos: List<MemoEntity>,
+        cachedGroupMemos: List<Pair<site.lcyk.keer.data.model.CachedMemoItem, String>>,
+        pinnedGroupMemoKeys: Set<String>,
+    ): List<ExploreMemoItem> {
+        val collaborative = buildCollaborativeMemoItems(account, localMemos)
+        val groupItems = cachedGroupMemos.map { (cachedMemo, groupId) ->
+            val memo = cachedMemo.toMemo()
+            val pinned = groupMemoKey(groupId, memo.remoteId) in pinnedGroupMemoKeys
+            ExploreMemoItem(
+                memo = if (memo.pinned == pinned) memo else memo.copy(pinned = pinned),
+                groupId = groupId
+            )
+        }
+        return (collaborative + groupItems)
+            .distinctBy { item -> "${item.groupId.orEmpty()}|${item.memo.remoteId}" }
+            .sortedByDescending { item -> item.memo.date }
+    }
+
+    private fun buildCollaborativeMemoItems(
+        account: Account?,
+        localMemos: List<MemoEntity>
+    ): List<ExploreMemoItem> {
+        val currentUserId = (account as? Account.KeerV2)?.info?.id?.toString()?.let(::normalizeCollaboratorId)
+            ?: return emptyList()
+        return localMemos
+            .asSequence()
+            .filter { memo ->
+                extractCollaboratorIds(memo.tags).any { collaboratorId ->
+                    normalizeCollaboratorId(collaboratorId) == currentUserId
                 }
             }
-            is ApiResponse.Failure.Error,
-            is ApiResponse.Failure.Exception -> Unit
-        }
+            .map { memo -> ExploreMemoItem(memo = memo.toExploreMemo(), groupId = null) }
+            .toList()
+    }
+
+    private fun MemoEntity.toExploreMemo(): Memo {
+        return Memo(
+            remoteId = remoteId ?: identifier,
+            content = content,
+            date = date,
+            pinned = pinned,
+            visibility = visibility,
+            resources = resources.map { resource -> resource.toExploreResource() },
+            tags = tags,
+            latitude = latitude,
+            longitude = longitude,
+            creator = null,
+            archived = archived,
+            updatedAt = lastSyncedAt ?: lastModified
+        )
+    }
+
+    private fun ResourceEntity.toExploreResource(): Resource {
+        return Resource(
+            remoteId = remoteId ?: identifier,
+            date = date,
+            filename = filename,
+            mimeType = mimeType,
+            encryptionMetadata = encryptionMetadata,
+            uri = uri,
+            localUri = localUri,
+            thumbnailUri = thumbnailUri,
+            thumbnailLocalUri = thumbnailLocalUri
+        )
+    }
+
+    private fun groupMemoKey(groupId: String, memoRemoteId: String): String {
+        return "$groupId|$memoRemoteId"
     }
 }

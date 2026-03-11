@@ -14,26 +14,38 @@ import com.skydoves.sandwich.suspendOnSuccess
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.R
+import site.lcyk.keer.data.api.AuthSessionResponse
+import site.lcyk.keer.data.api.CreateUserBody
+import site.lcyk.keer.data.api.CreateUserRequest
 import site.lcyk.keer.data.api.KeerV2User
+import site.lcyk.keer.data.api.PasswordCredentials
+import site.lcyk.keer.data.api.SignInRequest
 import site.lcyk.keer.data.constant.KeerException
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.CollaboratorProfile
+import site.lcyk.keer.data.model.GroupIdAlias
 import site.lcyk.keer.data.model.LocalAccount
+import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.MemosAccount
 import site.lcyk.keer.data.model.User
 import site.lcyk.keer.data.service.AccountService
+import site.lcyk.keer.data.service.OfflineGroupStore
 import site.lcyk.keer.data.service.OfflineSyncTask
 import site.lcyk.keer.data.service.OfflineSyncTaskScheduler
 import site.lcyk.keer.ext.string
@@ -44,8 +56,10 @@ import java.time.Instant
 import javax.inject.Inject
 
 @HiltViewModel
+@OptIn(ExperimentalCoroutinesApi::class)
 class UserStateViewModel @Inject constructor(
     private val accountService: AccountService,
+    private val offlineGroupStore: OfflineGroupStore,
     private val offlineSyncTaskScheduler: OfflineSyncTaskScheduler
 ) : ViewModel() {
 
@@ -63,6 +77,26 @@ class UserStateViewModel @Inject constructor(
     val collaboratorProfiles: StateFlow<Map<String, CollaboratorProfile>> = _collaboratorProfiles.asStateFlow()
     val accounts = accountService.accounts.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
     val currentAccount = accountService.currentAccount.stateIn(viewModelScope, SharingStarted.Lazily, null)
+    val joinedGroups: StateFlow<List<MemoGroup>> = currentAccount
+        .flatMapLatest { account ->
+            val accountKey = account?.accountKey().orEmpty()
+            if (accountKey.isBlank()) {
+                emptyFlow()
+            } else {
+                offlineGroupStore.observeGroups(accountKey)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    val groupIdAliases: StateFlow<List<GroupIdAlias>> = currentAccount
+        .flatMapLatest { account ->
+            val accountKey = account?.accountKey().orEmpty()
+            if (accountKey.isBlank()) {
+                emptyFlow()
+            } else {
+                offlineGroupStore.observeGroupAliases(accountKey)
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {
         viewModelScope.launch {
@@ -114,13 +148,14 @@ class UserStateViewModel @Inject constructor(
         }
     }
 
-    suspend fun loginMemosWithAccessToken(
+    suspend fun loginMemosWithPassword(
         host: String,
-        accessToken: String
+        username: String,
+        password: String
     ): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
         try {
             when (val compatibility = accountService.checkLoginCompatibility(host)) {
-                is AccountService.LoginCompatibility.Supported -> loginKeerV2WithAccessToken(host, accessToken)
+                is AccountService.LoginCompatibility.Supported -> loginKeerV2WithPassword(host, username, password)
                 is AccountService.LoginCompatibility.Unsupported -> {
                     ApiResponse.exception(KeerException(compatibility.message))
                 }
@@ -130,18 +165,75 @@ class UserStateViewModel @Inject constructor(
         }
     }
 
-    private suspend fun loginKeerV2WithAccessToken(host: String, accessToken: String): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+    suspend fun registerMemosAccount(
+        host: String,
+        username: String,
+        password: String,
+        displayName: String
+    ): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
         try {
-            val resp = accountService.createKeerV2Client(host, accessToken).second.getCurrentUser()
+            when (val compatibility = accountService.checkLoginCompatibility(host)) {
+                is AccountService.LoginCompatibility.Supported -> registerKeerV2Account(host, username, password, displayName)
+                is AccountService.LoginCompatibility.Unsupported -> {
+                    ApiResponse.exception(KeerException(compatibility.message))
+                }
+            }
+        } catch (e: Throwable) {
+            ApiResponse.exception(e)
+        }
+    }
+
+    private suspend fun loginKeerV2WithPassword(host: String, username: String, password: String): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+        try {
+            val resp = accountService.createKeerV2Client(host).second.signIn(
+                SignInRequest(
+                    passwordCredentials = PasswordCredentials(
+                        username = username,
+                        password = password,
+                    )
+                )
+            )
             if (resp !is ApiResponse.Success) {
                 return@withContext resp.mapSuccess {}
             }
-            val user = resp.data.user
-            if (user == null) {
-                return@withContext ApiResponse.exception(KeerException.notLogin)
+            val account = getAccount(host, resp.data)
+            val keyBootstrap = accountService.ensureAccountKeysReady(
+                account = account,
+                password = password,
+                accessToken = resp.data.accessToken,
+            )
+            if (keyBootstrap !is ApiResponse.Success) {
+                return@withContext keyBootstrap
             }
-            accountService.addAccount(getAccount(host, accessToken, user))
+            accountService.addAccount(account)
             loadCurrentUser().mapSuccess {}
+        } catch (e: Throwable) {
+            ApiResponse.exception(e)
+        }
+    }
+
+    private suspend fun registerKeerV2Account(
+        host: String,
+        username: String,
+        password: String,
+        displayName: String
+    ): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+        try {
+            val trimmedUsername = username.trim()
+            val trimmedDisplayName = displayName.trim()
+            val createResponse = accountService.createKeerV2Client(host).second.createUser(
+                CreateUserRequest(
+                    user = CreateUserBody(
+                        username = trimmedUsername,
+                        displayName = trimmedDisplayName.ifBlank { null },
+                        password = password,
+                    )
+                )
+            )
+            if (createResponse !is ApiResponse.Success) {
+                return@withContext createResponse.mapSuccess {}
+            }
+            loginKeerV2WithPassword(host, trimmedUsername, password)
         } catch (e: Throwable) {
             ApiResponse.exception(e)
         }
@@ -204,7 +296,7 @@ class UserStateViewModel @Inject constructor(
         }
 
         try {
-            val api = accountService.createKeerV2Client(account.info.host, account.info.accessToken).second
+            val api = accountService.createKeerV2Client(account.info.host, account.accountKey()).second
             val currentUserID = account.info.id.toString()
             val remoteIDs = missingIds.filterNot { userId -> userId == currentUserID }
             val remoteUsersByID = hashMapOf<String, KeerV2User>()
@@ -287,14 +379,15 @@ class UserStateViewModel @Inject constructor(
         }
     }
 
-    private fun getAccount(host: String, accessToken: String, user: KeerV2User): Account = Account.KeerV2(
+    private fun getAccount(host: String, session: AuthSessionResponse): Account.KeerV2 = Account.KeerV2(
         info = MemosAccount(
             host = host,
-            accessToken = accessToken,
-            id = user.name.substringAfterLast('/').toLong(),
-            name = user.username,
-            avatarUrl = user.avatarUrl ?: "",
-            startDateEpochSecond = user.createTime?.epochSecond ?: 0L,
+            accessToken = session.accessToken,
+            refreshToken = session.refreshToken,
+            id = session.user.name.substringAfterLast('/').toLong(),
+            name = session.user.username,
+            avatarUrl = session.user.avatarUrl ?: "",
+            startDateEpochSecond = session.user.createTime?.epochSecond ?: 0L,
         )
     )
 

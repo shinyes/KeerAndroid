@@ -29,16 +29,17 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.paging.compose.collectAsLazyPagingItems
-import androidx.paging.compose.LazyPagingItems
 import androidx.compose.ui.res.stringResource
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
+import kotlinx.coroutines.launch
+import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoEditGesture
-import site.lcyk.keer.R
 import site.lcyk.keer.ui.component.MemoActionMenuButton
 import site.lcyk.keer.ui.component.MemoMenuAction
 import site.lcyk.keer.ui.component.MemosCard
@@ -47,8 +48,8 @@ import site.lcyk.keer.ui.component.RefreshableListContainer
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.processManualSyncResult
-import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
+import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
@@ -61,7 +62,6 @@ import site.lcyk.keer.viewmodel.ExploreMemoItem
 import site.lcyk.keer.viewmodel.ExploreViewModel
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
-import kotlinx.coroutines.launch
 
 @Composable
 fun ExploreList(
@@ -290,7 +290,11 @@ private fun ExploreMemoFeed(
         LazyColumn(state = listState) {
             items(
                 count = memos.itemCount,
-                key = { index -> memos[index]?.memo?.remoteId ?: "explore-placeholder-$index" },
+                key = { index ->
+                    memos[index]?.let { item ->
+                        "${item.groupId.orEmpty()}|${item.memo.remoteId}"
+                    } ?: "explore-placeholder-$index"
+                },
                 contentType = { "memo" }
             ) { index ->
                 val memoItem = memos[index]

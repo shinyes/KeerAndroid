@@ -62,9 +62,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
-import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.getErrorMessage
-import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
 import site.lcyk.keer.ui.page.common.navigateToTopLevel
@@ -103,13 +101,9 @@ fun SideDrawer(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val joinedGroups by userStateViewModel.joinedGroups.collectAsState()
+    val groupIdAliases by userStateViewModel.groupIdAliases.collectAsState()
     val hasExplore = currentAccount !is Account.Local
-    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
-    val currentUserSettings = settings.usersList
-        .firstOrNull { it.accountKey == settings.currentUser }
-        ?.settings
-    val joinedGroups = currentUserSettings?.groups.orEmpty()
-    val groupIdAliases = currentUserSettings?.groupIdAliases.orEmpty()
     val navBackStackEntry by memosNavController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val hapticFeedback = LocalHapticFeedback.current

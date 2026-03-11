@@ -11,5 +11,6 @@ data class PendingGroupMemo(
     val creatorId: String,
     val creatorName: String,
     val creatorAvatarUrl: String? = null,
-    val createdAtEpochMillis: Long
+    val createdAtEpochMillis: Long,
+    val resourceIdentifiers: List<String> = emptyList(),
 )

@@ -32,6 +32,7 @@ import site.lcyk.keer.data.model.Resource
 import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.data.model.User
 import site.lcyk.keer.ext.getErrorMessage
+import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.isValidTagName
 import site.lcyk.keer.util.normalizeTagName
 import okhttp3.MediaType
@@ -379,8 +380,37 @@ class SyncingRepository(
 
     override suspend fun listResources(): ApiResponse<List<ResourceEntity>> {
         return try {
-            val resources = memoDao.getAllResources(accountKey)
-            ApiResponse.Success(resources)
+            when (val remoteResponse = remoteRepository.listResources()) {
+                is ApiResponse.Success -> {
+                    val localResources = memoDao.getAllResources(accountKey)
+                    val localByRemoteId = localResources
+                        .mapNotNull { resource -> resource.remoteId?.let { remoteId -> remoteId to resource } }
+                        .toMap()
+                    val remoteResources = remoteResponse.data.map { remote ->
+                        val existing = localByRemoteId[remote.remoteId]
+                        ResourceEntity(
+                            identifier = existing?.identifier ?: "${remote.remoteId}|resource",
+                            remoteId = remote.remoteId,
+                            accountKey = accountKey,
+                            date = remote.date,
+                            filename = remote.filename,
+                            uri = remote.uri,
+                            localUri = existing?.localUri,
+                            mimeType = remote.mimeType,
+                            encryptionMetadata = remote.encryptionMetadata,
+                            thumbnailUri = remote.thumbnailUri,
+                            thumbnailLocalUri = existing?.thumbnailLocalUri,
+                            memoId = existing?.memoId,
+                        )
+                    }
+                    val localDrafts = localResources.filter { resource -> resource.remoteId == null }
+                    ApiResponse.Success(
+                        (remoteResources + localDrafts).sortedByDescending { resource -> resource.date }
+                    )
+                }
+                is ApiResponse.Failure.Error -> ApiResponse.Failure.Error(remoteResponse.payload)
+                is ApiResponse.Failure.Exception -> ApiResponse.Failure.Exception(remoteResponse.throwable)
+            }
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
         }
@@ -425,6 +455,7 @@ class SyncingRepository(
                 uri = localUri.toString(),
                 localUri = localUri.toString(),
                 mimeType = type?.toString(),
+                encryptionMetadata = null,
                 thumbnailLocalUri = thumbnailLocalUri,
                 memoId = memoIdentifier
             )
@@ -464,6 +495,30 @@ class SyncingRepository(
             }
             refreshUnsyncedCount()
             ApiResponse.Success(Unit)
+        } catch (e: Exception) {
+            ApiResponse.Failure.Exception(e)
+        }
+    }
+
+    override suspend fun resolveRemoteResourceIds(
+        resourceIdentifiers: List<String>,
+        encryptionScope: ResourceEncryptionScope
+    ): ApiResponse<List<String>> {
+        return try {
+            val uploaded = ensureUploadedResourcesByIdentifiers(
+                resourceIdentifiers = resourceIdentifiers,
+                memoRemoteId = null,
+                encryptionScope = encryptionScope,
+            )
+            if (uploaded.failedUploads > 0) {
+                ApiResponse.Failure.Exception(
+                    IllegalStateException(
+                        pendingDetailedSyncError ?: ATTACHMENT_UPLOAD_FAILED_MESSAGE
+                    )
+                )
+            } else {
+                ApiResponse.Success(uploaded.remoteResourceIds)
+            }
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
         }
@@ -817,7 +872,7 @@ class SyncingRepository(
             }
         }
 
-        val uploadedResources = ensureUploadedResources(local)
+        val uploadedResources = ensureUploadedResources(local, localTags)
         if (uploadedResources.failedUploads > 0) {
             if (pendingDetailedSyncError == null) {
                 pendingDetailedSyncError = ATTACHMENT_UPLOAD_FAILED_MESSAGE
@@ -901,8 +956,50 @@ class SyncingRepository(
         applyRemoteMemo(remoteMemo, preferredLocalIdentifier = localIdentifier)
     }
 
-    private suspend fun ensureUploadedResources(localMemo: MemoEntity): UploadedResourcesResult {
+    private suspend fun ensureUploadedResources(
+        localMemo: MemoEntity,
+        localTags: List<String>,
+    ): UploadedResourcesResult {
         val resources = memoDao.getMemoResources(localMemo.identifier, accountKey)
+        return ensureUploadedResourceEntities(
+            resources = resources,
+            memoRemoteId = localMemo.remoteId,
+            encryptionScope = memoResourceEncryptionScope(localTags),
+        )
+    }
+
+    private suspend fun ensureUploadedResourcesByIdentifiers(
+        resourceIdentifiers: List<String>,
+        memoRemoteId: String?,
+        encryptionScope: ResourceEncryptionScope,
+    ): UploadedResourcesResult {
+        val resources = resourceIdentifiers.mapNotNull { identifier ->
+            memoDao.getResourceById(identifier, accountKey)
+                ?: memoDao.getResourceByRemoteId(identifier, accountKey)
+                ?: identifier.trim().takeIf { it.isNotEmpty() }?.let { remoteIdentifier ->
+                    ResourceEntity(
+                        identifier = remoteIdentifier,
+                        remoteId = remoteIdentifier,
+                        accountKey = accountKey,
+                        date = Instant.EPOCH,
+                        filename = remoteIdentifier,
+                        uri = remoteIdentifier,
+                        mimeType = null,
+                    )
+                }
+        }
+        return ensureUploadedResourceEntities(
+            resources = resources,
+            memoRemoteId = memoRemoteId,
+            encryptionScope = encryptionScope,
+        )
+    }
+
+    private suspend fun ensureUploadedResourceEntities(
+        resources: List<ResourceEntity>,
+        memoRemoteId: String?,
+        encryptionScope: ResourceEncryptionScope,
+    ): UploadedResourcesResult {
         val uploaded = arrayListOf<String>()
         var failedUploads = 0
         val pendingUploads = linkedMapOf<String, PendingUpload>()
@@ -933,7 +1030,8 @@ class SyncingRepository(
             val fileSize = pending?.sizeBytes ?: 0L
             val ensured = ensureUploadedResource(
                 resource = resource,
-                memoRemoteId = localMemo.remoteId,
+                memoRemoteId = memoRemoteId,
+                encryptionScope = encryptionScope,
                 localFile = pending?.file
             ) { uploadedBytes, _ ->
                 val uploadedForCurrentFile = if (fileSize > 0L) {
@@ -960,12 +1058,13 @@ class SyncingRepository(
             )
         }
 
-        return UploadedResourcesResult(uploaded, failedUploads)
+        return UploadedResourcesResult(uploaded.distinct(), failedUploads)
     }
 
     private suspend fun ensureUploadedResource(
         resource: ResourceEntity,
         memoRemoteId: String?,
+        encryptionScope: ResourceEncryptionScope,
         localFile: File? = null,
         onProgress: (uploadedBytes: Long, totalBytes: Long) -> Unit = { _, _ -> }
     ): ResourceEntity? {
@@ -988,6 +1087,7 @@ class SyncingRepository(
             type = resource.mimeType?.toMediaTypeOrNull(),
             file = file,
             memoRemoteId = memoRemoteId,
+            encryptionScope = encryptionScope,
             thumbnail = buildUploadThumbnail(resource),
             onProgress = onProgress
         )
@@ -1022,6 +1122,8 @@ class SyncingRepository(
             remoteId = remoteResourceId(remoteResource),
             uri = remoteResource.uri,
             localUri = cachedLocalUri ?: resource.localUri ?: resource.uri,
+            mimeType = remoteResource.mimeType,
+            encryptionMetadata = remoteResource.encryptionMetadata,
             thumbnailUri = remoteResource.thumbnailUri ?: resource.thumbnailUri
         )
         memoDao.insertResource(synced)
@@ -1092,6 +1194,7 @@ class SyncingRepository(
                     uri = resource.uri,
                     localUri = preferredLocalUri,
                     mimeType = resource.mimeType,
+                    encryptionMetadata = resource.encryptionMetadata,
                     thumbnailUri = resource.thumbnailUri,
                     thumbnailLocalUri = preferredThumbnailLocalUri,
                     memoId = localIdentifier
@@ -1163,6 +1266,18 @@ class SyncingRepository(
             .toList()
     }
 
+    private fun memoResourceEncryptionScope(tags: List<String>): ResourceEncryptionScope {
+        val collaboratorIds = extractCollaboratorIds(tags)
+            .map { collaboratorId -> collaboratorId.trim() }
+            .filter { collaboratorId -> collaboratorId.isNotEmpty() }
+            .distinct()
+        return if (collaboratorIds.isEmpty()) {
+            ResourceEncryptionScope.Account
+        } else {
+            ResourceEncryptionScope.Collaborators(collaboratorIds)
+        }
+    }
+
     private suspend fun pushLocalResource(identifier: String): Boolean {
         pendingDetailedSyncError = null
         val local = memoDao.getResourceById(identifier, accountKey) ?: return true
@@ -1172,6 +1287,7 @@ class SyncingRepository(
         val ensured = ensureUploadedResource(
             resource = local,
             memoRemoteId = null,
+            encryptionScope = ResourceEncryptionScope.Account,
             localFile = localFile
         ) { uploadedBytes, _ ->
             val bounded = if (totalBytes > 0L) {
@@ -1383,7 +1499,7 @@ class SyncingRepository(
 
     private fun buildUploadThumbnail(resource: ResourceEntity): ResourceUploadThumbnail? {
         val mime = resource.mimeType?.lowercase().orEmpty()
-        if (!mime.startsWith("video/")) {
+        if (!mime.startsWith("video/") && !mime.startsWith("image/")) {
             return null
         }
         val thumbnailFile = existingThumbnailLocalUri(resource)?.path?.let(::File) ?: return null
@@ -1395,8 +1511,9 @@ class SyncingRepository(
         if (thumbnailBytes.isEmpty() || thumbnailBytes.size > MAX_UPLOADED_THUMBNAIL_BYTES) {
             return null
         }
+        val thumbnailFilenamePrefix = if (mime.startsWith("video/")) "video_thumb_" else "image_thumb_"
         return ResourceUploadThumbnail(
-            filename = "video_thumb_${resource.identifier}.jpg",
+            filename = "${thumbnailFilenamePrefix}${resource.identifier}.jpg",
             type = "image/jpeg",
             content = Base64.getEncoder().encodeToString(thumbnailBytes)
         )

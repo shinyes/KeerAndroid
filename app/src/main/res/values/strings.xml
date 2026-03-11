@@ -50,7 +50,9 @@
     <string name="report_an_issue">Report an Issue</string>
     <string name="unpin">Unpin</string>
     <string name="sign_out">Sign Out</string>
+    <string name="sign_in">Sign In</string>
     <string name="sign_in_method">Sign in method</string>
+    <string name="register">Register</string>
     <string name="address">Address</string>
     <string name="host">Host</string>
     <string name="access_token" translatable="false">Access Token</string>
@@ -68,7 +70,12 @@
     <string name="any_thoughts">Any thoughts…</string>
     <string name="input_login_information">Please input the login information of your \n[✍️memos](https://github.com/usememos/memos) server.</string>
     <string name="username">Username</string>
+    <string name="display_name">Display name</string>
     <string name="password">Password</string>
+    <string name="confirm_password">Confirm password</string>
+    <string name="passwords_do_not_match">Passwords do not match.</string>
+    <string name="switch_to_register">No account yet? Register</string>
+    <string name="switch_to_sign_in">Already have an account? Sign in</string>
     <string name="email">Email</string>
     <string name="user_state_not_found">User state not found</string>
     <string name="memos_view_model_not_found" translatable="false">Memos view model not found</string>
@@ -85,7 +92,7 @@
     <string name="restore">Restore</string>
     <string name="invalid_access_token">Invalid Access Token</string>
     <string name="invalid_server">Invalid server.</string>
-    <string name="access_token_invalid_relogin">Your access token is invalid, please create a never expire access token and login again.</string>
+    <string name="access_token_invalid_relogin">Your session has expired. Please sign in again.</string>
     <string name="sync_failed">Sync Failed</string>
     <string name="sync_server_unreachable">Cannot reach server. Please check network or server status.</string>
     <string name="memos_supported_versions">keer only supports keer_api_version 0.1.</string>

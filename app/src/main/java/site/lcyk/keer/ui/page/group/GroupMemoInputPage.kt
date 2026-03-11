@@ -76,6 +76,7 @@ fun GroupMemoInputPage(
     var initialContent by remember { mutableStateOf("") }
     var initialTags by remember { mutableStateOf(emptyList<String>()) }
     var initialCollaborators by remember { mutableStateOf(emptyList<String>()) }
+    var initialResourceIdentifiers by remember { mutableStateOf(emptyList<String>()) }
 
     var text by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue("", TextRange(0)))
@@ -107,7 +108,7 @@ fun GroupMemoInputPage(
             text.text != initialContent ||
             normalizedSelectedTags != initialTags ||
             normalizedSelectedCollaborators != initialCollaborators ||
-            inputViewModel.uploadResources.isNotEmpty()
+            inputViewModel.uploadResources.map { resource -> resource.remoteId ?: resource.identifier }.distinct() != initialResourceIdentifiers
         ) {
             showExitConfirmation = true
         } else {
@@ -132,11 +133,12 @@ fun GroupMemoInputPage(
             groupViewModel.addGroupTag(groupId, tag)
         }
 
-        val payload = buildGroupMemoContent(
-            text.text,
-            inputViewModel.uploadResources.toList()
-        )
-        if (payload.isBlank()) {
+        val payload = text.text.trim()
+        val currentResourceIdentifiers = inputViewModel.uploadResources
+            .map { resource -> resource.remoteId ?: resource.identifier }
+            .filter { identifier -> identifier.isNotBlank() }
+            .distinct()
+        if (payload.isBlank() && currentResourceIdentifiers.isEmpty()) {
             return@launch
         }
 
@@ -145,13 +147,15 @@ fun GroupMemoInputPage(
                 groupId = groupId,
                 memoRemoteId = memoId.orEmpty(),
                 content = payload,
-                tags = mergedTags
+                tags = mergedTags,
+                resourceIdentifiers = currentResourceIdentifiers
             )
         } else {
             groupViewModel.sendGroupMemo(
                 groupId = groupId,
                 content = payload,
-                tags = mergedTags
+                tags = mergedTags,
+                resourceIdentifiers = currentResourceIdentifiers
             )
         }
         if (!saved) {
@@ -361,6 +365,26 @@ fun GroupMemoInputPage(
                 initialContent = targetMemo.content
                 initialTags = tags
                 initialCollaborators = collaborators
+                inputViewModel.uploadResources.addAll(
+                    targetMemo.resources.map { resource ->
+                        ResourceEntity(
+                            identifier = resource.remoteId,
+                            remoteId = resource.remoteId,
+                            accountKey = "",
+                            date = resource.date,
+                            filename = resource.filename,
+                            uri = resource.uri,
+                            localUri = resource.localUri,
+                            mimeType = resource.mimeType,
+                            encryptionMetadata = resource.encryptionMetadata,
+                            thumbnailUri = resource.thumbnailUri,
+                            thumbnailLocalUri = resource.thumbnailLocalUri,
+                        )
+                    }
+                )
+                initialResourceIdentifiers = inputViewModel.uploadResources
+                    .map { resource -> resource.remoteId ?: resource.identifier }
+                    .distinct()
                 text = TextFieldValue(targetMemo.content, TextRange(targetMemo.content.length))
                 selectedTags = tags
                 selectedCollaborators = collaborators
@@ -368,6 +392,7 @@ fun GroupMemoInputPage(
                 initialContent = ""
                 initialTags = emptyList()
                 initialCollaborators = emptyList()
+                initialResourceIdentifiers = emptyList()
                 text = TextFieldValue("", TextRange(0))
                 selectedTags = emptyList()
                 selectedCollaborators = emptyList()
@@ -376,6 +401,7 @@ fun GroupMemoInputPage(
             initialContent = ""
             initialTags = emptyList()
             initialCollaborators = emptyList()
+            initialResourceIdentifiers = emptyList()
             text = TextFieldValue("", TextRange(0))
             selectedTags = emptyList()
             selectedCollaborators = emptyList()
@@ -389,37 +415,4 @@ fun GroupMemoInputPage(
             inputViewModel.uploadTasks.clear()
         }
     }
-}
-
-private fun buildGroupMemoContent(
-    content: String,
-    resources: List<ResourceEntity>
-): String {
-    val trimmed = content.trim()
-    if (resources.isEmpty()) {
-        return trimmed
-    }
-
-    val links = resources.mapNotNull { resource ->
-        val uri = resource.uri.trim()
-        if (uri.isEmpty()) {
-            null
-        } else if (resource.mimeType?.startsWith("image/") == true) {
-            "![]($uri)"
-        } else {
-            val label = resource.filename.ifBlank { uri }
-            "[$label]($uri)"
-        }
-    }
-    if (links.isEmpty()) {
-        return trimmed
-    }
-
-    return buildString {
-        if (trimmed.isNotEmpty()) {
-            append(trimmed)
-            append("\n\n")
-        }
-        append(links.joinToString("\n"))
-    }.trim()
 }

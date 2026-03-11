@@ -17,6 +17,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,7 +34,10 @@ import kotlinx.coroutines.withContext
 import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
+import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.ResourceRepresentable
+import site.lcyk.keer.data.security.AttachmentEncryptionManager
+import site.lcyk.keer.data.security.EncryptedBlobVariant
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
@@ -50,6 +54,7 @@ fun Attachment(
     val context = LocalContext.current
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
+    val currentAccount by userStateViewModel.currentAccount.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
     var menuExpanded by remember { mutableStateOf(false) }
     var opening by remember { mutableStateOf(false) }
@@ -68,6 +73,7 @@ fun Attachment(
                     context = context,
                     resource = resolvedResource,
                     okHttpClient = userStateViewModel.okHttpClient,
+                    currentAccountKey = currentAccount?.accountKey(),
                     cacheCanonical = { resourceIdentifier, downloadedUri ->
                         val result = memosViewModel.cacheResourceFile(resourceIdentifier, downloadedUri)
                         if (result is ApiResponse.Success) {
@@ -161,6 +167,7 @@ suspend fun resolveAttachmentFile(
     context: Context,
     resource: ResourceRepresentable,
     okHttpClient: OkHttpClient,
+    currentAccountKey: String?,
     cacheCanonical: suspend (resourceIdentifier: String, downloadedUri: android.net.Uri) -> ResourceEntity?
 ): File? {
     existingLocalFile(resource)?.let { return it }
@@ -170,7 +177,17 @@ suspend fun resolveAttachmentFile(
         return null
     }
 
-    val downloaded = downloadAttachment(context, okHttpClient, resource.uri, resource.filename) ?: return null
+    val downloaded = downloadResourceVariantToTemp(
+        context = context,
+        okHttpClient = okHttpClient,
+        resource = resource,
+        accountKey = resolveResourceAccountKey(resource, currentAccountKey),
+        url = resource.uri,
+        filename = resource.filename,
+        variant = EncryptedBlobVariant.MAIN,
+        cacheDirName = "attachment_cache",
+        prefix = "attachment_"
+    ) ?: return null
     val resourceEntity = resource as? ResourceEntity ?: return downloaded
 
     val cached = cacheCanonical(resourceEntity.identifier, downloaded.toUri())
@@ -198,11 +215,16 @@ private fun existingLocalFile(resource: ResourceRepresentable): File? {
     return File(path).takeIf { it.exists() }
 }
 
-private suspend fun downloadAttachment(
+internal suspend fun downloadResourceVariantToTemp(
     context: Context,
     okHttpClient: OkHttpClient,
+    resource: ResourceRepresentable,
+    accountKey: String?,
     url: String,
-    filename: String
+    filename: String,
+    variant: EncryptedBlobVariant,
+    cacheDirName: String,
+    prefix: String,
 ): File? = withContext(Dispatchers.IO) {
     val request = Request.Builder().url(url).get().build()
     okHttpClient.newCall(request).execute().use { response ->
@@ -210,16 +232,53 @@ private suspend fun downloadAttachment(
             return@withContext null
         }
         val body = response.body
-        val dir = File(context.cacheDir, "image_cache").also { it.mkdirs() }
+        val dir = File(context.cacheDir, cacheDirName).also { it.mkdirs() }
         val suffix = "_${sanitizeFilename(filename.ifBlank { "attachment" })}"
-        val target = File.createTempFile("attachment_", suffix, dir)
-        body.byteStream().use { input ->
-            target.outputStream().use { output ->
-                input.copyTo(output)
-            }
+        val target = File.createTempFile(prefix, suffix, dir)
+        val rawMetadata = resource.encryptionMetadata?.trim().orEmpty()
+        val parsedMetadata = AttachmentEncryptionManager.parseMetadata(rawMetadata)
+        if (variant == EncryptedBlobVariant.MAIN && rawMetadata.isNotEmpty() && parsedMetadata == null) {
+            target.delete()
+            return@withContext null
         }
-        target
+        val shouldDecrypt = when (variant) {
+            EncryptedBlobVariant.MAIN -> parsedMetadata != null
+            EncryptedBlobVariant.THUMBNAIL -> parsedMetadata?.thumbnail != null
+        }
+        return@withContext try {
+            body.byteStream().use { input ->
+                if (shouldDecrypt) {
+                    AttachmentEncryptionManager(context.applicationContext).decryptVariantToFile(
+                        accountKey = resolveResourceAccountKey(resource, accountKey),
+                        rawMetadata = rawMetadata,
+                        variant = variant,
+                        input = input,
+                        outputFile = target
+                    )
+                } else {
+                    target.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                    target
+                }
+            }
+        } catch (e: Throwable) {
+            target.delete()
+            Timber.d(e)
+            null
+        }
     }
+}
+
+internal fun resolveResourceAccountKey(
+    resource: ResourceRepresentable,
+    currentAccountKey: String?,
+): String? {
+    val resourceAccountKey = (resource as? ResourceEntity)?.accountKey?.trim().orEmpty()
+    if (resourceAccountKey.isNotEmpty()) {
+        return resourceAccountKey
+    }
+    return currentAccountKey?.trim()?.ifBlank { null }
 }
 
 private fun sanitizeFilename(filename: String): String {
@@ -227,7 +286,10 @@ private fun sanitizeFilename(filename: String): String {
 }
 
 fun resolveMimeType(resource: ResourceRepresentable, file: File): String {
-    resource.mimeType?.takeIf { it.isNotBlank() }?.let { return it }
+    AttachmentEncryptionManager.resolveOriginalMimeType(
+        resource.encryptionMetadata,
+        resource.mimeType
+    )?.takeIf { it.isNotBlank() }?.let { return it }
     val ext = file.extension.lowercase()
     if (ext.isBlank()) {
         return "*/*"

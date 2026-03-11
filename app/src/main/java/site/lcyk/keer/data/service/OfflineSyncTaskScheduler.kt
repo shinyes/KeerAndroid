@@ -1,9 +1,7 @@
 package site.lcyk.keer.data.service
 
-import android.content.Context
 import com.skydoves.sandwich.ApiResponse
 import com.skydoves.sandwich.retrofit.statusCode
-import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -11,17 +9,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import site.lcyk.keer.data.model.CachedGroupTagSet
 import site.lcyk.keer.data.model.CachedMemoItem
-import site.lcyk.keer.data.model.GroupIdAlias
 import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.PendingGroupOperationType
-import site.lcyk.keer.data.model.UserSettings
+import site.lcyk.keer.data.repository.ResourceEncryptionScope
 import site.lcyk.keer.data.model.toCachedMemoItem
 import site.lcyk.keer.data.repository.RemoteRepository
-import site.lcyk.keer.ext.settingsDataStore
-import site.lcyk.keer.util.cleanupGroupAliases
-import site.lcyk.keer.util.removeGroupReferences
 
 enum class OfflineSyncTask {
     AVATAR,
@@ -34,8 +27,8 @@ enum class OfflineSyncTask {
 
 @Singleton
 class OfflineSyncTaskScheduler @Inject constructor(
-    @param:ApplicationContext private val context: Context,
     private val accountService: AccountService,
+    private val offlineGroupStore: OfflineGroupStore,
 ) {
     private val dispatchMutex = Mutex()
 
@@ -49,9 +42,23 @@ class OfflineSyncTaskScheduler @Inject constructor(
             if (normalizedGroupId.isEmpty()) {
                 return@withLock ApiResponse.Success(Unit)
             }
+            val accountKey = readCurrentAccountKey() ?: return@withLock ApiResponse.Success(Unit)
             val remoteRepository = accountService.getRemoteRepository()
                 ?: return@withLock ApiResponse.Success(Unit)
-            syncPendingGroupMemos(remoteRepository, groupId = normalizedGroupId)
+            val pendingSync = syncPendingGroupMemos(remoteRepository, groupId = normalizedGroupId)
+            if (pendingSync !is ApiResponse.Success) {
+                return@withLock pendingSync
+            }
+            refreshGroupCache(remoteRepository, accountKey, normalizedGroupId)
+        }
+    }
+
+    suspend fun refreshAllGroupCaches(): ApiResponse<Unit> = withContext(Dispatchers.IO) {
+        dispatchMutex.withLock {
+            val accountKey = readCurrentAccountKey() ?: return@withLock ApiResponse.Success(Unit)
+            val remoteRepository = accountService.getRemoteRepository()
+                ?: return@withLock ApiResponse.Success(Unit)
+            refreshAllGroupCaches(remoteRepository, accountKey)
         }
     }
 
@@ -123,19 +130,21 @@ class OfflineSyncTaskScheduler @Inject constructor(
         remoteRepository: RemoteRepository
     ): ApiResponse<Unit> {
         while (true) {
-            val currentSettings = readCurrentUserSettings() ?: return ApiResponse.Success(Unit)
-            val operation = currentSettings.pendingGroupOperations.firstOrNull() ?: return ApiResponse.Success(Unit)
+            val accountKey = readCurrentAccountKey() ?: return ApiResponse.Success(Unit)
+            val operation = offlineGroupStore.getPendingGroupOperations(accountKey)
+                .firstOrNull()
+                ?: return ApiResponse.Success(Unit)
             when (operation.type) {
                 PendingGroupOperationType.CREATE -> {
                     val name = operation.name?.trim().orEmpty()
                     if (name.isEmpty()) {
-                        removePendingOperation(operation.operationId)
+                        removePendingOperation(accountKey, operation.operationId)
                         continue
                     }
                     when (val response = remoteRepository.createGroup(name, operation.description.orEmpty())) {
                         is ApiResponse.Success -> {
-                            replaceLocalGroupId(operation.groupId, response.data)
-                            removePendingOperation(operation.operationId)
+                            offlineGroupStore.replaceLocalGroupId(accountKey, operation.groupId, response.data)
+                            removePendingOperation(accountKey, operation.operationId)
                         }
                         is ApiResponse.Failure.Error -> {
                             return ApiResponse.exception(
@@ -156,8 +165,8 @@ class OfflineSyncTaskScheduler @Inject constructor(
                 PendingGroupOperationType.JOIN -> {
                     when (val response = remoteRepository.joinGroup(operation.groupId)) {
                         is ApiResponse.Success -> {
-                            upsertGroupLocal(response.data)
-                            removePendingOperation(operation.operationId)
+                            upsertGroupLocal(accountKey, response.data)
+                            removePendingOperation(accountKey, operation.operationId)
                         }
                         is ApiResponse.Failure.Error -> {
                             return ApiResponse.exception(
@@ -184,8 +193,8 @@ class OfflineSyncTaskScheduler @Inject constructor(
                         )
                     ) {
                         is ApiResponse.Success -> {
-                            upsertGroupLocal(response.data)
-                            removePendingOperation(operation.operationId)
+                            upsertGroupLocal(accountKey, response.data)
+                            removePendingOperation(accountKey, operation.operationId)
                         }
                         is ApiResponse.Failure.Error -> {
                             return ApiResponse.exception(
@@ -206,12 +215,8 @@ class OfflineSyncTaskScheduler @Inject constructor(
                 PendingGroupOperationType.DELETE_OR_LEAVE -> {
                     when (val response = remoteRepository.deleteOrLeaveGroup(operation.groupId)) {
                         is ApiResponse.Success -> {
-                            mutateCurrentUserSettings { settings ->
-                                removeGroupReferences(settings, operation.groupId).copy(
-                                    pendingGroupOperations = settings.pendingGroupOperations
-                                        .filterNot { it.operationId == operation.operationId }
-                                )
-                            }
+                            offlineGroupStore.removeGroupReferences(accountKey, operation.groupId)
+                            removePendingOperation(accountKey, operation.operationId)
                         }
                         is ApiResponse.Failure.Error -> {
                             return ApiResponse.exception(
@@ -232,28 +237,16 @@ class OfflineSyncTaskScheduler @Inject constructor(
                 PendingGroupOperationType.ADD_TAG -> {
                     val tag = operation.tag?.trim().orEmpty()
                     if (tag.isEmpty()) {
-                        removePendingOperation(operation.operationId)
+                        removePendingOperation(accountKey, operation.operationId)
                         continue
                     }
-                    when (val response = remoteRepository.addGroupTag(operation.groupId, tag)) {
-                        is ApiResponse.Success -> {
-                            upsertCachedGroupTags(operation.groupId, response.data)
-                            removePendingOperation(operation.operationId)
-                        }
-                        is ApiResponse.Failure.Error -> {
-                            return ApiResponse.exception(
-                                IllegalStateException("Group tag sync failed: HTTP ${response.statusCode}")
-                            )
-                        }
-                        is ApiResponse.Failure.Exception -> {
-                            return ApiResponse.exception(
-                                IllegalStateException(
-                                    response.throwable.message ?: "Group tag sync failed",
-                                    response.throwable
-                                )
-                            )
-                        }
-                    }
+                    val cachedTags = offlineGroupStore.getCachedGroupTags(accountKey, operation.groupId)
+                    upsertCachedGroupTags(
+                        accountKey,
+                        operation.groupId,
+                        normalizeTags(cachedTags + tag)
+                    )
+                    removePendingOperation(accountKey, operation.operationId)
                 }
             }
         }
@@ -264,28 +257,55 @@ class OfflineSyncTaskScheduler @Inject constructor(
         groupId: String?
     ): ApiResponse<Unit> {
         while (true) {
-            val settings = readCurrentUserSettings() ?: return ApiResponse.Success(Unit)
-            val pending = settings.pendingGroupMemos
+            val accountKey = readCurrentAccountKey() ?: return ApiResponse.Success(Unit)
+            val pending = offlineGroupStore.getPendingGroupMemos(accountKey, groupId)
                 .asSequence()
-                .filter { candidate -> groupId == null || candidate.groupId == groupId }
                 .sortedBy { it.createdAtEpochMillis }
                 .firstOrNull()
                 ?: return ApiResponse.Success(Unit)
+            val resourceRemoteIds = if (pending.resourceIdentifiers.isEmpty()) {
+                emptyList()
+            } else {
+                when (
+                    val uploadResponse = accountService.getRepository().resolveRemoteResourceIds(
+                        resourceIdentifiers = pending.resourceIdentifiers,
+                        encryptionScope = ResourceEncryptionScope.Group(pending.groupId),
+                    )
+                ) {
+                    is ApiResponse.Success -> uploadResponse.data
+                    is ApiResponse.Failure.Error -> {
+                        return ApiResponse.exception(
+                            IllegalStateException("Group resource upload sync failed: HTTP ${uploadResponse.statusCode.code}")
+                        )
+                    }
+                    is ApiResponse.Failure.Exception -> {
+                        return ApiResponse.exception(
+                            IllegalStateException(
+                                uploadResponse.throwable.message ?: "Group resource upload sync failed",
+                                uploadResponse.throwable
+                            )
+                        )
+                    }
+                }
+            }
 
             val response = remoteRepository.createGroupMessage(
                 groupId = pending.groupId,
                 content = pending.content,
-                tags = pending.tags
+                tags = pending.tags,
+                resourceRemoteIds = resourceRemoteIds
             )
 
             when (response) {
                 is ApiResponse.Success -> {
                     removePendingMemoAndMigratePin(
+                        accountKey = accountKey,
                         groupId = pending.groupId,
                         localId = pending.localId,
                         remoteId = response.data.remoteId
                     )
                     appendCachedGroupMemo(
+                        accountKey = accountKey,
                         groupId = pending.groupId,
                         cached = response.data.toCachedMemoItem(groupId = pending.groupId)
                     )
@@ -307,146 +327,145 @@ class OfflineSyncTaskScheduler @Inject constructor(
         }
     }
 
-    private suspend fun appendCachedGroupMemo(groupId: String, cached: CachedMemoItem) {
-        mutateCurrentUserSettings { settings ->
-            val withoutGroup = settings.cachedGroupMemos.filterNot {
-                it.groupId == groupId && it.remoteId == cached.remoteId
-            }
-            settings.copy(cachedGroupMemos = withoutGroup + cached)
-        }
+    private suspend fun appendCachedGroupMemo(accountKey: String, groupId: String, cached: CachedMemoItem) {
+        offlineGroupStore.upsertCachedGroupMemo(accountKey, groupId, cached)
     }
 
-    private suspend fun upsertGroupLocal(group: MemoGroup) {
-        mutateCurrentUserSettings { settings ->
-            settings.copy(groups = upsertGroup(settings.groups, group))
+    private suspend fun refreshAllGroupCaches(
+        remoteRepository: RemoteRepository,
+        accountKey: String
+    ): ApiResponse<Unit> {
+        val operationSync = syncPendingGroupOperations(remoteRepository)
+        if (operationSync !is ApiResponse.Success) {
+            return operationSync
         }
-    }
-
-    private suspend fun upsertCachedGroupTags(groupId: String, tags: List<String>) {
-        mutateCurrentUserSettings { settings ->
-            val updatedTags = settings.cachedGroupTags
-                .filterNot { it.groupId == groupId } + CachedGroupTagSet(
-                groupId = groupId,
-                tags = tags
-            )
-            settings.copy(cachedGroupTags = updatedTags)
+        val pendingMessageSync = syncPendingGroupMemos(remoteRepository, groupId = null)
+        if (pendingMessageSync !is ApiResponse.Success) {
+            return pendingMessageSync
         }
-    }
-
-    private suspend fun replaceLocalGroupId(localGroupId: String, remoteGroup: MemoGroup) {
-        mutateCurrentUserSettings { settings ->
-            val migratedGroups = upsertGroup(
-                settings.groups.filterNot { it.id == localGroupId },
-                remoteGroup
-            )
-            val migratedPendingMemos = settings.pendingGroupMemos.map { memo ->
-                if (memo.groupId == localGroupId) {
-                    memo.copy(groupId = remoteGroup.id)
-                } else {
-                    memo
-                }
-            }
-            val migratedPinned = settings.pinnedGroupMemoKeys.map { key ->
-                val prefix = "$localGroupId|"
-                if (key.startsWith(prefix)) {
-                    "${remoteGroup.id}|${key.removePrefix(prefix)}"
-                } else {
-                    key
-                }
-            }.distinct()
-            val migratedCachedGroupMemos = settings.cachedGroupMemos.map { memo ->
-                if (memo.groupId == localGroupId) {
-                    memo.copy(groupId = remoteGroup.id)
-                } else {
-                    memo
-                }
-            }
-            val migratedCachedGroupTags = settings.cachedGroupTags.map { tagSet ->
-                if (tagSet.groupId == localGroupId) {
-                    tagSet.copy(groupId = remoteGroup.id)
-                } else {
-                    tagSet
-                }
-            }
-            val migratedPendingOperations = settings.pendingGroupOperations.map { operation ->
-                if (operation.groupId == localGroupId) {
-                    operation.copy(groupId = remoteGroup.id)
-                } else {
-                    operation
-                }
-            }
-            val migratedAliases = (settings.groupIdAliases
-                .filterNot { alias ->
-                    alias.localId == localGroupId || alias.remoteId == remoteGroup.id
-                } + GroupIdAlias(
-                localId = localGroupId,
-                remoteId = remoteGroup.id
-            )).distinctBy { alias -> alias.localId to alias.remoteId }
-            cleanupGroupAliases(
-                settings.copy(
-                    groups = migratedGroups,
-                    pendingGroupMemos = migratedPendingMemos,
-                    pinnedGroupMemoKeys = migratedPinned,
-                    cachedGroupMemos = migratedCachedGroupMemos,
-                    cachedGroupTags = migratedCachedGroupTags,
-                    pendingGroupOperations = migratedPendingOperations,
-                    groupIdAliases = migratedAliases
+        val groupsResponse = remoteRepository.listGroups()
+        val groups = when (groupsResponse) {
+            is ApiResponse.Success -> groupsResponse.data
+            is ApiResponse.Failure.Error -> {
+                return ApiResponse.exception(
+                    IllegalStateException("Group cache refresh failed: HTTP ${groupsResponse.statusCode}")
                 )
-            )
+            }
+            is ApiResponse.Failure.Exception -> {
+                return ApiResponse.exception(
+                    IllegalStateException(
+                        groupsResponse.throwable.message ?: "Group cache refresh failed",
+                        groupsResponse.throwable
+                    )
+                )
+            }
         }
+        offlineGroupStore.replaceGroups(accountKey, groups)
+        for (group in groups) {
+            val refreshed = refreshGroupCache(remoteRepository, accountKey, group.id)
+            if (refreshed !is ApiResponse.Success) {
+                return refreshed
+            }
+        }
+        return ApiResponse.Success(Unit)
     }
 
-    private suspend fun removePendingOperation(operationId: String) {
-        mutateCurrentUserSettings { settings ->
-            settings.copy(
-                pendingGroupOperations = settings.pendingGroupOperations.filterNot { it.operationId == operationId }
-            )
+    private suspend fun refreshGroupCache(
+        remoteRepository: RemoteRepository,
+        accountKey: String,
+        groupId: String
+    ): ApiResponse<Unit> {
+        val normalizedGroupId = groupId.trim()
+        if (normalizedGroupId.isEmpty()) {
+            return ApiResponse.Success(Unit)
         }
+
+        val allMessages = mutableListOf<site.lcyk.keer.data.model.Memo>()
+        var pageToken: String? = null
+        do {
+            when (
+                val response = remoteRepository.listGroupMessages(
+                    groupId = normalizedGroupId,
+                    pageSize = 100,
+                    pageToken = pageToken
+                )
+            ) {
+                is ApiResponse.Success -> {
+                    allMessages += response.data.first
+                    pageToken = response.data.second
+                }
+                is ApiResponse.Failure.Error -> {
+                    return ApiResponse.exception(
+                        IllegalStateException("Group message refresh failed: HTTP ${response.statusCode}")
+                    )
+                }
+                is ApiResponse.Failure.Exception -> {
+                    return ApiResponse.exception(
+                        IllegalStateException(
+                            response.throwable.message ?: "Group message refresh failed",
+                            response.throwable
+                        )
+                    )
+                }
+            }
+        } while (!pageToken.isNullOrBlank())
+
+        offlineGroupStore.replaceCachedGroupMemos(
+            accountKey = accountKey,
+            groupId = normalizedGroupId,
+            memos = allMessages.map { memo -> memo.toCachedMemoItem(groupId = normalizedGroupId) }
+        )
+        val cachedTags = offlineGroupStore.getCachedGroupTags(accountKey, normalizedGroupId)
+        val pendingTags = offlineGroupStore.getPendingGroupOperations(accountKey)
+            .asSequence()
+            .filter { operation ->
+                operation.type == PendingGroupOperationType.ADD_TAG &&
+                    operation.groupId == normalizedGroupId
+            }
+            .mapNotNull { operation ->
+                operation.tag?.trim()?.takeIf { tag -> tag.isNotEmpty() }
+            }
+            .toList()
+        val messageTags = allMessages.flatMap { memo -> memo.tags }
+        offlineGroupStore.upsertCachedGroupTags(
+            accountKey,
+            normalizedGroupId,
+            normalizeTags(cachedTags + messageTags + pendingTags)
+        )
+
+        return ApiResponse.Success(Unit)
+    }
+
+    private suspend fun upsertGroupLocal(accountKey: String, group: MemoGroup) {
+        offlineGroupStore.upsertGroup(accountKey, group)
+    }
+
+    private suspend fun upsertCachedGroupTags(accountKey: String, groupId: String, tags: List<String>) {
+        offlineGroupStore.upsertCachedGroupTags(accountKey, groupId, tags)
+    }
+
+    private suspend fun removePendingOperation(accountKey: String, operationId: String) {
+        offlineGroupStore.removePendingGroupOperation(accountKey, operationId)
     }
 
     private suspend fun removePendingMemoAndMigratePin(
+        accountKey: String,
         groupId: String,
         localId: String,
         remoteId: String
     ) {
-        mutateCurrentUserSettings { settings ->
-            val pinnedKeys = settings.pinnedGroupMemoKeys.toMutableSet()
-            val localKey = groupMemoKey(groupId, localMemoRemoteId(localId))
-            val remoteKey = groupMemoKey(groupId, remoteId)
-            if (localKey in pinnedKeys) {
-                pinnedKeys -= localKey
-                pinnedKeys += remoteKey
-            }
-            settings.copy(
-                pendingGroupMemos = settings.pendingGroupMemos
-                    .filterNot { memo -> memo.groupId == groupId && memo.localId == localId },
-                pinnedGroupMemoKeys = pinnedKeys.toList()
-            )
+        val localRemoteId = localMemoRemoteId(localId)
+        val pinnedKeys = offlineGroupStore.getPinnedGroupMemoKeys(accountKey)
+        offlineGroupStore.removePendingGroupMemo(accountKey, groupId, localId)
+        if (groupMemoKey(groupId, localRemoteId) in pinnedKeys) {
+            offlineGroupStore.setPinnedGroupMemo(accountKey, groupId, localRemoteId, pinned = false)
+            offlineGroupStore.setPinnedGroupMemo(accountKey, groupId, remoteId, pinned = true)
         }
     }
 
-    private suspend fun readCurrentUserSettings(): UserSettings? {
-        val settings = context.settingsDataStore.data.first()
-        return settings.usersList
-            .firstOrNull { user -> user.accountKey == settings.currentUser }
-            ?.settings
-    }
-
-    private fun upsertGroup(groups: List<MemoGroup>, target: MemoGroup): List<MemoGroup> {
-        val withoutTarget = groups.filterNot { it.id == target.id }
-        return (withoutTarget + target).sortedByDescending { it.createdAtEpochMillis }
-    }
-
-    private suspend fun mutateCurrentUserSettings(transform: (UserSettings) -> UserSettings) {
-        context.settingsDataStore.updateData { existing ->
-            val index = existing.usersList.indexOfFirst { user -> user.accountKey == existing.currentUser }
-            if (index == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[index]
-            users[index] = target.copy(settings = transform(target.settings))
-            existing.copy(usersList = users)
+    private suspend fun readCurrentAccountKey(): String? {
+        return accountService.currentAccount.first()?.accountKey()?.takeIf { accountKey ->
+            accountKey.isNotBlank()
         }
     }
 
@@ -456,5 +475,16 @@ class OfflineSyncTaskScheduler @Inject constructor(
 
     private fun localMemoRemoteId(localId: String): String {
         return "local:$localId"
+    }
+
+    private fun normalizeTags(rawTags: Collection<String>): List<String> {
+        val normalized = linkedSetOf<String>()
+        rawTags.forEach { rawTag ->
+            val trimmed = rawTag.trim()
+            if (trimmed.isNotEmpty()) {
+                normalized += trimmed
+            }
+        }
+        return normalized.toList()
     }
 }

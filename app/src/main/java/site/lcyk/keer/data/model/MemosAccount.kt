@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 data class MemosAccount(
     val host: String = "",
     val accessToken: String = "",
+    val refreshToken: String = "",
     val id: Long = 0L,
     val name: String = "",
     val avatarUrl: String = "",

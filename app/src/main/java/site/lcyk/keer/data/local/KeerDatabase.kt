@@ -8,18 +8,41 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import site.lcyk.keer.data.local.dao.MemoDao
+import site.lcyk.keer.data.local.dao.OfflineGroupDao
 import site.lcyk.keer.data.local.entity.MemoTagCrossRef
 import site.lcyk.keer.data.local.entity.MemoEntity
+import site.lcyk.keer.data.local.entity.OfflineCachedGroupMemoEntity
+import site.lcyk.keer.data.local.entity.OfflineCachedGroupTagEntity
+import site.lcyk.keer.data.local.entity.OfflineGroupAliasEntity
+import site.lcyk.keer.data.local.entity.OfflineGroupEntity
+import site.lcyk.keer.data.local.entity.OfflineGroupMemberEntity
+import site.lcyk.keer.data.local.entity.OfflinePendingGroupMemoEntity
+import site.lcyk.keer.data.local.entity.OfflinePendingGroupOperationEntity
+import site.lcyk.keer.data.local.entity.OfflinePinnedGroupMemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.local.entity.TagEntity
 
 @Database(
-    entities = [MemoEntity::class, ResourceEntity::class, TagEntity::class, MemoTagCrossRef::class],
-    version = 7
+    entities = [
+        MemoEntity::class,
+        ResourceEntity::class,
+        TagEntity::class,
+        MemoTagCrossRef::class,
+        OfflineGroupEntity::class,
+        OfflineGroupMemberEntity::class,
+        OfflineGroupAliasEntity::class,
+        OfflinePendingGroupOperationEntity::class,
+        OfflinePendingGroupMemoEntity::class,
+        OfflineCachedGroupMemoEntity::class,
+        OfflineCachedGroupTagEntity::class,
+        OfflinePinnedGroupMemoEntity::class,
+    ],
+    version = 10
 )
 @TypeConverters(Converters::class)
 abstract class KeerDatabase : RoomDatabase() {
     abstract fun memoDao(): MemoDao
+    abstract fun offlineGroupDao(): OfflineGroupDao
 
     companion object {
         @Volatile
@@ -38,6 +61,9 @@ abstract class KeerDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_4_5)
                     .addMigrations(MIGRATION_5_6)
                     .addMigrations(MIGRATION_6_7)
+                    .addMigrations(MIGRATION_7_8)
+                    .addMigrations(MIGRATION_8_9)
+                    .addMigrations(MIGRATION_9_10)
                     .build()
                 INSTANCE = instance
                 instance
@@ -175,6 +201,159 @@ abstract class KeerDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_memos_accountKey_remoteId` ON `memos` (`accountKey`, `remoteId`)")
 
                 db.execSQL("PRAGMA foreign_keys=ON")
+            }
+        }
+
+        private val MIGRATION_7_8: Migration = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE resources ADD COLUMN encryptionMetadata TEXT")
+            }
+        }
+
+        private val MIGRATION_8_9: Migration = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS offline_groups (
+                        accountKey TEXT NOT NULL,
+                        groupId TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        creatorId TEXT NOT NULL,
+                        creatorName TEXT NOT NULL,
+                        createdAtEpochMillis INTEGER NOT NULL,
+                        PRIMARY KEY(accountKey, groupId)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_offline_groups_accountKey ON offline_groups(accountKey)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_offline_groups_accountKey_createdAtEpochMillis ON offline_groups(accountKey, createdAtEpochMillis)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS offline_group_members (
+                        accountKey TEXT NOT NULL,
+                        groupId TEXT NOT NULL,
+                        userId TEXT NOT NULL,
+                        userName TEXT NOT NULL,
+                        PRIMARY KEY(accountKey, groupId, userId)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_offline_group_members_accountKey_groupId ON offline_group_members(accountKey, groupId)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS offline_group_aliases (
+                        accountKey TEXT NOT NULL,
+                        localId TEXT NOT NULL,
+                        remoteId TEXT NOT NULL,
+                        updatedAtEpochMillis INTEGER NOT NULL,
+                        PRIMARY KEY(accountKey, localId, remoteId)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_offline_group_aliases_accountKey ON offline_group_aliases(accountKey)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_offline_group_aliases_accountKey_updatedAtEpochMillis ON offline_group_aliases(accountKey, updatedAtEpochMillis)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS offline_pending_group_operations (
+                        accountKey TEXT NOT NULL,
+                        operationId TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        groupId TEXT NOT NULL,
+                        name TEXT,
+                        description TEXT,
+                        tag TEXT,
+                        createdAtEpochMillis INTEGER NOT NULL,
+                        PRIMARY KEY(accountKey, operationId)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_offline_pending_group_operations_accountKey_createdAtEpochMillis ON offline_pending_group_operations(accountKey, createdAtEpochMillis)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_offline_pending_group_operations_accountKey_groupId ON offline_pending_group_operations(accountKey, groupId)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS offline_pending_group_memos (
+                        accountKey TEXT NOT NULL,
+                        localId TEXT NOT NULL,
+                        groupId TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        tagsJson TEXT NOT NULL,
+                        creatorId TEXT NOT NULL,
+                        creatorName TEXT NOT NULL,
+                        creatorAvatarUrl TEXT,
+                        createdAtEpochMillis INTEGER NOT NULL,
+                        resourceIdsJson TEXT NOT NULL,
+                        PRIMARY KEY(accountKey, groupId, localId)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_offline_pending_group_memos_accountKey_createdAtEpochMillis ON offline_pending_group_memos(accountKey, createdAtEpochMillis)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_offline_pending_group_memos_accountKey_groupId ON offline_pending_group_memos(accountKey, groupId)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS offline_cached_group_memos (
+                        accountKey TEXT NOT NULL,
+                        groupId TEXT NOT NULL,
+                        remoteId TEXT NOT NULL,
+                        payloadJson TEXT NOT NULL,
+                        updatedAtEpochMillis INTEGER NOT NULL,
+                        PRIMARY KEY(accountKey, groupId, remoteId)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_offline_cached_group_memos_accountKey_groupId ON offline_cached_group_memos(accountKey, groupId)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_offline_cached_group_memos_accountKey_updatedAtEpochMillis ON offline_cached_group_memos(accountKey, updatedAtEpochMillis)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS offline_cached_explore_memos (
+                        accountKey TEXT NOT NULL,
+                        remoteId TEXT NOT NULL,
+                        groupId TEXT,
+                        payloadJson TEXT NOT NULL,
+                        updatedAtEpochMillis INTEGER NOT NULL,
+                        PRIMARY KEY(accountKey, remoteId)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_offline_cached_explore_memos_accountKey_updatedAtEpochMillis ON offline_cached_explore_memos(accountKey, updatedAtEpochMillis)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS offline_cached_group_tags (
+                        accountKey TEXT NOT NULL,
+                        groupId TEXT NOT NULL,
+                        tagsJson TEXT NOT NULL,
+                        updatedAtEpochMillis INTEGER NOT NULL,
+                        PRIMARY KEY(accountKey, groupId)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_offline_cached_group_tags_accountKey_updatedAtEpochMillis ON offline_cached_group_tags(accountKey, updatedAtEpochMillis)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS offline_pinned_group_memos (
+                        accountKey TEXT NOT NULL,
+                        groupId TEXT NOT NULL,
+                        memoRemoteId TEXT NOT NULL,
+                        PRIMARY KEY(accountKey, groupId, memoRemoteId)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_offline_pinned_group_memos_accountKey_groupId ON offline_pinned_group_memos(accountKey, groupId)")
+            }
+        }
+
+        private val MIGRATION_9_10: Migration = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DROP INDEX IF EXISTS index_offline_cached_explore_memos_accountKey_updatedAtEpochMillis")
+                db.execSQL("DROP TABLE IF EXISTS offline_cached_explore_memos")
             }
         }
     }

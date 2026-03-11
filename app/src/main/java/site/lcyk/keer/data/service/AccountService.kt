@@ -7,20 +7,17 @@ import android.webkit.MimeTypeMap
 import androidx.core.net.toUri
 import com.skydoves.sandwich.ApiResponse
 import com.skydoves.sandwich.getOrThrow
-import com.skydoves.sandwich.retrofit.adapters.ApiResponseCallAdapterFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
 import site.lcyk.keer.R
 import site.lcyk.keer.data.api.KeerV2Api
 import site.lcyk.keer.data.api.UpdateUserAvatarUpload
@@ -36,18 +33,12 @@ import site.lcyk.keer.data.model.UserData
 import site.lcyk.keer.data.model.UserSettings
 import site.lcyk.keer.data.repository.AbstractMemoRepository
 import site.lcyk.keer.data.repository.LocalDatabaseRepository
-import site.lcyk.keer.data.repository.KeerV2Repository
 import site.lcyk.keer.data.repository.RemoteRepository
-import site.lcyk.keer.data.repository.SyncingRepository
+import site.lcyk.keer.data.security.AccountKeyManager
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.settingsDataStore
 import net.swiftzer.semver.SemVer
-import okhttp3.HttpUrl
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
-import retrofit2.Retrofit
-import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.time.Instant
@@ -65,7 +56,10 @@ class AccountService @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val database: KeerDatabase,
     private val fileStorage: FileStorage,
-    private val secureTokenStorage: SecureTokenStorage,
+    private val offlineGroupStore: OfflineGroupStore,
+    private val accountKeyManager: AccountKeyManager,
+    private val authSessionManager: AuthSessionManager,
+    private val repositoryFactory: RepositoryFactory,
 ) {
     sealed class LoginCompatibility {
         object Supported : LoginCompatibility()
@@ -82,24 +76,13 @@ class AccountService @Inject constructor(
         .ofPattern("yyyyMMdd-HHmmss", Locale.US)
         .withZone(ZoneId.systemDefault())
 
-    private val networkJson = Json {
-        ignoreUnknownKeys = true
-        coerceInputValues = true
-        explicitNulls = false
-    }
-
     @Volatile
     var httpClient: OkHttpClient = okHttpClient
         private set
 
-    val accounts = context.settingsDataStore.data.map { settings ->
-        settings.usersList.mapNotNull(::parseAccountWithSecureToken)
-    }
+    val accounts = authSessionManager.accounts
 
-    val currentAccount = context.settingsDataStore.data.map { settings ->
-        settings.usersList.firstOrNull { it.accountKey == settings.currentUser }
-            ?.let(::parseAccountWithSecureToken)
-    }
+    val currentAccount = authSessionManager.currentAccount
 
     @Volatile
     private var repository: AbstractMemoRepository = LocalDatabaseRepository(
@@ -134,55 +117,21 @@ class AccountService @Inject constructor(
 
     private fun updateCurrentAccount(account: Account?) {
         repository.close()
-        when (account) {
-            null -> {
-                this.repository = LocalDatabaseRepository(database.memoDao(), fileStorage, Account.Local(LocalAccount()))
-                this.remoteRepository = null
-                httpClient = okHttpClient
-            }
-            is Account.Local -> {
-                this.repository = LocalDatabaseRepository(database.memoDao(), fileStorage, account)
-                this.remoteRepository = null
-                httpClient = okHttpClient
-            }
-            is Account.KeerV2 -> {
-                val (client, memosApi) = createKeerV2Client(account.info.host, account.info.accessToken)
-                val remote = KeerV2Repository(
-                    memosApi = memosApi,
-                    account = account,
-                    okHttpClient = client,
-                    appContext = context.applicationContext,
-                    readUserSyncAnchor = {
-                        readUserSyncAnchor(account.accountKey())
-                    },
-                    writeUserSyncAnchor = { anchor ->
-                        writeUserSyncAnchor(account.accountKey(), anchor)
-                    },
-                    readSyncedUserIDs = {
-                        readSyncedUserIDs(account.accountKey())
-                    },
-                    writeSyncedUserIDs = { userIDs ->
-                        writeSyncedUserIDs(account.accountKey(), userIDs)
-                    }
-                )
-                this.repository = SyncingRepository(
-                    database.memoDao(),
-                    fileStorage,
-                    remote,
-                    account,
-                    readMemoSyncAnchor = {
-                        readMemoSyncAnchor(account.accountKey())
-                    },
-                    writeMemoSyncAnchor = { anchor ->
-                        writeMemoSyncAnchor(account.accountKey(), anchor)
-                    }
-                ) { user ->
-                    updateAccountFromSyncedUser(account.accountKey(), user)
-                }
-                this.remoteRepository = remote
-                this.httpClient = client
-            }
+        accountKeyManager.onActiveAccountChanged(account)
+        val session = repositoryFactory.createSession(
+            account = account,
+            readMemoSyncAnchor = ::readMemoSyncAnchor,
+            writeMemoSyncAnchor = ::writeMemoSyncAnchor,
+            readUserSyncAnchor = ::readUserSyncAnchor,
+            writeUserSyncAnchor = ::writeUserSyncAnchor,
+            readSyncedUserIDs = ::readSyncedUserIDs,
+            writeSyncedUserIDs = ::writeSyncedUserIDs,
+        ) { accountKey, user ->
+            updateAccountFromSyncedUser(accountKey, user)
         }
+        repository = session.repository
+        remoteRepository = session.remoteRepository
+        httpClient = session.httpClient
     }
 
     suspend fun switchAccount(accountKey: String) {
@@ -199,7 +148,7 @@ class AccountService @Inject constructor(
     suspend fun addAccount(account: Account) {
         awaitInitialization()
         mutex.withLock {
-            persistAccessToken(account)
+            authSessionManager.persistTokens(account)
             context.settingsDataStore.updateData { settings ->
                 val users = settings.usersList.toMutableList()
                 val index = users.indexOfFirst { it.accountKey == account.accountKey() }
@@ -238,7 +187,8 @@ class AccountService @Inject constructor(
             }
             updateCurrentAccount(currentAccount.first())
             purgeAccountData(accountKey)
-            secureTokenStorage.removeToken(accountKey)
+            authSessionManager.removeTokens(accountKey)
+            accountKeyManager.removeAccountState(accountKey)
         }
     }
 
@@ -320,6 +270,7 @@ class AccountService @Inject constructor(
         memoDao.deleteMemoTagsByAccount(accountKey)
         memoDao.deleteMemosByAccount(accountKey)
         memoDao.deleteTagsByAccount(accountKey)
+        offlineGroupStore.purgeAccount(accountKey)
         fileStorage.deleteAccountFiles(accountKey)
     }
 
@@ -331,7 +282,7 @@ class AccountService @Inject constructor(
                     return@updateData settings
                 }
                 val existingUser = settings.usersList[index]
-                val current = parseAccountWithSecureToken(existingUser) ?: return@updateData settings
+                val current = authSessionManager.parseAccountWithStoredTokens(existingUser) ?: return@updateData settings
                 val updated = current.withUser(user)
                 val users = settings.usersList.toMutableList()
                 users[index] = updated.toPersistedUserData(existingUser.settings)
@@ -340,28 +291,23 @@ class AccountService @Inject constructor(
         }
     }
 
-    fun createKeerV2Client(host: String, accessToken: String?): Pair<OkHttpClient, KeerV2Api> {
-        val client = okHttpClient.newBuilder().apply {
-            if (!accessToken.isNullOrBlank()) {
-                addNetworkInterceptor { chain ->
-                    var request = chain.request()
-                    if (shouldAttachAccessToken(request.url, host)) {
-                        request = request.newBuilder()
-                            .addHeader("Authorization", "Bearer $accessToken")
-                            .build()
-                    }
-                    chain.proceed(request)
-                }
-            }
-        }.build()
+    fun createKeerV2Client(host: String, accountKey: String? = null): Pair<OkHttpClient, KeerV2Api> {
+        val clientBundle = authSessionManager.createKeerV2Client(host, accountKey)
+        return clientBundle.httpClient to clientBundle.api
+    }
 
-        return client to Retrofit.Builder()
-            .baseUrl(host)
-            .client(client)
-            .addConverterFactory(networkJson.asConverterFactory("application/json".toMediaType()))
-            .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
-            .build()
-            .create(KeerV2Api::class.java)
+    fun createKeerV2ClientWithAccessToken(host: String, accessToken: String): Pair<OkHttpClient, KeerV2Api> {
+        val clientBundle = authSessionManager.createKeerV2ClientWithAccessToken(host, accessToken)
+        return clientBundle.httpClient to clientBundle.api
+    }
+
+    suspend fun ensureAccountKeysReady(
+        account: Account.KeerV2,
+        password: String,
+        accessToken: String,
+    ): ApiResponse<Unit> = withContext(Dispatchers.IO) {
+        val api = createKeerV2ClientWithAccessToken(account.info.host, accessToken).second
+        accountKeyManager.ensureAccountKeysReady(account, api, password)
     }
 
     suspend fun checkLoginCompatibility(host: String): LoginCompatibility {
@@ -544,7 +490,7 @@ class AccountService @Inject constructor(
 
         val avatarContent = Base64.encodeToString(avatarBytes, Base64.NO_WRAP)
 
-        val api = createKeerV2Client(account.info.host, account.info.accessToken).second
+        val api = createKeerV2Client(account.info.host, account.accountKey()).second
         val response = api.updateUser(
             account.info.id.toString(),
             UpdateUserRequest(
@@ -573,7 +519,8 @@ class AccountService @Inject constructor(
                     return@updateData settings
                 }
                 val existing = users[index]
-                val parsed = parseAccountWithSecureToken(existing) as? Account.KeerV2 ?: return@updateData settings
+                val parsed = authSessionManager.parseAccountWithStoredTokens(existing) as? Account.KeerV2
+                    ?: return@updateData settings
                 val updated = parsed.info.copy(avatarUrl = updatedUser.avatarUrl.orEmpty())
                 users[index] = Account.KeerV2(updated).toPersistedUserData(
                     existing.settings.copy(avatarSyncPending = false)
@@ -591,7 +538,7 @@ class AccountService @Inject constructor(
 
     private suspend fun fetchKeerAPIVersionForAccount(account: Account.KeerV2): String? {
         val profileResponse = withTimeoutOrNull(SYNC_COMPATIBILITY_TIMEOUT_MILLIS) {
-            createKeerV2Client(account.info.host, account.info.accessToken)
+            createKeerV2Client(account.info.host, account.accountKey())
                 .second
                 .getProfile()
         } ?: return null
@@ -709,22 +656,15 @@ class AccountService @Inject constructor(
         }
     }
 
-    private fun parseAccountWithSecureToken(userData: UserData): Account? {
-        val account = Account.parseUserData(userData) ?: return null
-        val token = secureTokenStorage.getToken(userData.accountKey)
-            .orEmpty()
-        return when (account) {
-            is Account.KeerV2 -> Account.KeerV2(account.info.copy(accessToken = token))
-            is Account.Local -> account
-        }
-    }
-
     private fun Account.toPersistedUserData(settings: UserSettings): UserData {
         return when (this) {
             is Account.KeerV2 -> UserData(
                 settings = settings,
                 accountKey = accountKey(),
-                keerV2 = info.copy(accessToken = "")
+                keerV2 = info.copy(
+                    accessToken = "",
+                    refreshToken = "",
+                )
             )
             is Account.Local -> UserData(
                 settings = settings,
@@ -732,20 +672,6 @@ class AccountService @Inject constructor(
                 local = info
             )
         }
-    }
-
-    private fun persistAccessToken(account: Account) {
-        when (account) {
-            is Account.KeerV2 -> secureTokenStorage.saveToken(account.accountKey(), account.info.accessToken)
-            is Account.Local -> Unit
-        }
-    }
-
-    private fun shouldAttachAccessToken(requestUrl: HttpUrl, host: String): Boolean {
-        val baseUrl = host.toHttpUrlOrNull() ?: return false
-        return requestUrl.scheme == baseUrl.scheme &&
-            requestUrl.host == baseUrl.host &&
-            requestUrl.port == baseUrl.port
     }
 
     private fun resolveAvatarFileExtension(uri: Uri): String {

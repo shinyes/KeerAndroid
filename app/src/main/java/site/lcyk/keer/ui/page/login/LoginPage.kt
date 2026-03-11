@@ -1,10 +1,12 @@
 package site.lcyk.keer.ui.page.login
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -14,7 +16,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Login
+import androidx.compose.material.icons.outlined.Badge
 import androidx.compose.material.icons.outlined.Computer
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PermIdentity
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.BottomAppBarDefaults
@@ -29,6 +33,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -77,8 +82,24 @@ fun LoginPage(
         mutableStateOf(TextFieldValue(userStateViewModel.host))
     }
 
-    var accessToken by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+    var username by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue())
+    }
+
+    var password by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue())
+    }
+
+    var displayName by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue())
+    }
+
+    var confirmPassword by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue())
+    }
+
+    var registerMode by rememberSaveable {
+        mutableStateOf(false)
     }
 
     fun normalizedHost(): String {
@@ -86,9 +107,13 @@ fun LoginPage(
         return if (trimmed.contains("//")) trimmed else "https://$trimmed"
     }
 
-    fun login() = coroutineScope.launch {
-        if (host.text.isBlank() || accessToken.text.isBlank()) {
+    fun submit() = coroutineScope.launch {
+        if (host.text.isBlank() || username.text.isBlank() || password.text.isBlank()) {
             snackbarState.showSnackbar(R.string.fill_login_form.string)
+            return@launch
+        }
+        if (registerMode && confirmPassword.text != password.text) {
+            snackbarState.showSnackbar(R.string.passwords_do_not_match.string)
             return@launch
         }
 
@@ -103,10 +128,20 @@ fun LoginPage(
             }
         }
 
-        val resp = userStateViewModel.loginMemosWithAccessToken(
-            host = sanitizedHost,
-            accessToken = accessToken.text.trim()
-        )
+        val resp = if (registerMode) {
+            userStateViewModel.registerMemosAccount(
+                host = sanitizedHost,
+                username = username.text.trim(),
+                password = password.text,
+                displayName = displayName.text.trim()
+            )
+        } else {
+            userStateViewModel.loginMemosWithPassword(
+                host = sanitizedHost,
+                username = username.text.trim(),
+                password = password.text
+            )
+        }
         resp.suspendOnSuccess {
             navController.navigate(RouteName.MEMOS) {
                 popUpTo(navController.graph.id) {
@@ -147,14 +182,14 @@ fun LoginPage(
                 actions = {},
                 floatingActionButton = {
                     ExtendedFloatingActionButton(
-                        onClick = { login() },
+                        onClick = { submit() },
                         containerColor = BottomAppBarDefaults.bottomAppBarFabColor,
                         elevation = FloatingActionButtonDefaults.bottomAppBarFabElevation(),
-                        text = { Text(R.string.add_account.string) },
+                        text = { Text(if (registerMode) R.string.register.string else R.string.sign_in.string) },
                         icon = {
                             Icon(
                                 Icons.AutoMirrored.Outlined.Login,
-                                contentDescription = R.string.add_account.string
+                                contentDescription = if (registerMode) R.string.register.string else R.string.sign_in.string
                             )
                         }
                     )
@@ -222,27 +257,140 @@ fun LoginPage(
                                 }
                             }
                         },
-                    value = accessToken,
-                    onValueChange = { accessToken = it },
+                    value = username,
+                    onValueChange = { username = it },
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Outlined.PermIdentity,
+                            contentDescription = R.string.username.string
+                        )
+                    },
+                    label = {
+                        Text(R.string.username.string)
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.None,
+                        autoCorrectEnabled = false,
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Next
+                    )
+                )
+
+                if (registerMode) {
+                    OutlinedTextField(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusEvent { focusState ->
+                                if (focusState.isFocused) {
+                                    coroutineScope.launch {
+                                        bringIntoViewRequester.bringIntoView()
+                                    }
+                                }
+                            },
+                        value = displayName,
+                        onValueChange = { displayName = it },
+                        singleLine = true,
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Badge,
+                                contentDescription = R.string.display_name.string
+                            )
+                        },
+                        label = {
+                            Text(R.string.display_name.string)
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Words,
+                            autoCorrectEnabled = false,
+                            keyboardType = KeyboardType.Text,
+                            imeAction = ImeAction.Next
+                        )
+                    )
+                }
+
+                OutlinedTextField(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusEvent { focusState ->
+                            if (focusState.isFocused) {
+                                coroutineScope.launch {
+                                    bringIntoViewRequester.bringIntoView()
+                                }
+                            }
+                        },
+                    value = password,
+                    onValueChange = { password = it },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     leadingIcon = {
                         Icon(
-                            imageVector = Icons.Outlined.PermIdentity,
-                            contentDescription = R.string.access_token.string
+                            imageVector = Icons.Outlined.Lock,
+                            contentDescription = R.string.password.string
                         )
                     },
                     label = {
-                        Text(R.string.access_token.string)
+                        Text(R.string.password.string)
                     },
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.None,
                         autoCorrectEnabled = false,
                         keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Go
+                        imeAction = if (registerMode) ImeAction.Next else ImeAction.Go
                     ),
-                    keyboardActions = KeyboardActions(onGo = { login() })
+                    keyboardActions = KeyboardActions(onGo = { submit() })
                 )
+
+                if (registerMode) {
+                    OutlinedTextField(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusEvent { focusState ->
+                                if (focusState.isFocused) {
+                                    coroutineScope.launch {
+                                        bringIntoViewRequester.bringIntoView()
+                                    }
+                                }
+                            },
+                        value = confirmPassword,
+                        onValueChange = { confirmPassword = it },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Outlined.Lock,
+                                contentDescription = R.string.confirm_password.string
+                            )
+                        },
+                        label = {
+                            Text(R.string.confirm_password.string)
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.None,
+                            autoCorrectEnabled = false,
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Go
+                        ),
+                        keyboardActions = KeyboardActions(onGo = { submit() })
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                TextButton(
+                    onClick = {
+                        registerMode = !registerMode
+                        confirmPassword = TextFieldValue()
+                    }
+                ) {
+                    Text(
+                        if (registerMode) {
+                            R.string.switch_to_sign_in.string
+                        } else {
+                            R.string.switch_to_register.string
+                        }
+                    )
+                }
             }
         }
     }

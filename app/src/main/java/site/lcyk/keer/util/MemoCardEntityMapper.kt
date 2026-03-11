@@ -25,6 +25,7 @@ fun Memo.toMemoEntityForCard(
             uri = resource.uri,
             localUri = resource.localUri,
             mimeType = resource.mimeType,
+            encryptionMetadata = resource.encryptionMetadata,
             thumbnailUri = resource.thumbnailUri,
             thumbnailLocalUri = resource.thumbnailLocalUri,
             memoId = identifier
@@ -108,6 +109,7 @@ private fun projectMemoContentResources(
                     uri = match.url,
                     localUri = localUri,
                     mimeType = mimeType,
+                    encryptionMetadata = null,
                     thumbnailUri = thumbnail,
                     thumbnailLocalUri = localUri,
                     memoId = memoIdentifier

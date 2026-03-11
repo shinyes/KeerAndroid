@@ -28,6 +28,7 @@ class MemoService @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val accountService: AccountService,
     private val offlineSyncTaskScheduler: OfflineSyncTaskScheduler,
+    private val offlineGroupStore: OfflineGroupStore,
 ) {
     private data class SyncRequest(val force: Boolean, val trigger: SyncTrigger)
 
@@ -138,14 +139,14 @@ class MemoService @Inject constructor(
         if (syncStatus.first().unsyncedCount > 0) {
             return true
         }
+        val accountKey = accountService.currentAccount.first()?.accountKey().orEmpty()
         val settings = context.settingsDataStore.data.first()
         val userSettings = settings.usersList
             .firstOrNull { it.accountKey == settings.currentUser }
             ?.settings
             ?: return false
         return userSettings.avatarSyncPending ||
-            userSettings.pendingGroupMemos.isNotEmpty() ||
-            userSettings.pendingGroupOperations.isNotEmpty()
+            (accountKey.isNotBlank() && offlineGroupStore.hasPendingWork(accountKey))
     }
 
     private suspend fun processSyncRequests() {

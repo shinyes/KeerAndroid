@@ -26,11 +26,6 @@ abstract class RemoteRepository {
     abstract suspend fun listMemos(): ApiResponse<List<Memo>>
     abstract suspend fun listArchivedMemos(): ApiResponse<List<Memo>>
     abstract suspend fun listMemoChanges(since: Instant): ApiResponse<MemoChanges>
-    abstract suspend fun listWorkspaceMemos(
-        pageSize: Int,
-        pageToken: String?,
-        filter: String? = null
-    ): ApiResponse<Pair<List<Memo>, String?>>
 
     abstract suspend fun createMemo(
         content: String,
@@ -73,14 +68,16 @@ abstract class RemoteRepository {
     abstract suspend fun createGroupMessage(
         groupId: String,
         content: String,
-        tags: List<String> = emptyList()
+        tags: List<String> = emptyList(),
+        resourceRemoteIds: List<String> = emptyList()
     ): ApiResponse<Memo>
 
     abstract suspend fun updateGroupMessage(
         groupId: String,
         messageRemoteId: String,
         content: String? = null,
-        tags: List<String>? = null
+        tags: List<String>? = null,
+        resourceRemoteIds: List<String>? = null
     ): ApiResponse<Memo>
 
     abstract suspend fun deleteGroupMessage(
@@ -99,6 +96,7 @@ abstract class RemoteRepository {
         type: MediaType?,
         file: File,
         memoRemoteId: String? = null,
+        encryptionScope: ResourceEncryptionScope = ResourceEncryptionScope.Account,
         thumbnail: ResourceUploadThumbnail? = null,
         onProgress: (uploadedBytes: Long, totalBytes: Long) -> Unit = { _, _ -> }
     ): ApiResponse<Resource>

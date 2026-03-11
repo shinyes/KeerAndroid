@@ -63,7 +63,7 @@ fun InputImage(
                 text = { Text(R.string.remove.string) },
                 onClick = {
                     scope.launch {
-                        inputViewModel.deleteResource(resource.identifier)
+                        inputViewModel.removeResourceFromDraft(resource)
                         menuExpanded = false
                     }
                 },

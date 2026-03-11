@@ -24,9 +24,11 @@ import site.lcyk.keer.data.model.PendingGroupMemo
 import site.lcyk.keer.data.model.PendingGroupOperation
 import site.lcyk.keer.data.model.PendingGroupOperationType
 import site.lcyk.keer.data.model.User
+import site.lcyk.keer.data.repository.ResourceEncryptionScope
 import site.lcyk.keer.data.model.toCachedMemoItem
 import site.lcyk.keer.data.model.toMemo
 import site.lcyk.keer.data.service.AccountService
+import site.lcyk.keer.data.service.OfflineGroupStore
 import site.lcyk.keer.data.service.OfflineSyncTask
 import site.lcyk.keer.data.service.OfflineSyncTaskScheduler
 import site.lcyk.keer.ext.getErrorMessage
@@ -40,6 +42,7 @@ import site.lcyk.keer.util.normalizeTagList
 class GroupChatViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val accountService: AccountService,
+    private val offlineGroupStore: OfflineGroupStore,
     private val offlineSyncTaskScheduler: OfflineSyncTaskScheduler
 ) : ViewModel() {
     private val lastGroupSyncAtMillis = mutableMapOf<String, Long>()
@@ -91,37 +94,11 @@ class GroupChatViewModel @Inject constructor(
                 }
             }
 
-            val remoteRepository = accountService.getRemoteRepository() ?: return@withContext
-            val loadedRemote = mutableListOf<Memo>()
-            var pageToken: String? = null
-            do {
-                when (
-                    val response = remoteRepository.listGroupMessages(
-                        groupId = groupId,
-                        pageSize = 100,
-                        pageToken = pageToken
-                    )
-                ) {
-                    is ApiResponse.Success -> {
-                        loadedRemote += response.data.first
-                        pageToken = response.data.second
-                    }
-                    else -> {
-                        _errorMessage.value = response.getErrorMessage()
-                        pageToken = null
-                    }
-                }
-            } while (!pageToken.isNullOrBlank())
-
-            if (loadedRemote.isNotEmpty()) {
-                persistCachedGroupMemos(groupId, loadedRemote)
-            }
-
             val latestLocalState = readLocalState(groupId)
             val latestCachedRemote = latestLocalState.cachedMemos.map(CachedMemoItem::toMemo)
             _memos.value = mergeGroupMemos(
                 groupId = groupId,
-                remote = if (loadedRemote.isEmpty()) latestCachedRemote else loadedRemote,
+                remote = latestCachedRemote,
                 pending = latestLocalState.pending,
                 pinnedKeys = latestLocalState.pinnedKeys
             )
@@ -137,8 +114,7 @@ class GroupChatViewModel @Inject constructor(
             _groupTags.value = cachedTags
         }
 
-        val remoteRepository = accountService.getRemoteRepository()
-        if (remoteRepository == null) {
+        if (accountService.getRemoteRepository() == null) {
             return@withContext
         }
         if (!shouldFetchGroupTags(groupId, forceSync, localState.pendingTagOperationCount > 0)) {
@@ -156,15 +132,9 @@ class GroupChatViewModel @Inject constructor(
                 _errorMessage.value = syncResponse.getErrorMessage()
             }
         }
-
-        when (val response = remoteRepository.listGroupTags(groupId)) {
-            is ApiResponse.Success -> {
-                _groupTags.value = response.data
-                persistCachedGroupTags(groupId, response.data)
-            }
-            else -> {
-                _errorMessage.value = response.getErrorMessage()
-            }
+        val refreshedTags = readLocalState(groupId).cachedTags
+        if (refreshedTags.isNotEmpty()) {
+            _groupTags.value = refreshedTags
         }
     }
 
@@ -188,10 +158,11 @@ class GroupChatViewModel @Inject constructor(
     suspend fun sendGroupMemo(
         groupId: String,
         content: String,
-        tags: List<String> = emptyList()
+        tags: List<String> = emptyList(),
+        resourceIdentifiers: List<String> = emptyList()
     ): Boolean = withContext(viewModelScope.coroutineContext) {
         val text = content.trim()
-        if (text.isEmpty()) {
+        if (text.isEmpty() && resourceIdentifiers.isEmpty()) {
             return@withContext false
         }
 
@@ -208,7 +179,8 @@ class GroupChatViewModel @Inject constructor(
             creatorId = creator.identifier,
             creatorName = creator.name,
             creatorAvatarUrl = creator.avatarUrl,
-            createdAtEpochMillis = System.currentTimeMillis()
+            createdAtEpochMillis = System.currentTimeMillis(),
+            resourceIdentifiers = resourceIdentifiers.distinct()
         )
         appendPendingMemo(pending)
         syncPendingGroupMemos(groupId)
@@ -268,12 +240,13 @@ class GroupChatViewModel @Inject constructor(
         groupId: String,
         memoRemoteId: String,
         content: String,
-        tags: List<String>
+        tags: List<String>,
+        resourceIdentifiers: List<String>? = null
     ): Boolean = withContext(viewModelScope.coroutineContext) {
         val normalizedRemoteID = memoRemoteId.trim()
         val normalizedContent = content.trim()
         val normalizedTags = normalizeTagList(tags)
-        if (normalizedRemoteID.isEmpty() || normalizedContent.isEmpty()) {
+        if (normalizedRemoteID.isEmpty() || (normalizedContent.isEmpty() && resourceIdentifiers.isNullOrEmpty())) {
             return@withContext false
         }
 
@@ -286,7 +259,8 @@ class GroupChatViewModel @Inject constructor(
                 groupId = groupId,
                 localId = localID,
                 content = normalizedContent,
-                tags = normalizedTags
+                tags = normalizedTags,
+                resourceIdentifiers = resourceIdentifiers
             )
             if (!updated) {
                 return@withContext false
@@ -312,13 +286,32 @@ class GroupChatViewModel @Inject constructor(
             _errorMessage.value = R.string.group_error_account_not_support_group_memos.string
             return@withContext false
         }
+        val resolvedResourceRemoteIds = when {
+            resourceIdentifiers == null -> null
+            resourceIdentifiers.isEmpty() -> emptyList()
+            else -> {
+                when (
+                    val uploadResponse = accountService.getRepository().resolveRemoteResourceIds(
+                        resourceIdentifiers = resourceIdentifiers,
+                        encryptionScope = ResourceEncryptionScope.Group(groupId),
+                    )
+                ) {
+                    is ApiResponse.Success -> uploadResponse.data
+                    else -> {
+                        _errorMessage.value = uploadResponse.getErrorMessage()
+                        return@withContext false
+                    }
+                }
+            }
+        }
 
         return@withContext when (
             val response = remoteRepository.updateGroupMessage(
                 groupId = groupId,
                 messageRemoteId = normalizedRemoteID,
                 content = normalizedContent,
-                tags = normalizedTags
+                tags = normalizedTags,
+                resourceRemoteIds = resolvedResourceRemoteIds
             )
         ) {
             is ApiResponse.Success -> {
@@ -403,26 +396,8 @@ class GroupChatViewModel @Inject constructor(
             return@withContext false
         }
 
-        val key = groupMemoKey(groupId, memoRemoteId)
-        context.settingsDataStore.updateData { existing ->
-            val userIndex = existing.usersList.indexOfFirst { it.accountKey == existing.currentUser }
-            if (userIndex == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[userIndex]
-            val pinnedKeys = target.settings.pinnedGroupMemoKeys.toMutableSet()
-            if (pinned) {
-                pinnedKeys += key
-            } else {
-                pinnedKeys -= key
-            }
-            users[userIndex] = target.copy(
-                settings = target.settings.copy(
-                    pinnedGroupMemoKeys = pinnedKeys.toList()
-                )
-            )
-            existing.copy(usersList = users)
+        readCurrentAccountKey()?.let { accountKey ->
+            offlineGroupStore.setPinnedGroupMemo(accountKey, groupId, memoRemoteId, pinned)
         }
 
         _memos.value = _memos.value
@@ -434,84 +409,38 @@ class GroupChatViewModel @Inject constructor(
     }
 
     private suspend fun enqueueGroupTagOperation(groupId: String, tag: String) {
-        context.settingsDataStore.updateData { existing ->
-            val userIndex = existing.usersList.indexOfFirst { it.accountKey == existing.currentUser }
-            if (userIndex == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[userIndex]
-            val operation = PendingGroupOperation(
-                operationId = UUID.randomUUID().toString(),
-                type = PendingGroupOperationType.ADD_TAG,
-                groupId = groupId,
-                tag = tag
-            )
-            users[userIndex] = target.copy(
-                settings = target.settings.copy(
-                    pendingGroupOperations = target.settings.pendingGroupOperations + operation
+        readCurrentAccountKey()?.let { accountKey ->
+            offlineGroupStore.enqueuePendingGroupOperation(
+                accountKey,
+                PendingGroupOperation(
+                    operationId = UUID.randomUUID().toString(),
+                    type = PendingGroupOperationType.ADD_TAG,
+                    groupId = groupId,
+                    tag = tag
                 )
             )
-            existing.copy(usersList = users)
         }
     }
 
     private suspend fun persistCachedGroupTags(groupId: String, tags: List<String>) {
-        context.settingsDataStore.updateData { existing ->
-            val userIndex = existing.usersList.indexOfFirst { it.accountKey == existing.currentUser }
-            if (userIndex == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[userIndex]
-            val updatedTags = target.settings.cachedGroupTags
-                .filterNot { it.groupId == groupId } + site.lcyk.keer.data.model.CachedGroupTagSet(
-                groupId = groupId,
-                tags = tags
-            )
-            users[userIndex] = target.copy(
-                settings = target.settings.copy(
-                    cachedGroupTags = updatedTags
-                )
-            )
-            existing.copy(usersList = users)
+        readCurrentAccountKey()?.let { accountKey ->
+            offlineGroupStore.upsertCachedGroupTags(accountKey, groupId, tags)
         }
     }
 
     private suspend fun persistCachedGroupMemos(groupId: String, memos: List<Memo>) {
-        context.settingsDataStore.updateData { existing ->
-            val userIndex = existing.usersList.indexOfFirst { it.accountKey == existing.currentUser }
-            if (userIndex == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[userIndex]
-            val incoming = memos.map { it.toCachedMemoItem(groupId = groupId) }
-            val updated = target.settings.cachedGroupMemos
-                .filterNot { it.groupId == groupId } + incoming
-            users[userIndex] = target.copy(
-                settings = target.settings.copy(
-                    cachedGroupMemos = updated
-                )
+        readCurrentAccountKey()?.let { accountKey ->
+            offlineGroupStore.replaceCachedGroupMemos(
+                accountKey = accountKey,
+                groupId = groupId,
+                memos = memos.map { memo -> memo.toCachedMemoItem(groupId = groupId) }
             )
-            existing.copy(usersList = users)
         }
     }
 
     private suspend fun appendPendingMemo(pending: PendingGroupMemo) {
-        context.settingsDataStore.updateData { existing ->
-            val userIndex = existing.usersList.indexOfFirst { it.accountKey == existing.currentUser }
-            if (userIndex == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[userIndex]
-            users[userIndex] = target.copy(
-                settings = target.settings.copy(
-                    pendingGroupMemos = target.settings.pendingGroupMemos + pending
-                )
-            )
-            existing.copy(usersList = users)
+        readCurrentAccountKey()?.let { accountKey ->
+            offlineGroupStore.upsertPendingGroupMemo(accountKey, pending)
         }
     }
 
@@ -519,108 +448,54 @@ class GroupChatViewModel @Inject constructor(
         groupId: String,
         localId: String,
         content: String,
-        tags: List<String>
+        tags: List<String>,
+        resourceIdentifiers: List<String>? = null
     ): Boolean {
+        val accountKey = readCurrentAccountKey() ?: return false
         var updated = false
-        context.settingsDataStore.updateData { existing ->
-            val userIndex = existing.usersList.indexOfFirst { it.accountKey == existing.currentUser }
-            if (userIndex == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[userIndex]
-            val pendingMemos = target.settings.pendingGroupMemos.map { pendingMemo ->
-                if (pendingMemo.groupId == groupId && pendingMemo.localId == localId) {
-                    updated = true
-                    pendingMemo.copy(
-                        content = content,
-                        tags = tags
-                    )
-                } else {
-                    pendingMemo
-                }
-            }
-            if (!updated) {
-                return@updateData existing
-            }
-            users[userIndex] = target.copy(
-                settings = target.settings.copy(
-                    pendingGroupMemos = pendingMemos
+        val pendingMemos = offlineGroupStore.getPendingGroupMemos(accountKey).map { pendingMemo ->
+            if (pendingMemo.groupId == groupId && pendingMemo.localId == localId) {
+                updated = true
+                pendingMemo.copy(
+                    content = content,
+                    tags = tags,
+                    resourceIdentifiers = resourceIdentifiers ?: pendingMemo.resourceIdentifiers
                 )
-            )
-            existing.copy(usersList = users)
+            } else {
+                pendingMemo
+            }
         }
-        return updated
+        if (!updated) {
+            return false
+        }
+        pendingMemos.forEach { pendingMemo ->
+            offlineGroupStore.upsertPendingGroupMemo(accountKey, pendingMemo)
+        }
+        return true
     }
 
     private suspend fun removePendingGroupMemo(groupId: String, localId: String, remoteId: String): Boolean {
-        var removed = false
-        context.settingsDataStore.updateData { existing ->
-            val userIndex = existing.usersList.indexOfFirst { it.accountKey == existing.currentUser }
-            if (userIndex == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[userIndex]
-            val nextPending = target.settings.pendingGroupMemos.filterNot { pendingMemo ->
-                val matched = pendingMemo.groupId == groupId && pendingMemo.localId == localId
-                if (matched) {
-                    removed = true
-                }
-                matched
-            }
-            if (!removed) {
-                return@updateData existing
-            }
-            val keyToRemove = groupMemoKey(groupId, remoteId)
-            users[userIndex] = target.copy(
-                settings = target.settings.copy(
-                    pendingGroupMemos = nextPending,
-                    pinnedGroupMemoKeys = target.settings.pinnedGroupMemoKeys.filterNot { key -> key == keyToRemove }
-                )
-            )
-            existing.copy(usersList = users)
+        val accountKey = readCurrentAccountKey() ?: return false
+        val exists = offlineGroupStore.getPendingGroupMemos(accountKey, groupId)
+            .any { pendingMemo -> pendingMemo.localId == localId }
+        if (!exists) {
+            return false
         }
-        return removed
+        offlineGroupStore.removePendingGroupMemo(accountKey, groupId, localId)
+        offlineGroupStore.setPinnedGroupMemo(accountKey, groupId, remoteId, pinned = false)
+        return true
     }
 
     private suspend fun upsertCachedGroupMemo(groupId: String, memo: Memo) {
-        context.settingsDataStore.updateData { existing ->
-            val userIndex = existing.usersList.indexOfFirst { it.accountKey == existing.currentUser }
-            if (userIndex == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[userIndex]
-            val updatedCache = target.settings.cachedGroupMemos
-                .filterNot { cached -> cached.groupId == groupId && cached.remoteId == memo.remoteId } + memo.toCachedMemoItem(groupId = groupId)
-            users[userIndex] = target.copy(
-                settings = target.settings.copy(
-                    cachedGroupMemos = updatedCache
-                )
-            )
-            existing.copy(usersList = users)
+        readCurrentAccountKey()?.let { accountKey ->
+            offlineGroupStore.upsertCachedGroupMemo(accountKey, groupId, memo.toCachedMemoItem(groupId = groupId))
         }
     }
 
     private suspend fun removeCachedGroupMemo(groupId: String, remoteId: String) {
-        context.settingsDataStore.updateData { existing ->
-            val userIndex = existing.usersList.indexOfFirst { it.accountKey == existing.currentUser }
-            if (userIndex == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[userIndex]
-            val keyToRemove = groupMemoKey(groupId, remoteId)
-            users[userIndex] = target.copy(
-                settings = target.settings.copy(
-                    cachedGroupMemos = target.settings.cachedGroupMemos.filterNot { cached ->
-                        cached.groupId == groupId && cached.remoteId == remoteId
-                    },
-                    pinnedGroupMemoKeys = target.settings.pinnedGroupMemoKeys.filterNot { key -> key == keyToRemove }
-                )
-            )
-            existing.copy(usersList = users)
+        readCurrentAccountKey()?.let { accountKey ->
+            offlineGroupStore.removeCachedGroupMemo(accountKey, groupId, remoteId)
+            offlineGroupStore.setPinnedGroupMemo(accountKey, groupId, remoteId, pinned = false)
         }
     }
 
@@ -633,11 +508,8 @@ class GroupChatViewModel @Inject constructor(
     )
 
     private suspend fun readLocalState(groupId: String): GroupLocalState {
-        val settings = context.settingsDataStore.data.first()
-        val userSettings = settings.usersList
-            .firstOrNull { it.accountKey == settings.currentUser }
-            ?.settings
-        if (userSettings == null) {
+        val accountKey = readCurrentAccountKey()
+        if (accountKey == null) {
             return GroupLocalState(
                 pending = emptyList(),
                 pinnedKeys = emptySet(),
@@ -646,17 +518,19 @@ class GroupChatViewModel @Inject constructor(
                 pendingTagOperationCount = 0
             )
         }
+        val pending = offlineGroupStore.getPendingGroupMemos(accountKey, groupId)
+        val pinnedKeys = offlineGroupStore.getPinnedGroupMemoKeys(accountKey)
+        val cachedMemos = offlineGroupStore.getCachedGroupMemos(accountKey, groupId)
+        val cachedTags = offlineGroupStore.getCachedGroupTags(accountKey, groupId)
+        val pendingTagOperationCount = offlineGroupStore.getPendingGroupOperations(accountKey).count { operation ->
+            operation.type == PendingGroupOperationType.ADD_TAG && operation.groupId == groupId
+        }
         return GroupLocalState(
-            pending = userSettings.pendingGroupMemos.filter { it.groupId == groupId },
-            pinnedKeys = userSettings.pinnedGroupMemoKeys.toSet(),
-            cachedMemos = userSettings.cachedGroupMemos.filter { it.groupId == groupId },
-            cachedTags = userSettings.cachedGroupTags
-                .firstOrNull { it.groupId == groupId }
-                ?.tags
-                .orEmpty(),
-            pendingTagOperationCount = userSettings.pendingGroupOperations.count { operation ->
-                operation.type == PendingGroupOperationType.ADD_TAG && operation.groupId == groupId
-            }
+            pending = pending,
+            pinnedKeys = pinnedKeys,
+            cachedMemos = cachedMemos,
+            cachedTags = cachedTags,
+            pendingTagOperationCount = pendingTagOperationCount
         )
     }
 
@@ -751,6 +625,10 @@ class GroupChatViewModel @Inject constructor(
             )
             null -> null
         }
+    }
+
+    private suspend fun readCurrentAccountKey(): String? {
+        return context.settingsDataStore.data.first().currentUser.takeIf { it.isNotBlank() }
     }
 
     private fun groupMemoKey(groupId: String, memoRemoteId: String): String {

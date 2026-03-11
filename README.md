@@ -41,6 +41,28 @@ keer tends to keep minimal and optimized for best native experience. The Android
 
 Any contributions are greatly appreciated.
 
+## Release
+
+Android release workflow is in [`.github/workflows/build-signed-release-apk.yml`](.github/workflows/build-signed-release-apk.yml).
+
+Release tags are unified with the backend:
+
+- `v3.0.0`
+- `v3.0.0-alpha.1`
+- `v3.0.0-beta.1`
+
+Before pushing a release tag:
+
+1. Update `versionName` and `versionCode` in [`app/build.gradle`](app/build.gradle).
+2. Ensure `versionName` exactly matches the tag without the `v` prefix.
+3. Push the matching tag to this repo.
+
+The workflow will:
+
+- build a signed release APK
+- upload `keer-android-vX.Y.Z.apk` to GitHub Release
+- mark alpha/beta tags as prerelease
+
 ## License
 
 The Android version of keer is under [GPLv3](LICENSE).

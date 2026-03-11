@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,10 +32,11 @@ import kotlinx.coroutines.withContext
 import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.ResourceRepresentable
+import site.lcyk.keer.data.security.AttachmentEncryptionManager
+import site.lcyk.keer.data.security.EncryptedBlobVariant
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import timber.log.Timber
 import java.io.File
 
@@ -47,6 +49,7 @@ fun MemoImage(
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     val userStateViewModel = LocalUserState.current
+    val currentAccount by userStateViewModel.currentAccount.collectAsState(initial = null)
     val memosViewModel = LocalMemos.current
     val scope = rememberCoroutineScope()
     var opening by remember(resource.remoteId, resource.uri, resource.localUri) { mutableStateOf(false) }
@@ -71,11 +74,16 @@ fun MemoImage(
             return@LaunchedEffect
         }
 
-        val downloaded = downloadThumbnailToTemp(
+        val downloaded = downloadResourceVariantToTemp(
             context = context,
             okHttpClient = userStateViewModel.okHttpClient,
+            resource = resourceEntity,
+            accountKey = currentAccount?.accountKey(),
             url = remoteThumbnail,
-            filename = resourceEntity.filename
+            filename = resourceEntity.filename,
+            variant = EncryptedBlobVariant.THUMBNAIL,
+            cacheDirName = "thumbnail_cache",
+            prefix = "thumb_",
         ) ?: return@LaunchedEffect
 
         try {
@@ -101,6 +109,7 @@ fun MemoImage(
                         context = context,
                         resource = resolvedResource,
                         okHttpClient = userStateViewModel.okHttpClient,
+                        currentAccountKey = currentAccount?.accountKey(),
                         cacheCanonical = { resourceIdentifier, downloadedUri ->
                             val result = memosViewModel.cacheResourceFile(resourceIdentifier, downloadedUri)
                             if (result is ApiResponse.Success) {
@@ -156,6 +165,10 @@ private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String 
     if (localThumbnail.isNotEmpty()) {
         return localThumbnail
     }
+    if (!resource.encryptionMetadata.isNullOrBlank()) {
+        val local = resource.localUri?.trim().orEmpty()
+        return local
+    }
     val thumbnail = resource.thumbnailUri?.trim().orEmpty()
     if (thumbnail.isNotEmpty()) {
         return thumbnail
@@ -165,30 +178,6 @@ private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String 
         return local
     }
     return resource.uri
-}
-
-private suspend fun downloadThumbnailToTemp(
-    context: android.content.Context,
-    okHttpClient: OkHttpClient,
-    url: String,
-    filename: String
-): File? = withContext(Dispatchers.IO) {
-    val request = Request.Builder().url(url).get().build()
-    okHttpClient.newCall(request).execute().use { response ->
-        if (!response.isSuccessful) {
-            return@withContext null
-        }
-        val body = response.body
-        val dir = File(context.cacheDir, "thumbnail_cache").also { it.mkdirs() }
-        val suffix = "_${sanitizeThumbnailFilename(filename.ifBlank { "thumbnail" })}"
-        val target = File.createTempFile("thumb_", suffix, dir)
-        body.byteStream().use { input ->
-            target.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-        target
-    }
 }
 
 private fun sanitizeThumbnailFilename(filename: String): String {

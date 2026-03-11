@@ -3,13 +3,13 @@ name: Build Signed Release APK
 on:
   push:
     tags:
-      - "[0-9]*.[0-9]*.[0-9]*"
-      - "[0-9]*.[0-9]*.[0-9]*-alpha.*"
-      - "[0-9]*.[0-9]*.[0-9]*-beta.*"
+      - "v[0-9]*.[0-9]*.[0-9]*"
+      - "v[0-9]*.[0-9]*.[0-9]*-alpha.*"
+      - "v[0-9]*.[0-9]*.[0-9]*-beta.*"
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Release tag (e.g. 2.0.2-beta.1)"
+        description: "Release tag (e.g. v2.0.16 or v2.0.16-beta.1)"
         required: true
         type: string
 
@@ -25,16 +25,18 @@ jobs:
         id: meta
         run: |
           TAG="${{ github.event.inputs.release_tag || github.ref_name }}"
-          if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]]; then
-            echo "Tag '$TAG' is not supported. Expected formats: 0.9.0, 0.9.0-alpha.0, or 0.9.0-beta.0"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta)\.[0-9]+)?$ ]]; then
+            echo "Tag '$TAG' is not supported. Expected formats: v0.9.0, v0.9.0-alpha.0, or v0.9.0-beta.0"
             exit 1
           fi
+          VERSION="${TAG#v}"
           if [[ "$TAG" == *-* ]]; then
             IS_PRERELEASE=true
           else
             IS_PRERELEASE=false
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
@@ -48,6 +50,18 @@ jobs:
 
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
+
+      - name: Validate Android versionName
+        run: |
+          VERSION_NAME=$(sed -n 's/.*versionName = "\(.*\)"/\1/p' app/build.gradle | head -n 1)
+          if [[ -z "$VERSION_NAME" ]]; then
+            echo "Failed to read versionName from app/build.gradle"
+            exit 1
+          fi
+          if [[ "$VERSION_NAME" != "${{ steps.meta.outputs.version }}" ]]; then
+            echo "versionName mismatch: build.gradle=$VERSION_NAME tag=${{ steps.meta.outputs.version }}"
+            exit 1
+          fi
 
       - name: Prepare release keystore
         env:
@@ -81,19 +95,19 @@ jobs:
             echo "APK not found at $APK_PATH"
             exit 1
           fi
-          cp "$APK_PATH" "keer-v${{ steps.meta.outputs.tag }}.apk"
+          cp "$APK_PATH" "keer-android-${{ steps.meta.outputs.tag }}.apk"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: keer-v${{ steps.meta.outputs.tag }}
-          path: keer-v${{ steps.meta.outputs.tag }}.apk
+          name: keer-android-${{ steps.meta.outputs.tag }}
+          path: keer-android-${{ steps.meta.outputs.tag }}.apk
 
       - name: Upload APK to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          files: keer-v${{ steps.meta.outputs.tag }}.apk
+          files: keer-android-${{ steps.meta.outputs.tag }}.apk
           generate_release_notes: true
           prerelease: ${{ steps.meta.outputs.is_prerelease == 'true' }}

@@ -232,6 +232,16 @@ class MemoInputViewModel @Inject constructor(
         }
     }
 
+    fun removeResourceFromDraft(resource: ResourceEntity) = viewModelScope.launch {
+        if (resource.remoteId.isNullOrBlank()) {
+            memoService.getRepository().deleteResource(resource.identifier).suspendOnSuccess {
+                uploadResources.removeIf { it.identifier == resource.identifier }
+            }
+            return@launch
+        }
+        uploadResources.removeIf { it.identifier == resource.identifier }
+    }
+
     private fun addOrUpdateUploadTask(task: UploadTaskState) {
         viewModelScope.launch(Dispatchers.Main.immediate) {
             val index = uploadTasks.indexOfFirst { it.id == task.id }

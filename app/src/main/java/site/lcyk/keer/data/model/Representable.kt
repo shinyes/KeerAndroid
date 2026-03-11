@@ -7,6 +7,7 @@ interface ResourceRepresentable {
     val date: Instant
     val filename: String
     val mimeType: String?
+    val encryptionMetadata: String?
     val uri: String
     val localUri: String?
     val thumbnailUri: String?

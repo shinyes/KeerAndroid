@@ -10,16 +10,38 @@ import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.PATCH
 import retrofit2.http.POST
+import retrofit2.http.PUT
 import retrofit2.http.Path
 import retrofit2.http.Query
 import java.time.Instant
 
 interface KeerV2Api {
+    @POST("api/v1/auth/signin")
+    suspend fun signIn(@Body body: SignInRequest): ApiResponse<AuthSessionResponse>
+
+    @POST("api/v1/auth/refresh")
+    suspend fun refreshSession(@Body body: RefreshSessionRequest): ApiResponse<AuthSessionResponse>
+
+    @POST("api/v1/users")
+    suspend fun createUser(@Body body: CreateUserRequest): ApiResponse<KeerV2User>
+
     @GET("api/v1/auth/me")
     suspend fun getCurrentUser(): ApiResponse<GetCurrentUserResponse>
 
     @GET("api/v1/users/{id}/settings/GENERAL")
     suspend fun getUserSetting(@Path("id") userId: String): ApiResponse<KeerV2UserSetting>
+
+    @GET("api/v1/users/{id}/settings/ENCRYPTION")
+    suspend fun getUserEncryptionSetting(@Path("id") userId: String): ApiResponse<KeerV2UserEncryptionSettingResponse>
+
+    @PUT("api/v1/users/{id}/settings/ENCRYPTION")
+    suspend fun updateUserEncryptionSetting(
+        @Path("id") userId: String,
+        @Body body: UpdateUserEncryptionSettingRequest
+    ): ApiResponse<KeerV2UserEncryptionSettingResponse>
+
+    @GET("api/v1/users/keys/batch")
+    suspend fun getUserPublicKeysBatch(@Query("ids") ids: String): ApiResponse<ListUserPublicKeysResponse>
 
     @GET("api/v1/memos")
     suspend fun listMemos(
@@ -110,6 +132,15 @@ interface KeerV2Api {
     @DELETE("api/v1/attachments/{id}")
     suspend fun deleteResource(@Path("id") resourceId: String): ApiResponse<Unit>
 
+    @GET("api/v1/groups/{id}/keyVersions/current")
+    suspend fun getCurrentGroupKeyVersion(@Path("id") groupId: String): ApiResponse<GroupKeyVersionResponse>
+
+    @POST("api/v1/groups/{id}/keyVersions")
+    suspend fun createGroupKeyVersion(
+        @Path("id") groupId: String,
+        @Body body: CreateGroupKeyVersionRequest
+    ): ApiResponse<GroupKeyVersionResponse>
+
     @GET("api/v1/instance/profile")
     suspend fun getProfile(): ApiResponse<MemosProfile>
 
@@ -143,6 +174,46 @@ data class KeerV2User(
 )
 
 @Serializable
+data class SignInRequest(
+    val passwordCredentials: PasswordCredentials
+)
+
+@Serializable
+data class PasswordCredentials(
+    val username: String,
+    val password: String
+)
+
+@Serializable
+data class RefreshSessionRequest(
+    val refreshToken: String
+)
+
+@Serializable
+data class CreateUserRequest(
+    val user: CreateUserBody,
+    val validateOnly: Boolean = false
+)
+
+@Serializable
+data class CreateUserBody(
+    val username: String,
+    val displayName: String? = null,
+    val password: String,
+)
+
+@Serializable
+data class AuthSessionResponse(
+    val user: KeerV2User,
+    val accessToken: String,
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val accessTokenExpiresAt: Instant? = null,
+    val refreshToken: String,
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val refreshTokenExpiresAt: Instant? = null
+)
+
+@Serializable
 data class ListUsersResponse(
     val users: List<KeerV2User> = emptyList()
 )
@@ -161,7 +232,8 @@ data class GetCurrentUserResponse(
 
 @Serializable
 data class KeerV2CreateMemoRequest(
-    val content: String,
+    val encryptedPayload: String,
+    val payloadEnvelope: KeerV2PayloadEnvelope,
     val visibility: MemosVisibility?,
     val attachments: List<KeerV2Resource>?,
     val tags: List<String>? = null,
@@ -247,14 +319,18 @@ data class ListGroupMessagesResponse(
 
 @Serializable
 data class CreateGroupMessageRequest(
-    val content: String,
-    val tags: List<String>? = null
+    val encryptedPayload: String,
+    val payloadEnvelope: KeerV2PayloadEnvelope,
+    val tags: List<String>? = null,
+    val attachments: List<KeerV2Resource>? = null,
 )
 
 @Serializable
 data class UpdateGroupMessageRequest(
-    val content: String? = null,
-    val tags: List<String>? = null
+    val encryptedPayload: String? = null,
+    val payloadEnvelope: KeerV2PayloadEnvelope? = null,
+    val tags: List<String>? = null,
+    val attachments: List<KeerV2Resource>? = null,
 )
 
 @Serializable
@@ -266,7 +342,8 @@ data class KeerV2GroupMessage(
     val createTime: Instant? = null,
     @Serializable(with = Rfc3339InstantSerializer::class)
     val updateTime: Instant? = null,
-    val content: String? = null,
+    val encryptedPayload: String? = null,
+    val payloadEnvelope: KeerV2PayloadEnvelope? = null,
     val tags: List<String>? = null,
     val attachments: List<KeerV2Resource>? = null
 )
@@ -283,7 +360,8 @@ data class AddGroupTagRequest(
 
 @Serializable
 data class UpdateMemoRequest(
-    val content: String? = null,
+    val encryptedPayload: String? = null,
+    val payloadEnvelope: KeerV2PayloadEnvelope? = null,
     val visibility: MemosVisibility? = null,
     val state: KeerV2State? = null,
     val pinned: Boolean? = null,
@@ -300,6 +378,10 @@ data class ListResourceResponse(
 
 @Serializable
 data class CreateResourceRequest(
+    val descriptorCiphertext: String,
+    val descriptorEnvelope: KeerV2PayloadEnvelope? = null,
+    val blobEncryption: String,
+    val thumbnailBlobEncryption: String? = null,
     val filename: String,
     val type: String,
     val content: String,
@@ -315,7 +397,8 @@ data class KeerV2Memo(
     val createTime: Instant? = null,
     @Serializable(with = Rfc3339InstantSerializer::class)
     val updateTime: Instant? = null,
-    val content: String? = null,
+    val encryptedPayload: String? = null,
+    val payloadEnvelope: KeerV2PayloadEnvelope? = null,
     val visibility: MemosVisibility? = null,
     val pinned: Boolean? = null,
     val latitude: Double? = null,
@@ -329,6 +412,10 @@ data class KeerV2Resource(
     val name: String? = null,
     @Serializable(with = Rfc3339InstantSerializer::class)
     val createTime: Instant? = null,
+    val descriptorCiphertext: String? = null,
+    val descriptorEnvelope: KeerV2PayloadEnvelope? = null,
+    val blobEncryption: String? = null,
+    val thumbnailBlobEncryption: String? = null,
     val filename: String? = null,
     val externalLink: String? = null,
     val type: String? = null,
@@ -376,6 +463,102 @@ data class KeerV2UserSettingGeneralSetting(
 @Serializable
 data class KeerV2UserSetting(
     val generalSetting: KeerV2UserSettingGeneralSetting?
+)
+
+@Serializable
+data class KeerV2UserEncryptionSettingResponse(
+    val encryptionSetting: KeerV2UserEncryptionSetting
+)
+
+@Serializable
+data class KeerV2WrappedKeySlot(
+    val slotType: String,
+    val slotRef: String,
+    val wrapAlgorithm: String,
+    val wrappedKey: String,
+)
+
+@Serializable
+data class KeerV2PayloadEnvelope(
+    val wrappedKeys: List<KeerV2WrappedKeySlot> = emptyList()
+)
+
+@Serializable
+data class KeerV2RecoveryBundle(
+    val version: Int,
+    val kdfAlgorithm: String,
+    val kdfSalt: String,
+    val kdfIterations: Int,
+    val wrapAlgorithm: String,
+    val wrappedAccountKey: String,
+)
+
+@Serializable
+data class UpdateUserEncryptionSettingRequest(
+    val encryptionSetting: UpdateUserEncryptionSettingBody
+)
+
+@Serializable
+data class UpdateUserEncryptionSettingBody(
+    val recoveryBundle: KeerV2RecoveryBundle,
+    val sharingPublicKey: String,
+    val wrappedSharingPrivateKey: String,
+    val keyVersion: Int,
+    val algorithms: String,
+)
+
+@Serializable
+data class KeerV2UserEncryptionSetting(
+    val recoveryBundle: KeerV2RecoveryBundle,
+    val sharingPublicKey: String,
+    val wrappedSharingPrivateKey: String,
+    val keyVersion: Int,
+    val algorithms: String,
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val createTime: Instant? = null,
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val updateTime: Instant? = null
+)
+
+@Serializable
+data class KeerV2UserPublicKey(
+    val name: String,
+    val sharingPublicKey: String,
+    val keyVersion: Int,
+)
+
+@Serializable
+data class ListUserPublicKeysResponse(
+    val users: List<KeerV2UserPublicKey> = emptyList()
+)
+
+@Serializable
+data class CreateGroupKeyVersionRequest(
+    val groupKeyVersion: CreateGroupKeyVersionBody
+)
+
+@Serializable
+data class CreateGroupKeyVersionBody(
+    val algorithm: String,
+    val wrappedKeys: List<KeerV2WrappedKeySlot>
+)
+
+@Serializable
+data class GroupKeyVersionResponse(
+    val groupKeyVersion: KeerV2GroupKeyVersion
+)
+
+@Serializable
+data class KeerV2GroupKeyVersion(
+    val name: String,
+    val group: String,
+    val version: Int,
+    val algorithm: String,
+    val wrappedKeys: List<KeerV2WrappedKeySlot> = emptyList(),
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val createTime: Instant? = null,
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val updateTime: Instant? = null,
 )
 
 @Serializable

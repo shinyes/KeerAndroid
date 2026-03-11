@@ -56,11 +56,12 @@ import kotlinx.coroutines.withContext
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.ResourceRepresentable
+import site.lcyk.keer.data.security.AttachmentEncryptionManager
+import site.lcyk.keer.data.security.EncryptedBlobVariant
 import site.lcyk.keer.data.service.VideoPlayerCache
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import timber.log.Timber
 import java.io.File
 
@@ -74,6 +75,7 @@ fun MemoVideo(
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
     val userStateViewModel = LocalUserState.current
+    val currentAccount by userStateViewModel.currentAccount.collectAsState(initial = null)
     val memosViewModel = LocalMemos.current
     var showPlayerDialog by remember(resource.remoteId, resource.uri, resource.localUri) {
         mutableStateOf(false)
@@ -104,11 +106,16 @@ fun MemoVideo(
             return@LaunchedEffect
         }
 
-        val downloaded = downloadMemoVideoThumbnailToTemp(
+        val downloaded = downloadResourceVariantToTemp(
             context = context,
             okHttpClient = userStateViewModel.okHttpClient,
+            resource = resourceEntity,
+            accountKey = currentAccount?.accountKey(),
             url = remoteThumbnail,
-            filename = resourceEntity.filename
+            filename = resourceEntity.filename,
+            variant = EncryptedBlobVariant.THUMBNAIL,
+            cacheDirName = "thumbnail_cache",
+            prefix = "video_thumb_",
         ) ?: return@LaunchedEffect
 
         try {
@@ -187,14 +194,22 @@ private fun MemoVideoPlayerDialog(
         }
         if (accessToken.isBlank()) null else "Bearer $accessToken"
     }
+    val currentAccountKey = remember(currentAccount) { currentAccount?.accountKey() }
     val canStartPlayback = !isRemoteSource || !authHeaderValue.isNullOrBlank()
     var playbackError by remember(sourceUri) { mutableStateOf(false) }
 
-    val player = remember(sourceUri, authHeaderValue, canStartPlayback) {
+    val player = remember(sourceUri, authHeaderValue, canStartPlayback, currentAccountKey) {
         if (!canStartPlayback) {
             null
         } else {
-            buildVideoPlayer(context, sourceUri, authHeaderValue)
+            buildVideoPlayer(
+                context = context,
+                sourceUri = sourceUri,
+                authHeaderValue = authHeaderValue,
+                currentAccountKey = currentAccountKey,
+                resource = resource,
+                okHttpClient = userStateViewModel.okHttpClient,
+            )
         }
     }
 
@@ -284,6 +299,10 @@ private fun resolveMemoVideoPreviewUri(resource: ResourceRepresentable): String 
     if (localThumbnail.isNotEmpty()) {
         return localThumbnail
     }
+    if (!resource.encryptionMetadata.isNullOrBlank()) {
+        val local = resource.localUri?.trim().orEmpty()
+        return local
+    }
     val thumbnail = resource.thumbnailUri?.trim().orEmpty()
     if (thumbnail.isNotEmpty()) {
         return thumbnail
@@ -295,30 +314,6 @@ private fun resolveMemoVideoPreviewUri(resource: ResourceRepresentable): String 
     return resource.uri
 }
 
-private suspend fun downloadMemoVideoThumbnailToTemp(
-    context: Context,
-    okHttpClient: OkHttpClient,
-    url: String,
-    filename: String
-): File? = withContext(Dispatchers.IO) {
-    val request = Request.Builder().url(url).get().build()
-    okHttpClient.newCall(request).execute().use { response ->
-        if (!response.isSuccessful) {
-            return@withContext null
-        }
-        val body = response.body
-        val dir = File(context.cacheDir, "thumbnail_cache").also { it.mkdirs() }
-        val suffix = "_${sanitizeMemoVideoThumbnailFilename(filename.ifBlank { "thumbnail" })}"
-        val target = File.createTempFile("video_thumb_", suffix, dir)
-        body.byteStream().use { input ->
-            target.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-        target
-    }
-}
-
 private fun sanitizeMemoVideoThumbnailFilename(filename: String): String {
     return filename.replace(Regex("[^A-Za-z0-9._-]"), "_")
 }
@@ -327,8 +322,26 @@ private fun sanitizeMemoVideoThumbnailFilename(filename: String): String {
 private fun buildVideoPlayer(
     context: Context,
     sourceUri: Uri,
-    authHeaderValue: String?
+    authHeaderValue: String?,
+    currentAccountKey: String?,
+    resource: ResourceRepresentable,
+    okHttpClient: OkHttpClient,
 ): ExoPlayer {
+    val isRemoteHttpSource = sourceUri.scheme.equals("http", ignoreCase = true) ||
+        sourceUri.scheme.equals("https", ignoreCase = true)
+    val encryptedFactory = resource.encryptionMetadata
+        ?.takeIf { it.isNotBlank() }
+        ?.takeIf { isRemoteHttpSource }
+        ?.let {
+            AttachmentEncryptionManager(context.applicationContext).createStreamingDataSourceFactory(
+                accountKey = resolveResourceAccountKey(resource, currentAccountKey),
+                okHttpClient = okHttpClient,
+                sourceUrl = sourceUri.toString(),
+                rawMetadata = it,
+                variant = EncryptedBlobVariant.MAIN,
+            )
+        }
+
     val httpDataSourceFactory = DefaultHttpDataSource.Factory()
         .setAllowCrossProtocolRedirects(true)
         .setConnectTimeoutMs(15_000)
@@ -341,11 +354,15 @@ private fun buildVideoPlayer(
     }
 
     val upstreamFactory = DefaultDataSource.Factory(context, httpDataSourceFactory)
-    val cacheDataSourceFactory = CacheDataSource.Factory()
-        .setCache(VideoPlayerCache.get(context))
-        .setUpstreamDataSourceFactory(upstreamFactory)
-        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-    val mediaSourceFactory = DefaultMediaSourceFactory(cacheDataSourceFactory)
+    val mediaSourceFactory = if (encryptedFactory != null) {
+        DefaultMediaSourceFactory(encryptedFactory)
+    } else {
+        val cacheDataSourceFactory = CacheDataSource.Factory()
+            .setCache(VideoPlayerCache.get(context))
+            .setUpstreamDataSourceFactory(upstreamFactory)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        DefaultMediaSourceFactory(cacheDataSourceFactory)
+    }
     val loadControl = DefaultLoadControl.Builder()
         .setBufferDurationsMs(
             20_000,
