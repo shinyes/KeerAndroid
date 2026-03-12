@@ -70,8 +70,10 @@ import site.lcyk.keer.util.normalizeTagName
 import site.lcyk.keer.util.parseMemoQuoteDescriptor
 import site.lcyk.keer.util.resolveMemoByIdentifier
 import site.lcyk.keer.util.resolveMemoByRemoteId
+import site.lcyk.keer.util.storedMemoQuotePreviewOrNull
 import site.lcyk.keer.util.stripCollaboratorTags
 import site.lcyk.keer.util.stripQuoteTags
+import site.lcyk.keer.util.toMemoQuotePreview
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 import kotlin.coroutines.resume
@@ -136,6 +138,16 @@ fun MemoInputPage(
                 )
             }
         }
+    }
+    val quotePreview = remember(
+        quotedMemo?.content,
+        quotedMemo?.resources,
+        memo?.quoteStatus,
+        memo?.quoteContentPreview,
+        memo?.quoteDate,
+        memo?.quoteHasAttachments,
+    ) {
+        quotedMemo?.toMemoQuotePreview() ?: memo?.storedMemoQuotePreviewOrNull()
     }
     val quoteDescriptorForSubmit = remember(activeQuoteDescriptor, quotedMemo) {
         quotedMemo?.let(::buildMemoQuoteDescriptor) ?: activeQuoteDescriptor
@@ -499,7 +511,7 @@ fun MemoInputPage(
             quotePreview = quoteDescriptorForSubmit?.let {
                 {
                     MemoQuoteReferenceCard(
-                        quotedMemo = quotedMemo,
+                        quotedMemo = quotePreview,
                         onClick = quotedMemo?.let { source ->
                             {
                                 memosViewModel.cacheMemoForDetail(source)

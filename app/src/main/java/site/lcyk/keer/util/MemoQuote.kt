@@ -1,9 +1,12 @@
 package site.lcyk.keer.util
 
 import site.lcyk.keer.data.local.entity.MemoEntity
+import site.lcyk.keer.data.model.MemoQuotePreview
 
 private const val QUOTE_TAG_ROOT = "quote/src"
 private const val QUOTE_TAG_PREFIX = "$QUOTE_TAG_ROOT/"
+const val MEMO_QUOTE_STATUS_RESOLVED = "resolved"
+const val MEMO_QUOTE_STATUS_UNAVAILABLE = "unavailable"
 
 enum class MemoQuoteSourceKind(val tagSegment: String) {
     LOCAL("local"),
@@ -90,6 +93,42 @@ fun mergeTagsWithCollaboratorsAndQuote(
         return withoutQuote
     }
     return (withoutQuote + quoteTag).distinct()
+}
+
+fun MemoEntity.toMemoQuotePreview(): MemoQuotePreview {
+    return MemoQuotePreview(
+        previewText = buildMemoQuotePreviewText(content),
+        date = date,
+        hasResources = resources.isNotEmpty(),
+    )
+}
+
+fun MemoEntity.storedMemoQuotePreviewOrNull(): MemoQuotePreview? {
+    if (quoteStatus != MEMO_QUOTE_STATUS_RESOLVED) {
+        return null
+    }
+    return MemoQuotePreview(
+        previewText = quoteContentPreview.orEmpty(),
+        date = quoteDate,
+        hasResources = quoteHasAttachments,
+    )
+}
+
+fun buildMemoQuotePreviewText(
+    content: String,
+    maxLength: Int = 180,
+): String {
+    return extractPreviewContent(
+        markdownText = content,
+        maxLength = maxLength,
+    ).first.trim()
+}
+
+fun resolveQuoteSourceKind(raw: String?): MemoQuoteSourceKind? {
+    return raw
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?.let(MemoQuoteSourceKind::fromTagSegment)
 }
 
 private fun encodeHex(value: String): String {

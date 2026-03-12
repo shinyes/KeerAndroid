@@ -65,6 +65,8 @@ import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.parseMemoQuoteDescriptor
 import site.lcyk.keer.util.resolveMemoByIdentifier
 import site.lcyk.keer.util.resolveMemoByRemoteId
+import site.lcyk.keer.util.storedMemoQuotePreviewOrNull
+import site.lcyk.keer.util.toMemoQuotePreview
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.MemoDetailViewModel
@@ -149,6 +151,16 @@ fun MemoDetailPage(
                 )
             }
         }
+    }
+    val quotePreview = remember(
+        quotedMemo?.content,
+        quotedMemo?.resources,
+        memo?.quoteStatus,
+        memo?.quoteContentPreview,
+        memo?.quoteDate,
+        memo?.quoteHasAttachments,
+    ) {
+        quotedMemo?.toMemoQuotePreview() ?: memo?.storedMemoQuotePreviewOrNull()
     }
     var hadMemo by rememberSaveable(memoIdentifier) { mutableStateOf(false) }
     var showCollaboratorDialog by remember { mutableStateOf(false) }
@@ -279,7 +291,7 @@ fun MemoDetailPage(
 
             if (quoteDescriptor != null) {
                 MemoQuoteReferenceCard(
-                    quotedMemo = quotedMemo,
+                    quotedMemo = quotePreview,
                     modifier = Modifier
                         .padding(start = 15.dp, end = 15.dp, bottom = 10.dp),
                     onClick = quotedMemo?.let { source ->

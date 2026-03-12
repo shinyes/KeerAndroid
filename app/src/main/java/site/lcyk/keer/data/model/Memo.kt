@@ -21,4 +21,10 @@ data class Memo(
     val creator: User? = null,
     override val archived: Boolean = false,
     val updatedAt: Instant? = null,
+    val quoteSourceKind: String? = null,
+    val quoteSource: String? = null,
+    val quoteStatus: String? = null,
+    val quoteContentPreview: String? = null,
+    val quoteDate: Instant? = null,
+    val quoteHasAttachments: Boolean = false,
 ) : MemoRepresentable

@@ -49,7 +49,12 @@ import site.lcyk.keer.data.security.EncryptedBlobVariant
 import site.lcyk.keer.data.security.PreparedEncryptedThumbnail
 import site.lcyk.keer.data.security.MemoContentCodec
 import site.lcyk.keer.data.security.WrappedContentKey
+import site.lcyk.keer.util.MEMO_QUOTE_STATUS_RESOLVED
+import site.lcyk.keer.util.MEMO_QUOTE_STATUS_UNAVAILABLE
+import site.lcyk.keer.util.buildMemoQuotePreviewText
 import site.lcyk.keer.util.extractCollaboratorIds
+import site.lcyk.keer.util.parseMemoQuoteDescriptor
+import site.lcyk.keer.util.resolveQuoteSourceKind
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -146,6 +151,18 @@ class KeerV2Repository(
             encryptedPayload = memo.encryptedPayload.orEmpty(),
             payloadEnvelope = memo.payloadEnvelope,
         )
+        val quoteDescriptor = memo.quote?.let { quote ->
+            val sourceKind = resolveQuoteSourceKind(quote.sourceKind)
+            val source = quote.source.trim().ifEmpty { null }
+            if (sourceKind != null && source != null) {
+                sourceKind.tagSegment to source
+            } else {
+                null
+            }
+        } ?: parseMemoQuoteDescriptor(payload.tags)?.let { descriptor ->
+            descriptor.sourceKind.tagSegment to descriptor.source
+        }
+        val quotePreview = convertQuotePreview(memo)
         return Memo(
             remoteId = memo.name,
             content = payload.content,
@@ -157,7 +174,13 @@ class KeerV2Repository(
             latitude = payload.latitude,
             longitude = payload.longitude,
             archived = memo.state == KeerV2State.ARCHIVED,
-            updatedAt = memo.updateTime
+            updatedAt = memo.updateTime,
+            quoteSourceKind = quoteDescriptor?.first,
+            quoteSource = quoteDescriptor?.second,
+            quoteStatus = quotePreview?.status,
+            quoteContentPreview = quotePreview?.contentPreview,
+            quoteDate = quotePreview?.date,
+            quoteHasAttachments = quotePreview?.hasAttachments ?: false,
         )
     }
 
@@ -644,9 +667,7 @@ class KeerV2Repository(
         pageSize: Int,
         pageToken: String?
     ): ApiResponse<Pair<List<Memo>, String?>> {
-        runCatching {
-            accountKeyManager.loadCurrentGroupKey(account, memosApi, groupId)
-        }
+        accountKeyManager.loadCurrentGroupKey(account, memosApi, groupId)
         val response = memosApi.listGroupMessages(getId(groupId), pageSize, pageToken)
         if (response !is ApiResponse.Success) {
             return response.mapSuccess { emptyList<Memo>() to null }
@@ -1776,6 +1797,38 @@ class KeerV2Repository(
         }.getOrNull()
     }
 
+    private fun convertQuotePreview(memo: KeerV2Memo): QuotePreviewSnapshot? {
+        val quotedMemo = memo.quote?.memo ?: return memo.quote?.let {
+            QuotePreviewSnapshot(
+                status = MEMO_QUOTE_STATUS_UNAVAILABLE,
+                contentPreview = null,
+                date = null,
+                hasAttachments = false,
+            )
+        }
+        val hasAttachments = quotedMemo.attachments?.isNotEmpty() == true
+        val payload = decodeMemoPayload(
+            encryptedPayload = quotedMemo.encryptedPayload.orEmpty(),
+            payloadEnvelope = quotedMemo.payloadEnvelope,
+        )
+        val quoteContent = payload.content
+        val resolvedStatus = if (quoteContent == encryptedContentUnavailablePlaceholder && !hasAttachments) {
+            MEMO_QUOTE_STATUS_UNAVAILABLE
+        } else {
+            MEMO_QUOTE_STATUS_RESOLVED
+        }
+        return QuotePreviewSnapshot(
+            status = resolvedStatus,
+            contentPreview = if (resolvedStatus == MEMO_QUOTE_STATUS_RESOLVED) {
+                buildMemoQuotePreviewText(quoteContent)
+            } else {
+                null
+            },
+            date = quotedMemo.createTime ?: quotedMemo.updateTime,
+            hasAttachments = hasAttachments,
+        )
+    }
+
     private fun decodeResourceDescriptor(
         ciphertext: String?,
         envelope: KeerV2PayloadEnvelope?,
@@ -1996,9 +2049,7 @@ class KeerV2Repository(
         if (normalizedGroupId.isEmpty()) {
             return ApiResponse.Success(emptyList())
         }
-        runCatching {
-            accountKeyManager.loadCurrentGroupKey(account, memosApi, normalizedGroupId)
-        }
+        accountKeyManager.loadCurrentGroupKey(account, memosApi, normalizedGroupId)
         var nextPageToken: String? = null
         val tags = linkedSetOf<String>()
         do {
@@ -2277,6 +2328,13 @@ private data class DecodedMemoPayload(
     val tags: List<String>,
     val latitude: Double?,
     val longitude: Double?,
+)
+
+private data class QuotePreviewSnapshot(
+    val status: String,
+    val contentPreview: String?,
+    val date: Instant?,
+    val hasAttachments: Boolean,
 )
 
 private const val encryptedContentUnavailablePlaceholder = "[Encrypted content unavailable]"

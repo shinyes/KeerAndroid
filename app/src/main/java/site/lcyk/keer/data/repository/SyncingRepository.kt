@@ -1153,6 +1153,12 @@ class SyncingRepository(
                 archived = remoteMemo.archived,
                 latitude = remoteMemo.latitude ?: current?.latitude,
                 longitude = remoteMemo.longitude ?: current?.longitude,
+                quoteSourceKind = remoteMemo.quoteSourceKind,
+                quoteSource = remoteMemo.quoteSource,
+                quoteStatus = remoteMemo.quoteStatus,
+                quoteContentPreview = remoteMemo.quoteContentPreview,
+                quoteDate = remoteMemo.quoteDate,
+                quoteHasAttachments = remoteMemo.quoteHasAttachments,
                 needsSync = false,
                 isDeleted = false,
                 lastModified = remoteUpdatedAt,
@@ -1210,6 +1216,12 @@ class SyncingRepository(
                 needsSync = false,
                 isDeleted = false,
                 archived = remoteMemo.archived,
+                quoteSourceKind = remoteMemo.quoteSourceKind,
+                quoteSource = remoteMemo.quoteSource,
+                quoteStatus = remoteMemo.quoteStatus,
+                quoteContentPreview = remoteMemo.quoteContentPreview,
+                quoteDate = remoteMemo.quoteDate,
+                quoteHasAttachments = remoteMemo.quoteHasAttachments,
                 lastSyncedAt = remoteMemo.updatedAt ?: remoteMemo.date
             )
         )

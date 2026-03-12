@@ -37,7 +37,7 @@ import site.lcyk.keer.data.local.entity.TagEntity
         OfflineCachedGroupTagEntity::class,
         OfflinePinnedGroupMemoEntity::class,
     ],
-    version = 10
+    version = 11
 )
 @TypeConverters(Converters::class)
 abstract class KeerDatabase : RoomDatabase() {
@@ -64,6 +64,7 @@ abstract class KeerDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_7_8)
                     .addMigrations(MIGRATION_8_9)
                     .addMigrations(MIGRATION_9_10)
+                    .addMigrations(MIGRATION_10_11)
                     .build()
                 INSTANCE = instance
                 instance
@@ -354,6 +355,17 @@ abstract class KeerDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("DROP INDEX IF EXISTS index_offline_cached_explore_memos_accountKey_updatedAtEpochMillis")
                 db.execSQL("DROP TABLE IF EXISTS offline_cached_explore_memos")
+            }
+        }
+
+        private val MIGRATION_10_11: Migration = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE memos ADD COLUMN quoteSourceKind TEXT")
+                db.execSQL("ALTER TABLE memos ADD COLUMN quoteSource TEXT")
+                db.execSQL("ALTER TABLE memos ADD COLUMN quoteStatus TEXT")
+                db.execSQL("ALTER TABLE memos ADD COLUMN quoteContentPreview TEXT")
+                db.execSQL("ALTER TABLE memos ADD COLUMN quoteDate INTEGER")
+                db.execSQL("ALTER TABLE memos ADD COLUMN quoteHasAttachments INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

@@ -17,24 +17,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import site.lcyk.keer.R
-import site.lcyk.keer.data.local.entity.MemoEntity
+import site.lcyk.keer.data.model.MemoQuotePreview
 import site.lcyk.keer.ext.string
 
 @Composable
 fun MemoQuoteReferenceCard(
-    quotedMemo: MemoEntity?,
+    quotedMemo: MemoQuotePreview?,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null
 ) {
-    val previewText = remember(quotedMemo?.content, quotedMemo?.resources) {
+    val previewText = remember(quotedMemo?.previewText, quotedMemo?.hasResources) {
         val source = quotedMemo ?: return@remember ""
-        val extracted = extractPreviewContent(
-            markdownText = source.content,
-            maxLength = 180
-        ).first.trim()
-        if (extracted.isNotEmpty()) {
-            extracted
-        } else if (source.resources.isNotEmpty()) {
+        if (source.previewText.isNotEmpty()) {
+            source.previewText
+        } else if (source.hasResources) {
             R.string.quoted_memo_media_only.string
         } else {
             R.string.quoted_memo_empty.string
@@ -70,7 +66,7 @@ fun MemoQuoteReferenceCard(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (quotedMemo != null) {
+                if (quotedMemo?.date != null) {
                     Text(
                         text = " - " + DateUtils.getRelativeTimeSpanString(
                             quotedMemo.date.toEpochMilli(),

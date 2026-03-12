@@ -69,6 +69,8 @@ import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.parseMemoQuoteDescriptor
 import site.lcyk.keer.util.resolveMemoByIdentifier
 import site.lcyk.keer.util.resolveMemoByRemoteId
+import site.lcyk.keer.util.storedMemoQuotePreviewOrNull
+import site.lcyk.keer.util.toMemoQuotePreview
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -123,6 +125,16 @@ fun MemosCard(
                 )
             }
         }
+    }
+    val quotePreview = remember(
+        quotedMemo?.content,
+        quotedMemo?.resources,
+        memo.quoteStatus,
+        memo.quoteContentPreview,
+        memo.quoteDate,
+        memo.quoteHasAttachments,
+    ) {
+        quotedMemo?.toMemoQuotePreview() ?: memo.storedMemoQuotePreviewOrNull()
     }
     val hasAuthorIdentity = !authorAvatarUrl.isNullOrBlank() || !authorName.isNullOrBlank()
     val resolvedAuthorAvatarUrl = remember(authorAvatarUrl, userStateViewModel.host) {
@@ -298,7 +310,7 @@ fun MemosCard(
 
             if (quoteDescriptor != null) {
                 MemoQuoteReferenceCard(
-                    quotedMemo = quotedMemo,
+                    quotedMemo = quotePreview,
                     modifier = Modifier
                         .padding(start = 15.dp, end = 15.dp, bottom = 10.dp),
                     onClick = quotedMemo?.let { source ->

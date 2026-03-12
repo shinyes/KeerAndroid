@@ -404,7 +404,30 @@ data class KeerV2Memo(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val attachments: List<KeerV2Resource>? = null,
-    val tags: List<String>? = null
+    val tags: List<String>? = null,
+    val quote: KeerV2MemoQuote? = null,
+)
+
+@Serializable
+data class KeerV2MemoQuote(
+    val sourceKind: String,
+    val source: String,
+    val memo: KeerV2MemoQuoteMemo? = null,
+)
+
+@Serializable
+data class KeerV2MemoQuoteMemo(
+    val name: String,
+    val creator: String? = null,
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val createTime: Instant? = null,
+    @Serializable(with = Rfc3339InstantSerializer::class)
+    val updateTime: Instant? = null,
+    val encryptedPayload: String? = null,
+    val payloadEnvelope: KeerV2PayloadEnvelope? = null,
+    val visibility: MemosVisibility? = null,
+    val attachments: List<KeerV2Resource>? = null,
+    val tags: List<String>? = null,
 )
 
 @Serializable
