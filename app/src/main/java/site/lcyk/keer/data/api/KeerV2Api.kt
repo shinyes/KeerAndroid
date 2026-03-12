@@ -510,10 +510,10 @@ data class UpdateUserEncryptionSettingBody(
 @Serializable
 data class KeerV2UserEncryptionSetting(
     val recoveryBundle: KeerV2RecoveryBundle,
-    val sharingPublicKey: String,
-    val wrappedSharingPrivateKey: String,
+    val sharingPublicKey: String = "",
+    val wrappedSharingPrivateKey: String = "",
     val keyVersion: Int,
-    val algorithms: String,
+    val algorithms: String = "",
     @Serializable(with = Rfc3339InstantSerializer::class)
     val createTime: Instant? = null,
     @Serializable(with = Rfc3339InstantSerializer::class)
