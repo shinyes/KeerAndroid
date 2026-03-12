@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,10 +24,10 @@ import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -166,6 +167,68 @@ fun SideDrawer(
 
     LazyColumn {
         item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = R.string.keer.string,
+                        style = MaterialTheme.typography.headlineMedium
+                    )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            scope.launch {
+                                memosNavController.navigateToTopLevel(RouteName.DEBUG_LOGS)
+                                onDrawerItemCloseRequested?.invoke()
+                                drawerState?.close()
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.NotificationsNone,
+                            contentDescription = R.string.debug_logs.string,
+                            tint = if (isSelected(RouteName.DEBUG_LOGS)) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            scope.launch {
+                                memosNavController.navigateToTopLevel(RouteName.SETTINGS)
+                                onDrawerItemCloseRequested?.invoke()
+                                drawerState?.close()
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = R.string.settings.string,
+                            tint = if (isSelected(RouteName.SETTINGS) || isSelected(RouteName.CONFIG)) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        item {
             Stats()
         }
 
@@ -198,13 +261,6 @@ fun SideDrawer(
             }
         }
 
-        item {
-            Text(
-                R.string.keer.string,
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(20.dp)
-            )
-        }
         item {
             NavigationDrawerItem(
                 label = { Text(R.string.memos.string) },
@@ -350,39 +406,6 @@ fun SideDrawer(
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
             )
         }
-        item {
-            NavigationDrawerItem(
-                label = { Text(R.string.more.string) },
-                icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
-                selected = isSelected(RouteName.SETTINGS),
-                onClick = {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    scope.launch {
-                        memosNavController.navigateToTopLevel(RouteName.SETTINGS)
-                        onDrawerItemCloseRequested?.invoke()
-                        drawerState?.close()
-                    }
-                },
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-            )
-        }
-        item {
-            NavigationDrawerItem(
-                label = { Text(R.string.config.string) },
-                icon = { Icon(Icons.Outlined.Tune, contentDescription = null) },
-                selected = isSelected(RouteName.CONFIG),
-                onClick = {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    scope.launch {
-                        memosNavController.navigateToTopLevel(RouteName.CONFIG)
-                        onDrawerItemCloseRequested?.invoke()
-                        drawerState?.close()
-                    }
-                },
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-            )
-        }
-
         item {
             HorizontalDivider(Modifier.padding(vertical = 10.dp))
         }
