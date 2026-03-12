@@ -1,5 +1,7 @@
 package site.lcyk.keer.ui.page.memos
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -20,8 +22,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
@@ -33,10 +37,10 @@ import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.SyncStatusBadge
 import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.MemosCardActionButton
+import site.lcyk.keer.ui.page.memoinput.QuickMemoComposer
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
-import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToSearchPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
 import site.lcyk.keer.viewmodel.LocalMemos
@@ -68,6 +72,7 @@ fun MemosHomePage(
         }
     }
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
+    var showQuickComposer by rememberSaveable { mutableStateOf(false) }
 
     suspend fun requestManualSync() {
         processManualSyncResult(memosViewModel.refreshMemos()) { alert ->
@@ -75,109 +80,117 @@ fun MemosHomePage(
         }
     }
 
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(text = R.string.memos.string) },
-                navigationIcon = {
-                    if (drawerState != null) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(text = R.string.memos.string) },
+                    navigationIcon = {
+                        if (drawerState != null) {
+                            IconButton(onClick = {
+                                onMenuButtonOpenRequested?.invoke()
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                scope.launch { drawerState.open() }
+                            }) {
+                                Icon(Icons.Filled.Menu, contentDescription = R.string.menu.string)
+                            }
+                        }
+                    },
+                    actions = {
+                        if (currentAccount !is Account.Local && syncStatus.syncing) {
+                            SyncStatusBadge(
+                                syncing = syncStatus.syncing,
+                                unsyncedCount = syncStatus.unsyncedCount,
+                                progress = syncStatus.progress,
+                                onSync = {
+                                    scope.launch {
+                                        requestManualSync()
+                                    }
+                                }
+                            )
+                        }
                         IconButton(onClick = {
-                            onMenuButtonOpenRequested?.invoke()
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                            scope.launch { drawerState.open() }
+                            navController.navigateToSearchPage()
                         }) {
-                            Icon(Icons.Filled.Menu, contentDescription = R.string.menu.string)
+                            Icon(Icons.Filled.Search, contentDescription = R.string.search.string)
                         }
                     }
-                },
-                actions = {
-                    if (currentAccount !is Account.Local && syncStatus.syncing) {
-                        SyncStatusBadge(
-                            syncing = syncStatus.syncing,
-                            unsyncedCount = syncStatus.unsyncedCount,
-                            progress = syncStatus.progress,
-                            onSync = {
-                                scope.launch {
-                                    requestManualSync()
+                )
+            },
+
+            floatingActionButton = {
+                if (!showQuickComposer) {
+                    ExtendedFloatingActionButton(
+                        onClick = {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showQuickComposer = true
+                        },
+                        expanded = expandedFab,
+                        text = { Text(R.string.new_memo.string) },
+                        icon = { Icon(Icons.Filled.Add, contentDescription = R.string.compose.string) }
+                    )
+                }
+            },
+
+            content = { innerPadding ->
+                MemosList(
+                    memos = homeMemos.map { item -> item.memo },
+                    lazyListState = listState,
+                    contentPadding = innerPadding,
+                    onRefresh = { requestManualSync() },
+                    onTagClick = { tag ->
+                        navController.navigateToTagPage(tag)
+                    },
+                    onRequestEdit = { memo ->
+                        val item = homeMemoItemsById[memo.identifier]
+                        if (item?.groupId.isNullOrBlank()) {
+                            rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
+                        } else {
+                            navController.navigateToGroupInputPage(
+                                groupId = requireNotNull(item.groupId),
+                                memoId = memo.remoteId
+                            )
+                        }
+                    },
+                    editGestureResolver = { memo, defaultGesture ->
+                        val item = homeMemoItemsById[memo.identifier]
+                        if (item?.groupId.isNullOrBlank()) {
+                            defaultGesture
+                        } else {
+                            site.lcyk.keer.data.model.MemoEditGesture.NONE
+                        }
+                    },
+                    actionButton = { memo ->
+                        val item = homeMemoItemsById[memo.identifier]
+                        if (item?.groupId.isNullOrBlank()) {
+                            MemosCardActionButton(
+                                memo = memo,
+                                onRequestEdit = { target ->
+                                    rootNavController.navigate("${RouteName.EDIT}?memoId=${target.identifier}")
                                 }
-                            }
-                        )
+                            )
+                        } else {
+                            HomeGroupMemoActionButton(
+                                memo = memo,
+                                groupId = requireNotNull(item.groupId),
+                                onRequestEdit = {
+                                    navController.navigateToGroupInputPage(
+                                        groupId = requireNotNull(item.groupId),
+                                        memoId = memo.remoteId
+                                    )
+                                }
+                            )
+                        }
                     }
-                    IconButton(onClick = {
-                        navController.navigateToSearchPage()
-                    }) {
-                        Icon(Icons.Filled.Search, contentDescription = R.string.search.string)
-                    }
-                }
-            )
-        },
+                )
+            }
+        )
 
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    rootNavController.navigateToMemoInputPage()
-                },
-                expanded = expandedFab,
-                text = { Text(R.string.new_memo.string) },
-                icon = { Icon(Icons.Filled.Add, contentDescription = R.string.compose.string) }
-            )
-        },
-
-        content = { innerPadding ->
-            MemosList(
-                memos = homeMemos.map { item -> item.memo },
-                lazyListState = listState,
-                contentPadding = innerPadding,
-                onRefresh = { requestManualSync() },
-                onTagClick = { tag ->
-                    navController.navigateToTagPage(tag)
-                },
-                onRequestEdit = { memo ->
-                    val item = homeMemoItemsById[memo.identifier]
-                    if (item?.groupId.isNullOrBlank()) {
-                        rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
-                    } else {
-                        navController.navigateToGroupInputPage(
-                            groupId = requireNotNull(item.groupId),
-                            memoId = memo.remoteId
-                        )
-                    }
-                },
-                editGestureResolver = { memo, defaultGesture ->
-                    val item = homeMemoItemsById[memo.identifier]
-                    if (item?.groupId.isNullOrBlank()) {
-                        defaultGesture
-                    } else {
-                        site.lcyk.keer.data.model.MemoEditGesture.NONE
-                    }
-                },
-                actionButton = { memo ->
-                    val item = homeMemoItemsById[memo.identifier]
-                    if (item?.groupId.isNullOrBlank()) {
-                        MemosCardActionButton(
-                            memo = memo,
-                            onRequestEdit = { target ->
-                                rootNavController.navigate("${RouteName.EDIT}?memoId=${target.identifier}")
-                            }
-                        )
-                    } else {
-                        HomeGroupMemoActionButton(
-                            memo = memo,
-                            groupId = requireNotNull(item.groupId),
-                            onRequestEdit = {
-                                navController.navigateToGroupInputPage(
-                                    groupId = requireNotNull(item.groupId),
-                                    memoId = memo.remoteId
-                                )
-                            }
-                        )
-                    }
-                }
-            )
-        }
-    )
+        QuickMemoComposer(
+            visible = showQuickComposer,
+            onDismissRequest = { showQuickComposer = false }
+        )
+    }
 
     SyncAlertDialog(
         alert = syncAlert,
