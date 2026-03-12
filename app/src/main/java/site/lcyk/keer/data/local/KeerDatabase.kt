@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
+import androidx.sqlite.db.SimpleSQLiteQuery
 import androidx.sqlite.db.SupportSQLiteDatabase
 import site.lcyk.keer.data.local.dao.MemoDao
 import site.lcyk.keer.data.local.dao.OfflineGroupDao
@@ -37,7 +38,7 @@ import site.lcyk.keer.data.local.entity.TagEntity
         OfflineCachedGroupTagEntity::class,
         OfflinePinnedGroupMemoEntity::class,
     ],
-    version = 11
+    version = 15
 )
 @TypeConverters(Converters::class)
 abstract class KeerDatabase : RoomDatabase() {
@@ -65,6 +66,10 @@ abstract class KeerDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_8_9)
                     .addMigrations(MIGRATION_9_10)
                     .addMigrations(MIGRATION_10_11)
+                    .addMigrations(MIGRATION_11_12)
+                    .addMigrations(MIGRATION_12_13)
+                    .addMigrations(MIGRATION_13_14)
+                    .addMigrations(MIGRATION_14_15)
                     .build()
                 INSTANCE = instance
                 instance
@@ -222,6 +227,7 @@ abstract class KeerDatabase : RoomDatabase() {
                         description TEXT NOT NULL,
                         creatorId TEXT NOT NULL,
                         creatorName TEXT NOT NULL,
+                        groupType TEXT NOT NULL DEFAULT 'GROUP',
                         createdAtEpochMillis INTEGER NOT NULL,
                         PRIMARY KEY(accountKey, groupId)
                     )
@@ -367,6 +373,59 @@ abstract class KeerDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE memos ADD COLUMN quoteDate INTEGER")
                 db.execSQL("ALTER TABLE memos ADD COLUMN quoteHasAttachments INTEGER NOT NULL DEFAULT 0")
             }
+        }
+
+        private val MIGRATION_11_12: Migration = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE offline_groups ADD COLUMN groupType TEXT NOT NULL DEFAULT 'GROUP'")
+            }
+        }
+
+        private val MIGRATION_12_13: Migration = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE offline_groups ADD COLUMN hasUnreadDirectMessages INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        private val MIGRATION_13_14: Migration = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "offline_groups", "hasUnreadDirectMessages")) {
+                    db.execSQL("ALTER TABLE offline_groups ADD COLUMN hasUnreadDirectMessages INTEGER NOT NULL DEFAULT 0")
+                }
+            }
+        }
+
+        private val MIGRATION_14_15: Migration = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "offline_groups", "updatedAtEpochMillis")) {
+                    db.execSQL("ALTER TABLE offline_groups ADD COLUMN updatedAtEpochMillis INTEGER NOT NULL DEFAULT 0")
+                }
+                db.execSQL(
+                    """
+                    UPDATE offline_groups
+                    SET updatedAtEpochMillis = createdAtEpochMillis
+                    WHERE updatedAtEpochMillis = 0
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS index_offline_groups_accountKey_updatedAtEpochMillis
+                    ON offline_groups(accountKey, updatedAtEpochMillis)
+                    """.trimIndent()
+                )
+            }
+        }
+
+        private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
+            db.query(SimpleSQLiteQuery("PRAGMA table_info($table)")).use { cursor ->
+                val nameIndex = cursor.getColumnIndex("name")
+                while (cursor.moveToNext()) {
+                    if (nameIndex >= 0 && cursor.getString(nameIndex) == column) {
+                        return true
+                    }
+                }
+            }
+            return false
         }
     }
 }

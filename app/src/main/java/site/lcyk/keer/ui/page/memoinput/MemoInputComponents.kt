@@ -82,6 +82,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
+import site.lcyk.keer.data.model.User
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.Attachment
 import site.lcyk.keer.ui.component.InputImage
@@ -506,25 +507,58 @@ internal fun MemoTagSelectorDialog(
 
 @Composable
 internal fun MemoCollaboratorDialog(
+    availableCollaborators: List<User>,
     selectedCollaborators: List<String>,
     onSelectedCollaboratorsChange: (List<String>) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var inputValue by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf("") }
     val collaborators = remember(selectedCollaborators) {
         selectedCollaborators
             .map(::normalizeCollaboratorId)
             .filter { it.isNotEmpty() }
             .distinct()
     }
+    val selectedSet = remember(collaborators) { collaborators.toSet() }
+    val visibleCollaborators = remember(availableCollaborators, collaborators, query) {
+        val knownIds = availableCollaborators
+            .map { collaborator -> normalizeCollaboratorId(collaborator.identifier) }
+            .toSet()
+        val unknownSelected = collaborators
+            .filterNot(knownIds::contains)
+            .map { collaboratorId ->
+                User(
+                    identifier = collaboratorId,
+                    name = collaboratorId
+                )
+            }
+        (availableCollaborators + unknownSelected)
+            .distinctBy { collaborator -> normalizeCollaboratorId(collaborator.identifier) }
+            .filter { collaborator ->
+                val normalizedId = normalizeCollaboratorId(collaborator.identifier)
+                if (normalizedId.isEmpty()) {
+                    return@filter false
+                }
+                val normalizedQuery = query.trim()
+                normalizedQuery.isEmpty() ||
+                    collaborator.name.contains(normalizedQuery, ignoreCase = true) ||
+                    normalizedId.contains(normalizedQuery, ignoreCase = true)
+            }
+            .sortedBy { collaborator -> collaborator.name.lowercase() }
+    }
 
-    fun addCollaborator(raw: String) {
+    fun toggleCollaborator(raw: String) {
         val normalized = normalizeCollaboratorId(raw)
         if (normalized.isEmpty()) {
             return
         }
-        onSelectedCollaboratorsChange((collaborators + normalized).distinct())
-        inputValue = ""
+        val next = collaborators.toMutableList()
+        if (selectedSet.contains(normalized)) {
+            next.removeAll { it == normalized }
+        } else {
+            next.add(normalized)
+        }
+        onSelectedCollaboratorsChange(next.distinct())
     }
 
     AlertDialog(
@@ -533,17 +567,12 @@ internal fun MemoCollaboratorDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
-                    value = inputValue,
-                    onValueChange = { inputValue = it },
+                    value = query,
+                    onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text(R.string.collaborator_id.string) },
+                    label = { Text(R.string.search.string) },
                     singleLine = true
                 )
-                TextButton(
-                    onClick = { addCollaborator(inputValue) }
-                ) {
-                    Text(R.string.add_collaborator.string)
-                }
 
                 if (collaborators.isNotEmpty()) {
                     LazyRow(
@@ -553,12 +582,61 @@ internal fun MemoCollaboratorDialog(
                         items(collaborators, key = { it }) { collaboratorId ->
                             KeerRemovableTagChip(
                                 tag = "co:$collaboratorId",
-                                onRemove = {
-                                    onSelectedCollaboratorsChange(
-                                        collaborators.filterNot { it == collaboratorId }
+                                onRemove = { toggleCollaborator(collaboratorId) }
+                            )
+                        }
+                    }
+                }
+
+                if (visibleCollaborators.isEmpty()) {
+                    Text(
+                        text = R.string.no_friends_available_for_collaboration.string,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 280.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(
+                            visibleCollaborators,
+                            key = { collaborator -> normalizeCollaboratorId(collaborator.identifier) }
+                        ) { collaborator ->
+                            val normalizedId = normalizeCollaboratorId(collaborator.identifier)
+                            val selected = selectedSet.contains(normalizedId)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(
+                                            alpha = if (selected) 0.65f else 0f
+                                        )
+                                    )
+                                    .clickable { toggleCollaborator(normalizedId) }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = collaborator.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                                    )
+                                    Text(
+                                        text = normalizedId,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                            )
+                                Checkbox(
+                                    checked = selected,
+                                    onCheckedChange = { toggleCollaborator(normalizedId) }
+                                )
+                            }
                         }
                     }
                 }

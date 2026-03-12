@@ -3,6 +3,12 @@
 import kotlinx.serialization.Serializable
 
 @Serializable
+enum class MemoGroupType {
+    GROUP,
+    DIRECT,
+}
+
+@Serializable
 data class GroupMember(
     val userId: String,
     val userName: String
@@ -15,6 +21,12 @@ data class MemoGroup(
     val description: String = "",
     val creatorId: String,
     val creatorName: String,
+    val type: MemoGroupType = MemoGroupType.GROUP,
     val members: List<GroupMember> = emptyList(),
-    val createdAtEpochMillis: Long = System.currentTimeMillis()
-)
+    val hasUnreadDirectMessages: Boolean = false,
+    val createdAtEpochMillis: Long = System.currentTimeMillis(),
+    val updatedAtEpochMillis: Long = createdAtEpochMillis,
+) {
+    val isDirect: Boolean
+        get() = type == MemoGroupType.DIRECT
+}

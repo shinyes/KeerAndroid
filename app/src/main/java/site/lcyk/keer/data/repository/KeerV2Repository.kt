@@ -18,6 +18,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import site.lcyk.keer.data.api.KeerV2Api
+import site.lcyk.keer.data.api.AddFriendRequest
+import site.lcyk.keer.data.api.AddGroupMemberRequest
+import site.lcyk.keer.data.api.CreateDirectGroupRequest
 import site.lcyk.keer.data.api.CreateGroupMessageRequest
 import site.lcyk.keer.data.api.CreateGroupRequest
 import site.lcyk.keer.data.api.KeerV2Group
@@ -28,6 +31,7 @@ import site.lcyk.keer.data.api.KeerV2PayloadEnvelope
 import site.lcyk.keer.data.api.KeerV2Resource
 import site.lcyk.keer.data.api.KeerV2State
 import site.lcyk.keer.data.api.KeerV2User
+import site.lcyk.keer.data.api.MarkGroupReadRequest
 import site.lcyk.keer.data.api.MemosVisibility
 import site.lcyk.keer.data.api.UpdateGroupMessageRequest
 import site.lcyk.keer.data.api.UpdateMemoRequest
@@ -37,6 +41,7 @@ import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.GroupMember
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoGroup
+import site.lcyk.keer.data.model.MemoGroupType
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.Resource
 import site.lcyk.keer.data.model.User
@@ -193,16 +198,41 @@ class KeerV2Repository(
                     ?: member.username
             )
         }
+        val groupType = group.type.toMemoGroupType()
+        val currentUserId = account.info.id.toString()
+        val directPeer = members.firstOrNull { member ->
+            getId(member.userId) != currentUserId
+        }
+        val resolvedName = if (groupType == MemoGroupType.DIRECT) {
+            directPeer?.userName?.ifBlank { null }
+                ?: group.groupName.ifBlank { directPeer?.userId?.let(::getId) ?: getId(group.creator) }
+        } else {
+            group.groupName
+        }
         val creatorName = members.firstOrNull { it.userId == group.creator }?.userName
             ?: getId(group.creator)
         return MemoGroup(
             id = getId(group.name),
-            name = group.groupName,
-            description = group.description.orEmpty(),
+            name = resolvedName,
+            description = if (groupType == MemoGroupType.DIRECT) "" else group.description.orEmpty(),
             creatorId = group.creator,
             creatorName = creatorName,
+            type = groupType,
             members = members,
-            createdAtEpochMillis = group.createTime?.toEpochMilli() ?: System.currentTimeMillis()
+            hasUnreadDirectMessages = groupType == MemoGroupType.DIRECT && group.hasUnread,
+            createdAtEpochMillis = group.createTime?.toEpochMilli() ?: System.currentTimeMillis(),
+            updatedAtEpochMillis = group.updateTime?.toEpochMilli()
+                ?: group.createTime?.toEpochMilli()
+                ?: System.currentTimeMillis(),
+        )
+    }
+
+    private fun convertUser(user: KeerV2User): User {
+        return User(
+            identifier = getId(user.name),
+            name = user.displayName?.takeIf { it.isNotBlank() } ?: user.username,
+            startDate = user.createTime ?: Instant.now(),
+            avatarUrl = resolveAvatarUrl(account.info.host, user.avatarUrl.orEmpty())
         )
     }
 
@@ -625,6 +655,22 @@ class KeerV2Repository(
         return memosApi.deleteMemo(getId(remoteId))
     }
 
+    override suspend fun listFriends(): ApiResponse<List<User>> {
+        return memosApi.listFriends().mapSuccess {
+            users.map(::convertUser)
+        }
+    }
+
+    override suspend fun addFriend(userIdentifier: String): ApiResponse<User> {
+        return memosApi.addFriend(
+            AddFriendRequest(user = userIdentifier.trim())
+        ).mapSuccess(::convertUser)
+    }
+
+    override suspend fun removeFriend(userIdentifier: String): ApiResponse<Unit> {
+        return memosApi.removeFriend(userIdentifier.trim())
+    }
+
     override suspend fun listGroups(): ApiResponse<List<MemoGroup>> {
         return memosApi.listGroups().mapSuccess {
             groups.map { group -> convertGroup(group) }
@@ -640,8 +686,17 @@ class KeerV2Repository(
         ).mapSuccess { convertGroup(this) }
     }
 
-    override suspend fun joinGroup(groupId: String): ApiResponse<MemoGroup> {
-        return memosApi.joinGroup(getId(groupId)).mapSuccess { convertGroup(this) }
+    override suspend fun createDirectGroup(userIdentifier: String): ApiResponse<MemoGroup> {
+        return memosApi.createDirectGroup(
+            CreateDirectGroupRequest(user = userIdentifier.trim())
+        ).mapSuccess { convertGroup(this) }
+    }
+
+    override suspend fun addGroupMember(groupId: String, userIdentifier: String): ApiResponse<MemoGroup> {
+        return memosApi.addGroupMember(
+            getId(groupId),
+            AddGroupMemberRequest(user = userIdentifier.trim())
+        ).mapSuccess { convertGroup(this) }
     }
 
     override suspend fun updateGroup(
@@ -761,6 +816,17 @@ class KeerV2Repository(
 
     override suspend fun deleteGroupMessage(groupId: String, messageRemoteId: String): ApiResponse<Unit> {
         return memosApi.deleteGroupMessage(getId(groupId), getId(messageRemoteId))
+    }
+
+    override suspend fun markGroupRead(groupId: String, lastReadMessageRemoteId: String?): ApiResponse<Unit> {
+        val normalizedMessageName = lastReadMessageRemoteId
+            ?.trim()
+            ?.takeIf { value -> value.isNotEmpty() }
+            ?.let(::getName)
+        return memosApi.markGroupRead(
+            getId(groupId),
+            MarkGroupReadRequest(lastReadMessage = normalizedMessageName)
+        )
     }
 
     override suspend fun syncKnownUsers(): ApiResponse<Unit> {
@@ -2079,6 +2145,11 @@ class KeerV2Repository(
             }
         }
         return normalized.toList()
+    }
+
+    private fun String.toMemoGroupType(): MemoGroupType {
+        return runCatching { MemoGroupType.valueOf(trim().uppercase()) }
+            .getOrDefault(MemoGroupType.GROUP)
     }
 }
 

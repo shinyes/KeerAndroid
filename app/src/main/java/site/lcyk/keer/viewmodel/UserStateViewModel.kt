@@ -75,6 +75,8 @@ class UserStateViewModel @Inject constructor(
     private var lastCurrentUserLoadAtMillis: Long = 0L
     private val _collaboratorProfiles = MutableStateFlow<Map<String, CollaboratorProfile>>(emptyMap())
     val collaboratorProfiles: StateFlow<Map<String, CollaboratorProfile>> = _collaboratorProfiles.asStateFlow()
+    private val _friends = MutableStateFlow<List<User>>(emptyList())
+    val friends: StateFlow<List<User>> = _friends.asStateFlow()
     val accounts = accountService.accounts.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
     val currentAccount = accountService.currentAccount.stateIn(viewModelScope, SharingStarted.Lazily, null)
     val joinedGroups: StateFlow<List<MemoGroup>> = currentAccount
@@ -106,6 +108,7 @@ class UserStateViewModel @Inject constructor(
                     else -> ""
                 }
                 _collaboratorProfiles.value = emptyMap()
+                _friends.value = emptyList()
             }
         }
     }
@@ -273,6 +276,64 @@ class UserStateViewModel @Inject constructor(
         response
     }
 
+    suspend fun refreshFriends(): ApiResponse<List<User>> = withContext(viewModelScope.coroutineContext) {
+        val remoteRepository = accountService.getRemoteRepository()
+            ?: return@withContext ApiResponse.Success(emptyList())
+        when (val response = remoteRepository.listFriends()) {
+            is ApiResponse.Success -> {
+                _friends.value = response.data
+                updateCollaboratorProfilesFromFriends(response.data)
+                response
+            }
+            else -> response.mapSuccess { emptyList<User>() }
+        }
+    }
+
+    suspend fun addFriend(userIdentifier: String): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+        val remoteRepository = accountService.getRemoteRepository()
+            ?: return@withContext ApiResponse.exception(IllegalStateException("Current account does not support friends"))
+        when (val response = remoteRepository.addFriend(userIdentifier)) {
+            is ApiResponse.Success -> {
+                val next = (_friends.value + response.data)
+                    .distinctBy(User::identifier)
+                    .sortedBy { it.name.lowercase() }
+                _friends.value = next
+                updateCollaboratorProfilesFromFriends(next)
+                ApiResponse.Success(Unit)
+            }
+            else -> response.mapSuccess { Unit }
+        }
+    }
+
+    suspend fun removeFriend(userIdentifier: String): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+        val remoteRepository = accountService.getRemoteRepository()
+            ?: return@withContext ApiResponse.exception(IllegalStateException("Current account does not support friends"))
+        when (val response = remoteRepository.removeFriend(userIdentifier)) {
+            is ApiResponse.Success -> {
+                val normalized = normalizeCollaboratorUserID(userIdentifier)
+                if (normalized != null) {
+                    _friends.value = _friends.value.filterNot { friend -> friend.identifier == normalized }
+                }
+                ApiResponse.Success(Unit)
+            }
+            else -> response.mapSuccess { Unit }
+        }
+    }
+
+    suspend fun openDirectChat(userIdentifier: String): ApiResponse<MemoGroup> = withContext(viewModelScope.coroutineContext) {
+        val remoteRepository = accountService.getRemoteRepository()
+            ?: return@withContext ApiResponse.exception(IllegalStateException("Current account does not support direct chats"))
+        when (val response = remoteRepository.createDirectGroup(userIdentifier)) {
+            is ApiResponse.Success -> {
+                currentAccount.first()?.accountKey()?.takeIf { accountKey -> accountKey.isNotBlank() }?.let { accountKey ->
+                    offlineGroupStore.upsertGroup(accountKey, response.data)
+                }
+                response
+            }
+            else -> response
+        }
+    }
+
     suspend fun prefetchCollaboratorAvatars(userIds: List<String>) = withContext(viewModelScope.coroutineContext) {
         val account = currentAccount.first() as? Account.KeerV2 ?: return@withContext
         val normalizedIds = userIds
@@ -410,6 +471,18 @@ class UserStateViewModel @Inject constructor(
             .substringBefore('|')
             .trim()
         return normalized.ifEmpty { null }
+    }
+
+    private fun updateCollaboratorProfilesFromFriends(friends: List<User>) {
+        val merged = _collaboratorProfiles.value.toMutableMap()
+        friends.forEach { friend ->
+            merged[friend.identifier] = CollaboratorProfile(
+                id = friend.identifier,
+                name = friend.name,
+                avatarUrl = friend.avatarUrl
+            )
+        }
+        _collaboratorProfiles.value = merged
     }
 
     private companion object {

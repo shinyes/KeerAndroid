@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 enum class PendingGroupOperationType {
     CREATE,
-    JOIN,
+    ADD_MEMBER,
     UPDATE,
     DELETE_OR_LEAVE,
     ADD_TAG,
@@ -19,6 +19,7 @@ data class PendingGroupOperation(
     val groupId: String,
     val name: String? = null,
     val description: String? = null,
+    val targetUser: String? = null,
     val tag: String? = null,
     val createdAtEpochMillis: Long = System.currentTimeMillis(),
 )

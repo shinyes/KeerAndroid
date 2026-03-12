@@ -75,6 +75,7 @@ import site.lcyk.keer.util.stripCollaboratorTags
 import site.lcyk.keer.util.stripQuoteTags
 import site.lcyk.keer.util.toMemoQuotePreview
 import site.lcyk.keer.viewmodel.LocalMemos
+import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 import kotlin.coroutines.resume
 
@@ -90,6 +91,8 @@ fun MemoInputPage(
     val navController = LocalRootNavController.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val memosViewModel = LocalMemos.current
+    val userStateViewModel = LocalUserState.current
+    val friends by userStateViewModel.friends.collectAsState()
     val settings by navController.context.settingsDataStore.data.collectAsState(initial = Settings())
     val memoSnapshot = remember(memosViewModel.memos) { memosViewModel.memos.toList() }
     val memo = remember(memoIdentifier, memoSnapshot, settings.currentUser, settings.usersList) {
@@ -546,6 +549,7 @@ fun MemoInputPage(
 
     if (showCollaboratorSelector) {
         MemoCollaboratorDialog(
+            availableCollaborators = friends,
             selectedCollaborators = selectedCollaborators,
             onSelectedCollaboratorsChange = { selectedCollaborators = it },
             onDismiss = { showCollaboratorSelector = false }
@@ -573,6 +577,7 @@ fun MemoInputPage(
         viewModel.uploadResources.clear()
         viewModel.uploadTasks.clear()
         memosViewModel.loadTags()
+        userStateViewModel.refreshFriends()
         when {
             memo != null -> {
                 viewModel.uploadResources.addAll(memo.resources)

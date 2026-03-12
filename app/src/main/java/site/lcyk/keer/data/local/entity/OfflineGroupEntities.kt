@@ -9,6 +9,7 @@ import androidx.room.Index
     indices = [
         Index(value = ["accountKey"]),
         Index(value = ["accountKey", "createdAtEpochMillis"]),
+        Index(value = ["accountKey", "updatedAtEpochMillis"]),
     ]
 )
 data class OfflineGroupEntity(
@@ -18,7 +19,10 @@ data class OfflineGroupEntity(
     val description: String,
     val creatorId: String,
     val creatorName: String,
+    val groupType: String,
+    val hasUnreadDirectMessages: Boolean,
     val createdAtEpochMillis: Long,
+    val updatedAtEpochMillis: Long,
 )
 
 @Entity(

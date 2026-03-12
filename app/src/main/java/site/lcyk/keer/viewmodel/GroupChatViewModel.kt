@@ -408,6 +408,39 @@ class GroupChatViewModel @Inject constructor(
         true
     }
 
+    suspend fun markGroupRead(groupId: String): Boolean = withContext(viewModelScope.coroutineContext) {
+        if (groupId.isBlank()) {
+            return@withContext false
+        }
+        val accountKey = readCurrentAccountKey() ?: return@withContext false
+        val remoteRepository = accountService.getRemoteRepository()
+        if (remoteRepository == null) {
+            offlineGroupStore.markGroupRead(accountKey, groupId)
+            _errorMessage.value = null
+            return@withContext true
+        }
+        val lastIncomingMessageRemoteId = resolveLatestIncomingMessageRemoteId()
+        if (lastIncomingMessageRemoteId == null) {
+            _errorMessage.value = R.string.group_error_missing_read_target.string
+            return@withContext false
+        }
+        return@withContext when (val response = remoteRepository.markGroupRead(groupId, lastIncomingMessageRemoteId)) {
+            is ApiResponse.Success -> {
+                offlineGroupStore.markGroupRead(accountKey, groupId)
+                _errorMessage.value = null
+                true
+            }
+            else -> {
+                _errorMessage.value = response.getErrorMessage()
+                false
+            }
+        }
+    }
+
+    fun clearErrorMessage() {
+        _errorMessage.value = null
+    }
+
     private suspend fun enqueueGroupTagOperation(groupId: String, tag: String) {
         readCurrentAccountKey()?.let { accountKey ->
             offlineGroupStore.enqueuePendingGroupOperation(
@@ -627,8 +660,32 @@ class GroupChatViewModel @Inject constructor(
         }
     }
 
+    private suspend fun resolveLatestIncomingMessageRemoteId(): String? {
+        val currentUserId = normalizeCollaboratorId(
+            when (val account = accountService.currentAccount.first()) {
+                is Account.KeerV2 -> account.info.id.toString()
+                is Account.Local -> "local"
+                null -> ""
+            }
+        )
+        return _memos.value
+            .asSequence()
+            .filter { memo ->
+                !memo.remoteId.startsWith("local:") &&
+                    normalizeCollaboratorId(memo.creator?.identifier.orEmpty()) != currentUserId
+            }
+            .maxByOrNull { memo -> parseRemoteNumericId(memo.remoteId) ?: memo.date.toEpochMilli() }
+            ?.remoteId
+    }
+
     private suspend fun readCurrentAccountKey(): String? {
         return context.settingsDataStore.data.first().currentUser.takeIf { it.isNotBlank() }
+    }
+
+    private fun parseRemoteNumericId(remoteId: String): Long? {
+        return remoteId.trim()
+            .substringAfterLast('/')
+            .toLongOrNull()
     }
 
     private fun groupMemoKey(groupId: String, memoRemoteId: String): String {

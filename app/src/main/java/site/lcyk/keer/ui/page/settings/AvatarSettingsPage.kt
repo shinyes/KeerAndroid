@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Group
+import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -137,6 +138,15 @@ fun AvatarSettingsPage(
                     },
                     onClick = {
                         avatarPickerLauncher.launch(arrayOf("image/*"))
+                    }
+                )
+            }
+            item {
+                SettingItem(
+                    icon = Icons.Outlined.PersonAdd,
+                    text = R.string.friends.string,
+                    onClick = {
+                        navController.navigateToTopLevel(RouteName.FRIENDS)
                     }
                 )
             }

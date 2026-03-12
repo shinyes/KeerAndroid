@@ -56,6 +56,7 @@ import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.stripCollaboratorTags
 import site.lcyk.keer.viewmodel.GroupChatViewModel
+import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 
 @Composable
@@ -72,6 +73,8 @@ fun GroupMemoInputPage(
     val lifecycleOwner = LocalLifecycleOwner.current
     val groupTags by groupViewModel.groupTags.collectAsState()
     val errorMessage by groupViewModel.errorMessage.collectAsState()
+    val userStateViewModel = LocalUserState.current
+    val friends by userStateViewModel.friends.collectAsState()
 
     var initialContent by remember { mutableStateOf("") }
     var initialTags by remember { mutableStateOf(emptyList<String>()) }
@@ -328,6 +331,7 @@ fun GroupMemoInputPage(
 
     if (showCollaboratorSelector) {
         MemoCollaboratorDialog(
+            availableCollaborators = friends,
             selectedCollaborators = selectedCollaborators,
             onSelectedCollaboratorsChange = { selectedCollaborators = it },
             onDismiss = { showCollaboratorSelector = false }
@@ -355,6 +359,7 @@ fun GroupMemoInputPage(
     LaunchedEffect(groupId, memoId) {
         inputViewModel.uploadResources.clear()
         inputViewModel.uploadTasks.clear()
+        userStateViewModel.refreshFriends()
         groupViewModel.loadGroupTags(groupId)
         if (isEditMode) {
             groupViewModel.loadGroupMemos(groupId, forceSync = false)

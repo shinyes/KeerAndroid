@@ -28,6 +28,18 @@ interface KeerV2Api {
     @GET("api/v1/auth/me")
     suspend fun getCurrentUser(): ApiResponse<GetCurrentUserResponse>
 
+    @GET("api/v1/friends")
+    suspend fun listFriends(): ApiResponse<ListUsersResponse>
+
+    @POST("api/v1/friends")
+    suspend fun addFriend(@Body body: AddFriendRequest): ApiResponse<KeerV2User>
+
+    @DELETE("api/v1/friends/{id}")
+    suspend fun removeFriend(@Path("id") userId: String): ApiResponse<Unit>
+
+    @POST("api/v1/directs")
+    suspend fun createDirectGroup(@Body body: CreateDirectGroupRequest): ApiResponse<KeerV2Group>
+
     @GET("api/v1/users/{id}/settings/GENERAL")
     suspend fun getUserSetting(@Path("id") userId: String): ApiResponse<KeerV2UserSetting>
 
@@ -79,8 +91,11 @@ interface KeerV2Api {
     @POST("api/v1/groups")
     suspend fun createGroup(@Body body: CreateGroupRequest): ApiResponse<KeerV2Group>
 
-    @POST("api/v1/groups/{id}/join")
-    suspend fun joinGroup(@Path("id") groupId: String): ApiResponse<KeerV2Group>
+    @POST("api/v1/groups/{id}/members")
+    suspend fun addGroupMember(
+        @Path("id") groupId: String,
+        @Body body: AddGroupMemberRequest
+    ): ApiResponse<KeerV2Group>
 
     @PATCH("api/v1/groups/{id}")
     suspend fun updateGroup(@Path("id") groupId: String, @Body body: UpdateGroupRequest): ApiResponse<KeerV2Group>
@@ -94,6 +109,12 @@ interface KeerV2Api {
         @Query("pageSize") pageSize: Int,
         @Query("pageToken") pageToken: String? = null
     ): ApiResponse<ListGroupMessagesResponse>
+
+    @POST("api/v1/groups/{id}/read")
+    suspend fun markGroupRead(
+        @Path("id") groupId: String,
+        @Body body: MarkGroupReadRequest
+    ): ApiResponse<Unit>
 
     @POST("api/v1/groups/{id}/messages")
     suspend fun createGroupMessage(
@@ -203,6 +224,21 @@ data class CreateUserBody(
 )
 
 @Serializable
+data class AddFriendRequest(
+    val user: String
+)
+
+@Serializable
+data class AddGroupMemberRequest(
+    val user: String
+)
+
+@Serializable
+data class CreateDirectGroupRequest(
+    val user: String
+)
+
+@Serializable
 data class AuthSessionResponse(
     val user: KeerV2User,
     val accessToken: String,
@@ -306,6 +342,8 @@ data class KeerV2Group(
     val createTime: Instant? = null,
     @Serializable(with = Rfc3339InstantSerializer::class)
     val updateTime: Instant? = null,
+    val type: String = "GROUP",
+    val hasUnread: Boolean = false,
     val groupName: String,
     val description: String? = null,
     val members: List<KeerV2GroupMember> = emptyList()
@@ -331,6 +369,11 @@ data class UpdateGroupMessageRequest(
     val payloadEnvelope: KeerV2PayloadEnvelope? = null,
     val tags: List<String>? = null,
     val attachments: List<KeerV2Resource>? = null,
+)
+
+@Serializable
+data class MarkGroupReadRequest(
+    val lastReadMessage: String? = null,
 )
 
 @Serializable

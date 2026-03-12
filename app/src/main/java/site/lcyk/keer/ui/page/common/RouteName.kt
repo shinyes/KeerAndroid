@@ -16,6 +16,7 @@ object RouteName {
     const val EXPLORE = "explore"
     const val ACCOUNT = "account"
     const val DEBUG_LOGS = "debug-logs"
+    const val FRIENDS = "friends"
     const val GROUP_MANAGEMENT = "group-management"
     const val GROUP_CHAT = "group-chat"
     const val GROUP_INPUT = "group-input"

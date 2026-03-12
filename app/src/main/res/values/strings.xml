@@ -127,6 +127,7 @@
     <string name="group_error_id_required">Group ID cannot be empty</string>
     <string name="group_error_invalid_update_request">Invalid group update request</string>
     <string name="group_error_account_not_support_group_memos">Current account does not support group memos</string>
+    <string name="group_error_missing_read_target">Unable to determine the latest incoming message for read status.</string>
     <string name="group_id">Group ID</string>
     <string name="group_creator_id">Creator ID</string>
     <string name="group_creator_name">Creator name</string>
@@ -140,7 +141,18 @@
     <string name="collaborators">Collaborators</string>
     <string name="collaborator_id">Collaborator ID</string>
     <string name="add_collaborator">Add collaborator</string>
-    <string name="no_groups_joined">No joined groups yet. Create one or join with group info.</string>
+    <string name="friends">Friends</string>
+    <string name="add_friend">Add Friend</string>
+    <string name="remove_friend">Remove Friend</string>
+    <string name="friend_user_identifier">Friend username or ID</string>
+    <string name="friend_user_identifier_required">Friend username or ID is required.</string>
+    <string name="friends_remote_only">Friends are only available for synced accounts.</string>
+    <string name="no_friends_yet">No friends yet.</string>
+    <string name="invite_friend">Invite Friend</string>
+    <string name="no_invitable_friends">No invitable friends available for this group.</string>
+    <string name="no_friends_available_for_collaboration">Add friends first to use co-creation.</string>
+    <string name="private_chat">Private Chat</string>
+    <string name="no_groups_joined">No joined groups yet. Create one or wait for a friend invite.</string>
     <string name="delete_group_confirm">Only group creator can delete. This action cannot be undone.</string>
     <string name="leave_group_confirm">Leave this group now?</string>
     <string name="create">Create</string>

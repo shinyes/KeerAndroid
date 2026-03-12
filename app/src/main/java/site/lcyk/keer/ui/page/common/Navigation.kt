@@ -42,6 +42,7 @@ import site.lcyk.keer.ui.page.group.GroupManagementPage
 import site.lcyk.keer.ui.page.resource.ResourceListPage
 import site.lcyk.keer.ui.page.settings.AvatarSettingsPage
 import site.lcyk.keer.ui.page.settings.DebugLogPage
+import site.lcyk.keer.ui.page.settings.FriendManagementPage
 import site.lcyk.keer.ui.page.settings.SettingsPage
 import site.lcyk.keer.ui.theme.KeerTheme
 import site.lcyk.keer.util.ForegroundSyncCoordinator
@@ -99,6 +100,10 @@ fun Navigation() {
 
                 composable(RouteName.DEBUG_LOGS) {
                     DebugLogPage(navController = navController)
+                }
+
+                composable(RouteName.FRIENDS) {
+                    FriendManagementPage(navController = navController)
                 }
 
                 composable(RouteName.GROUP_MANAGEMENT) {

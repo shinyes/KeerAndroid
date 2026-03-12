@@ -124,6 +124,7 @@ fun GroupChatPage(
 
     val memos by viewModel.memos.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val refreshState = rememberPullToRefreshState()
     val expandedFab by remember {
@@ -141,6 +142,12 @@ fun GroupChatPage(
     suspend fun reloadGroup(forceSync: Boolean = false) {
         val resolvedGroup = group ?: return
         viewModel.loadGroupMemos(resolvedGroup.id, forceSync = forceSync)
+        if (resolvedGroup.isDirect && resolvedGroup.hasUnreadDirectMessages) {
+            val markReadSucceeded = viewModel.markGroupRead(resolvedGroup.id)
+            if (!markReadSucceeded) {
+                return
+            }
+        }
     }
 
     suspend fun requestManualSync() {
@@ -189,6 +196,12 @@ fun GroupChatPage(
         if (group != null && wasRunning && !syncStatus.syncing) {
             reloadGroup(forceSync = false)
         }
+    }
+
+    LaunchedEffect(errorMessage) {
+        val message = errorMessage ?: return@LaunchedEffect
+        syncAlert = SyncAlertState.Failed(message)
+        viewModel.clearErrorMessage()
     }
 
     if (group == null) {
@@ -319,7 +332,10 @@ fun GroupChatPage(
 
     SyncAlertDialog(
         alert = syncAlert,
-        onDismiss = { syncAlert = null }
+        onDismiss = {
+            syncAlert = null
+            viewModel.clearErrorMessage()
+        }
     )
 }
 

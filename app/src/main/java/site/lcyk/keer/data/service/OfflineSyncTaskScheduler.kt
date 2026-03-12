@@ -49,6 +49,21 @@ class OfflineSyncTaskScheduler @Inject constructor(
             if (pendingSync !is ApiResponse.Success) {
                 return@withLock pendingSync
             }
+            val groupDirectoryRefresh = refreshGroupDirectory(remoteRepository, accountKey)
+            if (groupDirectoryRefresh !is ApiResponse.Success) {
+                return@withLock when (groupDirectoryRefresh) {
+                    is ApiResponse.Failure.Error -> ApiResponse.exception(
+                        IllegalStateException("Group cache refresh failed: HTTP ${groupDirectoryRefresh.statusCode}")
+                    )
+                    is ApiResponse.Failure.Exception -> ApiResponse.exception(
+                        IllegalStateException(
+                            groupDirectoryRefresh.throwable.message ?: "Group cache refresh failed",
+                            groupDirectoryRefresh.throwable
+                        )
+                    )
+                    is ApiResponse.Success -> ApiResponse.Success(Unit)
+                }
+            }
             refreshGroupCache(remoteRepository, accountKey, normalizedGroupId)
         }
     }
@@ -97,6 +112,30 @@ class OfflineSyncTaskScheduler @Inject constructor(
                     val userSync = remoteRepository.syncKnownUsers()
                     if (userSync !is ApiResponse.Success) {
                         return@withLock userSync
+                    }
+                }
+
+                if (tasks.any { task ->
+                        task == OfflineSyncTask.GROUP_OPERATIONS ||
+                            task == OfflineSyncTask.GROUP_TAGS ||
+                            task == OfflineSyncTask.GROUP_MESSAGES
+                    }
+                ) {
+                    val accountKey = readCurrentAccountKey() ?: return@withLock ApiResponse.Success(Unit)
+                    val groupDirectoryRefresh = refreshGroupDirectory(remoteRepository, accountKey)
+                    if (groupDirectoryRefresh !is ApiResponse.Success) {
+                        return@withLock when (groupDirectoryRefresh) {
+                            is ApiResponse.Failure.Error -> ApiResponse.exception(
+                                IllegalStateException("Group cache refresh failed: HTTP ${groupDirectoryRefresh.statusCode}")
+                            )
+                            is ApiResponse.Failure.Exception -> ApiResponse.exception(
+                                IllegalStateException(
+                                    groupDirectoryRefresh.throwable.message ?: "Group cache refresh failed",
+                                    groupDirectoryRefresh.throwable
+                                )
+                            )
+                            is ApiResponse.Success -> ApiResponse.Success(Unit)
+                        }
                     }
                 }
             }
@@ -162,21 +201,26 @@ class OfflineSyncTaskScheduler @Inject constructor(
                     }
                 }
 
-                PendingGroupOperationType.JOIN -> {
-                    when (val response = remoteRepository.joinGroup(operation.groupId)) {
+                PendingGroupOperationType.ADD_MEMBER -> {
+                    val targetUser = operation.targetUser?.trim().orEmpty()
+                    if (targetUser.isEmpty()) {
+                        removePendingOperation(accountKey, operation.operationId)
+                        continue
+                    }
+                    when (val response = remoteRepository.addGroupMember(operation.groupId, targetUser)) {
                         is ApiResponse.Success -> {
                             upsertGroupLocal(accountKey, response.data)
                             removePendingOperation(accountKey, operation.operationId)
                         }
                         is ApiResponse.Failure.Error -> {
                             return ApiResponse.exception(
-                                IllegalStateException("Group join sync failed: HTTP ${response.statusCode}")
+                                IllegalStateException("Group member invite sync failed: HTTP ${response.statusCode}")
                             )
                         }
                         is ApiResponse.Failure.Exception -> {
                             return ApiResponse.exception(
                                 IllegalStateException(
-                                    response.throwable.message ?: "Group join sync failed",
+                                    response.throwable.message ?: "Group member invite sync failed",
                                     response.throwable
                                 )
                             )
@@ -343,24 +387,22 @@ class OfflineSyncTaskScheduler @Inject constructor(
         if (pendingMessageSync !is ApiResponse.Success) {
             return pendingMessageSync
         }
-        val groupsResponse = remoteRepository.listGroups()
-        val groups = when (groupsResponse) {
-            is ApiResponse.Success -> groupsResponse.data
+        val groups = when (val directoryRefresh = refreshGroupDirectory(remoteRepository, accountKey)) {
+            is ApiResponse.Success -> directoryRefresh.data
             is ApiResponse.Failure.Error -> {
                 return ApiResponse.exception(
-                    IllegalStateException("Group cache refresh failed: HTTP ${groupsResponse.statusCode}")
+                    IllegalStateException("Group cache refresh failed: HTTP ${directoryRefresh.statusCode}")
                 )
             }
             is ApiResponse.Failure.Exception -> {
                 return ApiResponse.exception(
                     IllegalStateException(
-                        groupsResponse.throwable.message ?: "Group cache refresh failed",
-                        groupsResponse.throwable
+                        directoryRefresh.throwable.message ?: "Group cache refresh failed",
+                        directoryRefresh.throwable
                     )
                 )
             }
         }
-        offlineGroupStore.replaceGroups(accountKey, groups)
         for (group in groups) {
             val refreshed = refreshGroupCache(remoteRepository, accountKey, group.id)
             if (refreshed !is ApiResponse.Success) {
@@ -434,6 +476,31 @@ class OfflineSyncTaskScheduler @Inject constructor(
         )
 
         return ApiResponse.Success(Unit)
+    }
+
+    private suspend fun refreshGroupDirectory(
+        remoteRepository: RemoteRepository,
+        accountKey: String
+    ): ApiResponse<List<MemoGroup>> {
+        return when (val groupsResponse = remoteRepository.listGroups()) {
+            is ApiResponse.Success -> {
+                offlineGroupStore.replaceGroups(accountKey, groupsResponse.data)
+                ApiResponse.Success(groupsResponse.data)
+            }
+            is ApiResponse.Failure.Error -> {
+                ApiResponse.exception(
+                    IllegalStateException("Group cache refresh failed: HTTP ${groupsResponse.statusCode}")
+                )
+            }
+            is ApiResponse.Failure.Exception -> {
+                ApiResponse.exception(
+                    IllegalStateException(
+                        groupsResponse.throwable.message ?: "Group cache refresh failed",
+                        groupsResponse.throwable
+                    )
+                )
+            }
+        }
     }
 
     private suspend fun upsertGroupLocal(accountKey: String, group: MemoGroup) {

@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -11,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
@@ -20,6 +23,7 @@ import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Tune
@@ -62,6 +66,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.data.model.MemoGroupType
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
@@ -265,8 +270,38 @@ fun SideDrawer(
                 joinedGroups.forEach { group ->
                     item("drawer_group_${group.id}") {
                         NavigationDrawerItem(
-                            label = { Text(group.name) },
-                            icon = { Icon(Icons.Outlined.Group, contentDescription = null) },
+                            label = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = group.name,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    if (
+                                        group.hasUnreadDirectMessages &&
+                                        currentSelectedGroupId != group.id
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(9.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.error)
+                                        )
+                                    }
+                                }
+                            },
+                            icon = {
+                                Icon(
+                                    if (group.type == MemoGroupType.DIRECT) {
+                                        Icons.Outlined.Person
+                                    } else {
+                                        Icons.Outlined.Group
+                                    },
+                                    contentDescription = null
+                                )
+                            },
                             selected = isSelected("${RouteName.GROUP_CHAT}?groupId={groupId}") &&
                                     currentSelectedGroupId == group.id,
                             onClick = {

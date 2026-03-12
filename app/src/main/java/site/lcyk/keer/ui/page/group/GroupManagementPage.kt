@@ -1,18 +1,17 @@
-﻿package site.lcyk.keer.ui.page.group
+package site.lcyk.keer.ui.page.group
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.GroupAdd
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.ModeEdit
 import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material3.AlertDialog
@@ -42,6 +41,8 @@ import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.MemoGroup
+import site.lcyk.keer.data.model.MemoGroupType
+import site.lcyk.keer.data.model.User
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.PageScaffold
@@ -61,17 +62,22 @@ fun GroupManagementPage(
     val scope = rememberCoroutineScope()
     val userStateViewModel = LocalUserState.current
     val currentUser = userStateViewModel.currentUser
+    val friends by userStateViewModel.friends.collectAsState()
 
     val groups by viewModel.groups.collectAsState()
     val loading by viewModel.loading.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
+    val managedGroups = remember(groups) {
+        groups.filter { group -> group.type == MemoGroupType.GROUP }
+    }
 
     var createDialogVisible by remember { mutableStateOf(false) }
-    var joinDialogVisible by remember { mutableStateOf(false) }
+    var inviteTargetGroup by remember { mutableStateOf<MemoGroup?>(null) }
     var editTargetGroup by remember { mutableStateOf<MemoGroup?>(null) }
     var deleteTargetGroup by remember { mutableStateOf<MemoGroup?>(null) }
 
     LaunchedEffect(currentUser?.identifier) {
+        userStateViewModel.refreshFriends()
         viewModel.refreshGroups()
     }
 
@@ -85,9 +91,6 @@ fun GroupManagementPage(
             null
         },
         actions = {
-            IconButton(onClick = { joinDialogVisible = true }) {
-                Icon(Icons.Outlined.GroupAdd, contentDescription = R.string.join_group.string)
-            }
             IconButton(onClick = { createDialogVisible = true }) {
                 Icon(Icons.Outlined.Add, contentDescription = R.string.create_group.string)
             }
@@ -126,7 +129,7 @@ fun GroupManagementPage(
                 }
             }
 
-            if (!loading && groups.isEmpty()) {
+            if (!loading && managedGroups.isEmpty()) {
                 item {
                     Text(
                         text = R.string.no_groups_joined.string,
@@ -139,7 +142,8 @@ fun GroupManagementPage(
                 }
             }
 
-            items(groups, key = { it.id }) { group ->
+            items(managedGroups, key = { it.id }) { group ->
+                val isCreator = normalizeUserIdentifier(group.creatorId) == currentUser?.identifier
                 Card(
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -165,7 +169,7 @@ fun GroupManagementPage(
                                     color = MaterialTheme.colorScheme.outline
                                 )
                             }
-                            if (group.creatorId == currentUser?.identifier) {
+                            if (isCreator) {
                                 Text(
                                     text = R.string.group_creator_label.string,
                                     style = MaterialTheme.typography.labelSmall,
@@ -205,6 +209,16 @@ fun GroupManagementPage(
                             }
 
                             TextButton(
+                                onClick = { inviteTargetGroup = group }
+                            ) {
+                                Icon(Icons.Outlined.GroupAdd, contentDescription = null)
+                                Text(
+                                    text = R.string.invite_friend.string,
+                                    modifier = Modifier.padding(start = 4.dp)
+                                )
+                            }
+
+                            TextButton(
                                 onClick = { editTargetGroup = group }
                             ) {
                                 Icon(Icons.Outlined.ModeEdit, contentDescription = null)
@@ -218,7 +232,7 @@ fun GroupManagementPage(
                                 onClick = { deleteTargetGroup = group }
                             ) {
                                 Text(
-                                    if (group.creatorId == currentUser?.identifier) {
+                                    if (isCreator) {
                                         R.string.delete_group.string
                                     } else {
                                         R.string.leave_group.string
@@ -250,16 +264,15 @@ fun GroupManagementPage(
         )
     }
 
-    if (joinDialogVisible) {
-        JoinGroupDialog(
-            onDismiss = { joinDialogVisible = false },
-            onConfirm = { groupId ->
-                if (groupId.isBlank()) {
-                    return@JoinGroupDialog
-                }
+    inviteTargetGroup?.let { target ->
+        InviteFriendDialog(
+            group = target,
+            friends = friends,
+            onDismiss = { inviteTargetGroup = null },
+            onInvite = { friend ->
                 scope.launch {
-                    if (viewModel.joinGroup(groupId)) {
-                        joinDialogVisible = false
+                    if (viewModel.addGroupMember(target.id, friend.identifier)) {
+                        inviteTargetGroup = null
                     }
                 }
             }
@@ -287,11 +300,12 @@ fun GroupManagementPage(
     }
 
     deleteTargetGroup?.let { target ->
+        val isCreator = normalizeUserIdentifier(target.creatorId) == currentUser?.identifier
         AlertDialog(
             onDismissRequest = { deleteTargetGroup = null },
             title = {
                 Text(
-                    if (target.creatorId == currentUser?.identifier) {
+                    if (isCreator) {
                         R.string.delete_group.string
                     } else {
                         R.string.leave_group.string
@@ -300,7 +314,7 @@ fun GroupManagementPage(
             },
             text = {
                 Text(
-                    if (target.creatorId == currentUser?.identifier) {
+                    if (isCreator) {
                         R.string.delete_group_confirm.string
                     } else {
                         R.string.leave_group_confirm.string
@@ -375,37 +389,70 @@ private fun GroupEditorDialog(
 }
 
 @Composable
-private fun JoinGroupDialog(
+private fun InviteFriendDialog(
+    group: MemoGroup,
+    friends: List<User>,
     onDismiss: () -> Unit,
-    onConfirm: (groupId: String) -> Unit
+    onInvite: (User) -> Unit
 ) {
-    var groupId by remember { mutableStateOf("") }
+    val memberIds = remember(group.members) {
+        group.members
+            .map { member -> normalizeUserIdentifier(member.userId) }
+            .filter { memberId -> memberId.isNotEmpty() }
+            .toSet()
+    }
+    val invitableFriends = remember(friends, memberIds) {
+        friends
+            .filter { friend -> normalizeUserIdentifier(friend.identifier) !in memberIds }
+            .sortedBy { friend -> friend.name.lowercase() }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(R.string.join_group.string) },
+        title = { Text(R.string.invite_friend.string) },
         text = {
-            OutlinedTextField(
-                value = groupId,
-                onValueChange = { groupId = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(R.string.group_id.string) },
-                singleLine = true
-            )
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    onConfirm(groupId)
+            if (invitableFriends.isEmpty()) {
+                Text(
+                    text = R.string.no_invitable_friends.string,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 280.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(invitableFriends, key = { friend -> friend.identifier }) { friend ->
+                        TextButton(
+                            onClick = { onInvite(friend) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(friend.name)
+                                Text(
+                                    text = friend.identifier,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                 }
-            ) {
-                Text(R.string.confirm.string)
             }
         },
+        confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text(R.string.cancel.string)
             }
         }
     )
+}
+
+private fun normalizeUserIdentifier(raw: String): String {
+    return raw.trim().substringAfterLast('/')
 }

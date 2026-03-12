@@ -15,10 +15,24 @@ import site.lcyk.keer.data.local.entity.OfflinePinnedGroupMemoEntity
 
 @Dao
 interface OfflineGroupDao {
-    @Query("SELECT * FROM offline_groups WHERE accountKey = :accountKey ORDER BY createdAtEpochMillis DESC")
+    @Query(
+        """
+        SELECT *
+        FROM offline_groups
+        WHERE accountKey = :accountKey
+        ORDER BY updatedAtEpochMillis DESC, createdAtEpochMillis DESC
+        """
+    )
     fun observeGroups(accountKey: String): Flow<List<OfflineGroupEntity>>
 
-    @Query("SELECT * FROM offline_groups WHERE accountKey = :accountKey ORDER BY createdAtEpochMillis DESC")
+    @Query(
+        """
+        SELECT *
+        FROM offline_groups
+        WHERE accountKey = :accountKey
+        ORDER BY updatedAtEpochMillis DESC, createdAtEpochMillis DESC
+        """
+    )
     suspend fun getGroups(accountKey: String): List<OfflineGroupEntity>
 
     @Upsert
@@ -26,6 +40,15 @@ interface OfflineGroupDao {
 
     @Upsert
     suspend fun upsertGroup(group: OfflineGroupEntity)
+
+    @Query(
+        """
+        UPDATE offline_groups
+        SET hasUnreadDirectMessages = 0
+        WHERE accountKey = :accountKey AND groupId = :groupId
+        """
+    )
+    suspend fun markGroupRead(accountKey: String, groupId: String)
 
     @Query("DELETE FROM offline_groups WHERE accountKey = :accountKey")
     suspend fun deleteGroupsByAccount(accountKey: String)

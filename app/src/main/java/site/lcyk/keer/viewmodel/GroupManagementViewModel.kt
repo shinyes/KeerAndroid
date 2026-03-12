@@ -85,29 +85,22 @@ class GroupManagementViewModel @Inject constructor(
         true
     }
 
-    suspend fun joinGroup(groupId: String): Boolean = withContext(viewModelScope.coroutineContext) {
+    suspend fun addGroupMember(groupId: String, userIdentifier: String): Boolean = withContext(viewModelScope.coroutineContext) {
         val normalizedGroupId = groupId.trim()
-        if (normalizedGroupId.isEmpty()) {
+        val normalizedUserIdentifier = userIdentifier.trim()
+        if (normalizedGroupId.isEmpty() || normalizedUserIdentifier.isEmpty()) {
             _errorMessage.value = R.string.group_error_id_required.string
             return@withContext false
         }
 
         val accountKey = readCurrentAccountKey() ?: return@withContext false
-        val placeholder = MemoGroup(
-            id = normalizedGroupId,
-            name = normalizedGroupId,
-            description = "",
-            creatorId = "",
-            creatorName = "",
-            members = emptyList()
-        )
-        offlineGroupStore.upsertGroup(accountKey, placeholder)
         offlineGroupStore.enqueuePendingGroupOperation(
             accountKey,
             PendingGroupOperation(
                 operationId = UUID.randomUUID().toString(),
-                type = PendingGroupOperationType.JOIN,
-                groupId = normalizedGroupId
+                type = PendingGroupOperationType.ADD_MEMBER,
+                groupId = normalizedGroupId,
+                targetUser = normalizedUserIdentifier
             )
         )
         _groups.value = readStoredGroups()
@@ -129,7 +122,8 @@ class GroupManagementViewModel @Inject constructor(
             .firstOrNull { group -> group.id == normalizedGroupId }
             ?.copy(
                 name = normalizedName,
-                description = description.trim()
+                description = description.trim(),
+                updatedAtEpochMillis = System.currentTimeMillis(),
             )
             ?: return@withContext false
         offlineGroupStore.upsertGroup(accountKey, updatedGroup)
@@ -240,7 +234,8 @@ class GroupManagementViewModel @Inject constructor(
             description = description,
             creatorId = creatorId,
             creatorName = creatorName,
-            members = emptyList()
+            members = emptyList(),
+            updatedAtEpochMillis = System.currentTimeMillis(),
         )
     }
 

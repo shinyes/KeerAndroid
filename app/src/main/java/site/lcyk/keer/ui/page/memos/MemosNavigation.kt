@@ -19,6 +19,7 @@ import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.ui.page.resource.ResourceListPage
 import site.lcyk.keer.ui.page.settings.AvatarSettingsPage
 import site.lcyk.keer.ui.page.settings.DebugLogPage
+import site.lcyk.keer.ui.page.settings.FriendManagementPage
 import site.lcyk.keer.ui.page.settings.SettingsPage
 import site.lcyk.keer.viewmodel.LocalUserState
 
@@ -117,6 +118,14 @@ fun MemosNavigation(
 
         composable(RouteName.DEBUG_LOGS) {
             DebugLogPage(navController = navController)
+        }
+
+        composable(RouteName.FRIENDS) {
+            FriendManagementPage(
+                drawerState = drawerState,
+                navController = navController,
+                onMenuButtonOpenRequested = onMenuButtonOpenRequested
+            )
         }
 
         composable(RouteName.GROUP_MANAGEMENT) {

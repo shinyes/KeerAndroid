@@ -48,10 +48,14 @@ abstract class RemoteRepository {
     ): ApiResponse<Memo>
 
     abstract suspend fun deleteMemo(remoteId: String): ApiResponse<Unit>
+    abstract suspend fun listFriends(): ApiResponse<List<User>>
+    abstract suspend fun addFriend(userIdentifier: String): ApiResponse<User>
+    abstract suspend fun removeFriend(userIdentifier: String): ApiResponse<Unit>
 
     abstract suspend fun listGroups(): ApiResponse<List<MemoGroup>>
     abstract suspend fun createGroup(name: String, description: String): ApiResponse<MemoGroup>
-    abstract suspend fun joinGroup(groupId: String): ApiResponse<MemoGroup>
+    abstract suspend fun createDirectGroup(userIdentifier: String): ApiResponse<MemoGroup>
+    abstract suspend fun addGroupMember(groupId: String, userIdentifier: String): ApiResponse<MemoGroup>
     abstract suspend fun updateGroup(
         groupId: String,
         name: String? = null,
@@ -83,6 +87,11 @@ abstract class RemoteRepository {
     abstract suspend fun deleteGroupMessage(
         groupId: String,
         messageRemoteId: String
+    ): ApiResponse<Unit>
+
+    abstract suspend fun markGroupRead(
+        groupId: String,
+        lastReadMessageRemoteId: String? = null
     ): ApiResponse<Unit>
 
     abstract suspend fun listGroupTags(groupId: String): ApiResponse<List<String>>

@@ -24,6 +24,7 @@ import site.lcyk.keer.data.model.CachedMemoItem
 import site.lcyk.keer.data.model.GroupIdAlias
 import site.lcyk.keer.data.model.GroupMember
 import site.lcyk.keer.data.model.MemoGroup
+import site.lcyk.keer.data.model.MemoGroupType
 import site.lcyk.keer.data.model.PendingGroupMemo
 import site.lcyk.keer.data.model.PendingGroupOperation
 import site.lcyk.keer.data.model.PendingGroupOperationType
@@ -92,7 +93,9 @@ class OfflineGroupStore @Inject constructor(
             dao.deleteGroupsByAccount(normalizedAccountKey)
             dao.deleteGroupMembersByAccount(normalizedAccountKey)
             if (groups.isNotEmpty()) {
-                dao.upsertGroups(groups.map { group -> group.toEntity(normalizedAccountKey) })
+                dao.upsertGroups(
+                    groups.map { group -> group.toEntity(accountKey = normalizedAccountKey) }
+                )
                 dao.upsertGroupMembers(
                     groups.flatMap { group ->
                         group.members.map { member -> member.toEntity(normalizedAccountKey, group.id) }
@@ -105,7 +108,7 @@ class OfflineGroupStore @Inject constructor(
     suspend fun upsertGroup(accountKey: String, group: MemoGroup) {
         val normalizedAccountKey = accountKey.trim()
         database.withTransaction {
-            dao.upsertGroup(group.toEntity(normalizedAccountKey))
+            dao.upsertGroup(group.toEntity(accountKey = normalizedAccountKey))
             dao.deleteGroupMembersByGroup(normalizedAccountKey, group.id)
             if (group.members.isNotEmpty()) {
                 dao.upsertGroupMembers(
@@ -113,6 +116,15 @@ class OfflineGroupStore @Inject constructor(
                 )
             }
         }
+    }
+
+    suspend fun markGroupRead(accountKey: String, groupId: String) {
+        val normalizedAccountKey = accountKey.trim()
+        val normalizedGroupId = groupId.trim()
+        if (normalizedAccountKey.isEmpty() || normalizedGroupId.isEmpty()) {
+            return
+        }
+        dao.markGroupRead(normalizedAccountKey, normalizedGroupId)
     }
 
     suspend fun getGroupAliases(accountKey: String): List<GroupIdAlias> {
@@ -391,7 +403,10 @@ class OfflineGroupStore @Inject constructor(
 
     private fun mergeGroup(groups: List<MemoGroup>, target: MemoGroup): List<MemoGroup> {
         val withoutTarget = groups.filterNot { group -> group.id == target.id }
-        return (withoutTarget + target).sortedByDescending(MemoGroup::createdAtEpochMillis)
+        return (withoutTarget + target).sortedWith(
+            compareByDescending<MemoGroup> { it.updatedAtEpochMillis }
+                .thenByDescending { it.createdAtEpochMillis }
+        )
     }
 
     private fun OfflineGroupEntity.toModel(
@@ -403,8 +418,11 @@ class OfflineGroupStore @Inject constructor(
             description = description,
             creatorId = creatorId,
             creatorName = creatorName,
+            type = groupType.toMemoGroupType(),
             members = membersByGroupId[groupId].orEmpty().map { member -> member.toModel() },
+            hasUnreadDirectMessages = hasUnreadDirectMessages,
             createdAtEpochMillis = createdAtEpochMillis,
+            updatedAtEpochMillis = updatedAtEpochMillis.takeIf { it > 0L } ?: createdAtEpochMillis,
         )
     }
 
@@ -416,7 +434,10 @@ class OfflineGroupStore @Inject constructor(
             description = description,
             creatorId = creatorId,
             creatorName = creatorName,
+            groupType = type.name,
+            hasUnreadDirectMessages = type == MemoGroupType.DIRECT && hasUnreadDirectMessages,
             createdAtEpochMillis = createdAtEpochMillis,
+            updatedAtEpochMillis = updatedAtEpochMillis.takeIf { it > 0L } ?: createdAtEpochMillis,
         )
     }
 
@@ -531,5 +552,10 @@ class OfflineGroupStore @Inject constructor(
 
     private fun groupMemoKey(groupId: String, memoRemoteId: String): String {
         return "$groupId|$memoRemoteId"
+    }
+
+    private fun String.toMemoGroupType(): MemoGroupType {
+        return runCatching { MemoGroupType.valueOf(trim().uppercase()) }
+            .getOrDefault(MemoGroupType.GROUP)
     }
 }
