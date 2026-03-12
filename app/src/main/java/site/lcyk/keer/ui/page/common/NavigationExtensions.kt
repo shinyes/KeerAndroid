@@ -51,17 +51,25 @@ fun NavHostController.navigateToDebugLogsPage() {
 }
 
 fun NavHostController.navigateToGroupChatPage(groupId: String) {
-    navigateToTopLevel("${RouteName.GROUP_CHAT}?groupId=${Uri.encode(groupId)}")
+    navigate("${RouteName.GROUP_CHAT}?groupId=${Uri.encode(groupId)}") {
+        popUpTo(RouteName.MEMOS)
+        launchSingleTop = true
+        restoreState = false
+    }
 }
 
 fun NavHostController.navigateToGroupInputPage(
     groupId: String,
-    memoId: String? = null
+    memoId: String? = null,
+    quoteMemoIdentifier: String? = null,
 ) {
     val encodedGroupId = Uri.encode(groupId)
     val params = mutableListOf("groupId=$encodedGroupId")
     if (!memoId.isNullOrBlank()) {
         params += "memoId=${Uri.encode(memoId)}"
+    }
+    if (!quoteMemoIdentifier.isNullOrBlank()) {
+        params += "quoteMemoId=${Uri.encode(quoteMemoIdentifier)}"
     }
     val route = "${RouteName.GROUP_INPUT}?${params.joinToString("&")}"
     navigateSingleTop(route)

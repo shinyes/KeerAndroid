@@ -23,10 +23,13 @@ data class MemoGroup(
     val creatorName: String,
     val type: MemoGroupType = MemoGroupType.GROUP,
     val members: List<GroupMember> = emptyList(),
-    val hasUnreadDirectMessages: Boolean = false,
+    val hasUnreadMessages: Boolean = false,
     val createdAtEpochMillis: Long = System.currentTimeMillis(),
     val updatedAtEpochMillis: Long = createdAtEpochMillis,
 ) {
     val isDirect: Boolean
         get() = type == MemoGroupType.DIRECT
+
+    val hasUnreadDirectMessages: Boolean
+        get() = isDirect && hasUnreadMessages
 }

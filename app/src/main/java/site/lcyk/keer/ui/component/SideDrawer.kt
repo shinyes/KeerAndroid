@@ -151,6 +151,11 @@ fun SideDrawer(
         }
     }
     val visibleTagEntries = flattenTagTree(tagTree, expandedTagNodes)
+    val hasUnreadGroupMessages = remember(joinedGroups, currentSelectedGroupId) {
+        joinedGroups.any { group ->
+            group.hasUnreadMessages && currentSelectedGroupId != group.id
+        }
+    }
 
     fun isSelected(route: String): Boolean {
         return currentDestination?.hierarchy?.any { it.route == route } == true
@@ -289,6 +294,15 @@ fun SideDrawer(
                                 text = R.string.explore.string,
                                 modifier = Modifier.weight(1f)
                             )
+                            if (hasUnreadGroupMessages) {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(end = 8.dp)
+                                        .size(9.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.error)
+                                )
+                            }
                             IconButton(
                                 onClick = {
                                     exploreExpanded = !exploreExpanded
@@ -336,7 +350,7 @@ fun SideDrawer(
                                         modifier = Modifier.weight(1f)
                                     )
                                     if (
-                                        group.hasUnreadDirectMessages &&
+                                        group.hasUnreadMessages &&
                                         currentSelectedGroupId != group.id
                                     ) {
                                         Box(

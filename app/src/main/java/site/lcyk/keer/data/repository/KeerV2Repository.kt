@@ -219,7 +219,7 @@ class KeerV2Repository(
             creatorName = creatorName,
             type = groupType,
             members = members,
-            hasUnreadDirectMessages = groupType == MemoGroupType.DIRECT && group.hasUnread,
+            hasUnreadMessages = group.hasUnread,
             createdAtEpochMillis = group.createTime?.toEpochMilli() ?: System.currentTimeMillis(),
             updatedAtEpochMillis = group.updateTime?.toEpochMilli()
                 ?: group.createTime?.toEpochMilli()
@@ -258,6 +258,46 @@ class KeerV2Repository(
             encryptedPayload = groupMessage.encryptedPayload.orEmpty(),
             payloadEnvelope = groupMessage.payloadEnvelope,
         )
+        val quoteDescriptor = groupMessage.quote?.let { quote ->
+            val sourceKind = resolveQuoteSourceKind(quote.sourceKind)
+            val source = quote.source.trim().ifEmpty { null }
+            if (sourceKind != null && source != null) {
+                sourceKind.tagSegment to source
+            } else {
+                null
+            }
+        } ?: parseMemoQuoteDescriptor(payload.tags)?.let { descriptor ->
+            descriptor.sourceKind.tagSegment to descriptor.source
+        }
+        val quotePreview = groupMessage.quote?.let { quote ->
+            val quotedMemo = quote.memo ?: return@let QuotePreviewSnapshot(
+                status = MEMO_QUOTE_STATUS_UNAVAILABLE,
+                contentPreview = null,
+                date = null,
+                hasAttachments = false,
+            )
+            val hasAttachments = quotedMemo.attachments?.isNotEmpty() == true
+            val quotePayload = decodeMemoPayload(
+                encryptedPayload = quotedMemo.encryptedPayload.orEmpty(),
+                payloadEnvelope = quotedMemo.payloadEnvelope,
+            )
+            val quoteContent = quotePayload.content
+            val resolvedStatus = if (quoteContent == encryptedContentUnavailablePlaceholder && !hasAttachments) {
+                MEMO_QUOTE_STATUS_UNAVAILABLE
+            } else {
+                MEMO_QUOTE_STATUS_RESOLVED
+            }
+            QuotePreviewSnapshot(
+                status = resolvedStatus,
+                contentPreview = if (resolvedStatus == MEMO_QUOTE_STATUS_RESOLVED) {
+                    buildMemoQuotePreviewText(quoteContent)
+                } else {
+                    null
+                },
+                date = quotedMemo.createTime ?: quotedMemo.updateTime,
+                hasAttachments = hasAttachments,
+            )
+        }
         return Memo(
             remoteId = groupMessage.name,
             content = payload.content,
@@ -268,7 +308,13 @@ class KeerV2Repository(
             tags = payload.tags,
             creator = creator,
             archived = false,
-            updatedAt = groupMessage.updateTime
+            updatedAt = groupMessage.updateTime,
+            quoteSourceKind = quoteDescriptor?.first,
+            quoteSource = quoteDescriptor?.second,
+            quoteStatus = quotePreview?.status,
+            quoteContentPreview = quotePreview?.contentPreview,
+            quoteDate = quotePreview?.date,
+            quoteHasAttachments = quotePreview?.hasAttachments ?: false,
         )
     }
 

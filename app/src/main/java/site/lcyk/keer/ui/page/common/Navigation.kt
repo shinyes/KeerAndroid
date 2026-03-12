@@ -178,9 +178,14 @@ fun Navigation() {
                 }
 
                 composable(
-                    "${RouteName.GROUP_INPUT}?groupId={groupId}&memoId={memoId}",
+                    "${RouteName.GROUP_INPUT}?groupId={groupId}&memoId={memoId}&quoteMemoId={quoteMemoId}",
                     arguments = listOf(
                         navArgument("memoId") {
+                            type = NavType.StringType
+                            nullable = true
+                            defaultValue = null
+                        },
+                        navArgument("quoteMemoId") {
                             type = NavType.StringType
                             nullable = true
                             defaultValue = null
@@ -189,12 +194,16 @@ fun Navigation() {
                 ) { entry ->
                     val groupId = entry.arguments?.getString("groupId")
                     val memoId = entry.arguments?.getString("memoId")
+                    val quoteMemoId = entry.arguments?.getString("quoteMemoId")
                     if (groupId != null) {
                         MemosPage(
                             startDestination = buildString {
                                 append("${RouteName.GROUP_INPUT}?groupId=${Uri.encode(Uri.decode(groupId))}")
                                 if (!memoId.isNullOrBlank()) {
                                     append("&memoId=${Uri.encode(Uri.decode(memoId))}")
+                                }
+                                if (!quoteMemoId.isNullOrBlank()) {
+                                    append("&quoteMemoId=${Uri.encode(Uri.decode(quoteMemoId))}")
                                 }
                             }
                         )

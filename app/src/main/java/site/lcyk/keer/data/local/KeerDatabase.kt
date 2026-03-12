@@ -38,7 +38,7 @@ import site.lcyk.keer.data.local.entity.TagEntity
         OfflineCachedGroupTagEntity::class,
         OfflinePinnedGroupMemoEntity::class,
     ],
-    version = 15
+    version = 16
 )
 @TypeConverters(Converters::class)
 abstract class KeerDatabase : RoomDatabase() {
@@ -70,6 +70,7 @@ abstract class KeerDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_12_13)
                     .addMigrations(MIGRATION_13_14)
                     .addMigrations(MIGRATION_14_15)
+                    .addMigrations(MIGRATION_15_16)
                     .build()
                 INSTANCE = instance
                 instance
@@ -413,6 +414,23 @@ abstract class KeerDatabase : RoomDatabase() {
                     ON offline_groups(accountKey, updatedAtEpochMillis)
                     """.trimIndent()
                 )
+            }
+        }
+
+        private val MIGRATION_15_16: Migration = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "offline_groups", "hasUnreadMessages")) {
+                    db.execSQL("ALTER TABLE offline_groups ADD COLUMN hasUnreadMessages INTEGER NOT NULL DEFAULT 0")
+                }
+                if (hasColumn(db, "offline_groups", "hasUnreadDirectMessages")) {
+                    db.execSQL(
+                        """
+                        UPDATE offline_groups
+                        SET hasUnreadMessages = hasUnreadDirectMessages
+                        WHERE hasUnreadMessages = 0
+                        """.trimIndent()
+                    )
+                }
             }
         }
 

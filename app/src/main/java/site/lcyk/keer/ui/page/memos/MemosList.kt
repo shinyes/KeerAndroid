@@ -1,5 +1,7 @@
 package site.lcyk.keer.ui.page.memos
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -7,6 +9,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -22,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
@@ -30,6 +37,8 @@ import site.lcyk.keer.data.model.MemoEditGesture
 import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ui.component.MemoActionMenuButton
+import site.lcyk.keer.ui.component.MemoMenuAction
 import site.lcyk.keer.ui.component.RefreshableListContainer
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
@@ -37,8 +46,12 @@ import site.lcyk.keer.ui.component.PullSyncLineIndicator
 import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.component.MemosCard
+import site.lcyk.keer.ui.component.MemosCardActionButton
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
+import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
+import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.viewmodel.LocalMemos
@@ -50,10 +63,14 @@ import timber.log.Timber
 fun MemosList(
     contentPadding: PaddingValues,
     lazyListState: LazyListState = rememberLazyListState(),
+    memos: List<site.lcyk.keer.data.local.entity.MemoEntity>? = null,
     tag: String? = null,
     searchString: String? = null,
     onRefresh: (suspend () -> Unit)? = null,
     onTagClick: ((String) -> Unit)? = null,
+    onRequestEdit: ((site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)? = null,
+    editGestureResolver: ((site.lcyk.keer.data.local.entity.MemoEntity, MemoEditGesture) -> MemoEditGesture)? = null,
+    actionButton: (@Composable (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val navController = LocalRootNavController.current
@@ -72,14 +89,15 @@ fun MemosList(
     val hapticFeedback = LocalHapticFeedback.current
     val avatarImageLoader = rememberAuthorizedImageLoader()
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
-    val filteredMemos by remember(viewModel.memos, tag, searchString) {
+    val sourceMemos = memos ?: viewModel.memos
+    val filteredMemos by remember(sourceMemos, tag, searchString) {
         derivedStateOf {
             val normalizedTag = tag?.takeIf { it.isNotBlank() }
             val normalizedQuery = searchString?.takeIf { it.isNotBlank() }
             val pinned = mutableListOf<site.lcyk.keer.data.local.entity.MemoEntity>()
             val normal = mutableListOf<site.lcyk.keer.data.local.entity.MemoEntity>()
 
-            for (memo in viewModel.memos) {
+            for (memo in sourceMemos) {
                 if (normalizedTag != null) {
                     val matchedTag = memo.tags.any { memoTag ->
                         memoTag == normalizedTag || memoTag.startsWith("$normalizedTag/")
@@ -161,7 +179,10 @@ fun MemosList(
             viewModel.cacheMemoForDetail(selectedMemo)
             navController.navigateToMemoDetailPage(selectedMemo.identifier)
         },
-        onTagClick = onTagClick
+        onTagClick = onTagClick,
+        onRequestEdit = onRequestEdit,
+        editGestureResolver = editGestureResolver,
+        actionButton = actionButton,
     )
 
     LaunchedEffect(viewModel.errorMessage) {
@@ -204,7 +225,10 @@ private fun MemoFeedList(
     quoteResolverSettings: Settings,
     onRefresh: () -> Unit,
     onOpenMemoDetail: (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit,
-    onTagClick: ((String) -> Unit)?
+    onTagClick: ((String) -> Unit)?,
+    onRequestEdit: ((site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)?,
+    editGestureResolver: ((site.lcyk.keer.data.local.entity.MemoEntity, MemoEditGesture) -> MemoEditGesture)?,
+    actionButton: (@Composable (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)?,
 ) {
     RefreshableListContainer(
         isRefreshing = syncStatus.syncing,
@@ -231,10 +255,12 @@ private fun MemoFeedList(
                 MemosCard(
                     memo = memo,
                     onClick = onOpenMemoDetail,
-                    editGesture = editGesture,
+                    editGesture = editGestureResolver?.invoke(memo, editGesture) ?: editGesture,
                     previewMode = true,
                     showSyncStatus = showSyncStatus,
                     onTagClick = onTagClick,
+                    actionButton = actionButton,
+                    onRequestEdit = onRequestEdit,
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
                     prefetchCollaborators = false,
@@ -243,4 +269,52 @@ private fun MemoFeedList(
             }
         }
     }
+}
+
+@Composable
+fun HomeGroupMemoActionButton(
+    memo: site.lcyk.keer.data.local.entity.MemoEntity,
+    groupId: String,
+    onRequestEdit: () -> Unit,
+) {
+    val context = LocalContext.current
+    val clipboardManager = context.getSystemService(ClipboardManager::class.java)
+    val rootNavController = LocalRootNavController.current
+    val memoLabel = stringResource(R.string.memo)
+    val actions = buildList {
+        add(
+            MemoMenuAction(
+                key = "edit",
+                label = stringResource(R.string.edit),
+                icon = Icons.Outlined.Edit,
+                onSelected = onRequestEdit
+            )
+        )
+        add(
+            MemoMenuAction(
+                key = "quote",
+                label = stringResource(R.string.quote),
+                icon = Icons.Outlined.RecordVoiceOver,
+                onSelected = {
+                    rootNavController.navigateToGroupInputPage(
+                        groupId = groupId,
+                        quoteMemoIdentifier = memo.identifier
+                    )
+                }
+            )
+        )
+        add(
+            MemoMenuAction(
+                key = "copy",
+                label = stringResource(R.string.copy),
+                icon = Icons.Outlined.ContentCopy,
+                onSelected = {
+                    clipboardManager?.setPrimaryClip(
+                        ClipData.newPlainText(memoLabel, memo.content)
+                    )
+                }
+            )
+        )
+    }
+    MemoActionMenuButton(actions = actions)
 }

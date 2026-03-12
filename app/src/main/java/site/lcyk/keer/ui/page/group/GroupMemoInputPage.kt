@@ -37,9 +37,11 @@ import kotlinx.coroutines.launch
 import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
+import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.suspendOnErrorMessage
+import site.lcyk.keer.ui.component.MemoQuoteReferenceCard
 import site.lcyk.keer.ui.page.memoinput.MarkdownFormat
 import site.lcyk.keer.ui.page.memoinput.MemoCollaboratorDialog
 import site.lcyk.keer.ui.page.memoinput.MemoInputBottomBar
@@ -50,12 +52,23 @@ import site.lcyk.keer.ui.page.memoinput.SaveChangesDialog
 import site.lcyk.keer.ui.page.memoinput.applyMarkdownFormatToText
 import site.lcyk.keer.ui.page.memoinput.handleEnterInText
 import site.lcyk.keer.ui.page.memoinput.toggleTodoItemInText
+import site.lcyk.keer.ui.page.common.LocalRootNavController
+import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
+import site.lcyk.keer.util.MemoQuoteDescriptor
+import site.lcyk.keer.util.MemoQuoteSourceKind
+import site.lcyk.keer.util.buildMemoQuoteDescriptor
 import site.lcyk.keer.util.extractCollaboratorIds
-import site.lcyk.keer.util.mergeTagsWithCollaborators
+import site.lcyk.keer.util.mergeTagsWithCollaboratorsAndQuote
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
+import site.lcyk.keer.util.parseMemoQuoteDescriptor
+import site.lcyk.keer.util.storedMemoQuotePreviewOrNull
 import site.lcyk.keer.util.stripCollaboratorTags
+import site.lcyk.keer.util.stripQuoteTags
+import site.lcyk.keer.util.toMemoEntityForCard
+import site.lcyk.keer.util.toMemoQuotePreview
 import site.lcyk.keer.viewmodel.GroupChatViewModel
+import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 
@@ -64,6 +77,7 @@ fun GroupMemoInputPage(
     navController: NavHostController,
     groupId: String,
     memoId: String? = null,
+    quoteSourceMemoIdentifier: String? = null,
     groupViewModel: GroupChatViewModel = hiltViewModel(),
     inputViewModel: MemoInputViewModel = hiltViewModel()
 ) {
@@ -71,6 +85,8 @@ fun GroupMemoInputPage(
     val coroutineScope = rememberCoroutineScope()
     val snackbarState = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val rootNavController = LocalRootNavController.current
+    val memosViewModel = LocalMemos.current
     val groupTags by groupViewModel.groupTags.collectAsState()
     val errorMessage by groupViewModel.errorMessage.collectAsState()
     val userStateViewModel = LocalUserState.current
@@ -80,6 +96,7 @@ fun GroupMemoInputPage(
     var initialTags by remember { mutableStateOf(emptyList<String>()) }
     var initialCollaborators by remember { mutableStateOf(emptyList<String>()) }
     var initialResourceIdentifiers by remember { mutableStateOf(emptyList<String>()) }
+    var currentMemo by remember { mutableStateOf<site.lcyk.keer.data.local.entity.MemoEntity?>(null) }
 
     var text by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue("", TextRange(0)))
@@ -90,6 +107,45 @@ fun GroupMemoInputPage(
     var showCollaboratorSelector by remember { mutableStateOf(false) }
     var showExitConfirmation by remember { mutableStateOf(false) }
     val isEditMode = !memoId.isNullOrBlank()
+    val existingQuoteDescriptor = remember(currentMemo?.tags) {
+        parseMemoQuoteDescriptor(currentMemo?.tags.orEmpty())
+    }
+    val requestedQuoteDescriptor = remember(quoteSourceMemoIdentifier) {
+        val source = quoteSourceMemoIdentifier?.trim().orEmpty()
+        if (source.isEmpty()) {
+            null
+        } else {
+            MemoQuoteDescriptor(
+                sourceKind = MemoQuoteSourceKind.LOCAL,
+                source = source
+            )
+        }
+    }
+    val activeQuoteDescriptor = if (currentMemo != null) {
+        existingQuoteDescriptor
+    } else {
+        requestedQuoteDescriptor
+    }
+    val quotedMemo = remember(activeQuoteDescriptor) {
+        val descriptor = activeQuoteDescriptor ?: return@remember null
+        when (descriptor.sourceKind) {
+            MemoQuoteSourceKind.LOCAL -> memosViewModel.getMemoForDetail(descriptor.source)
+            MemoQuoteSourceKind.REMOTE -> null
+        }
+    }
+    val quotePreview = remember(
+        quotedMemo?.content,
+        quotedMemo?.resources,
+        currentMemo?.quoteStatus,
+        currentMemo?.quoteContentPreview,
+        currentMemo?.quoteDate,
+        currentMemo?.quoteHasAttachments,
+    ) {
+        quotedMemo?.toMemoQuotePreview() ?: currentMemo?.storedMemoQuotePreviewOrNull()
+    }
+    val quoteDescriptorForSubmit = remember(activeQuoteDescriptor, quotedMemo) {
+        quotedMemo?.let(::buildMemoQuoteDescriptor) ?: activeQuoteDescriptor
+    }
 
     val validMimeTypePrefixes = remember { setOf("text/") }
     val normalizedSelectedTags = remember(selectedTags) { normalizeTagList(selectedTags) }
@@ -125,9 +181,10 @@ fun GroupMemoInputPage(
             return@launch
         }
 
-        val mergedTags = mergeTagsWithCollaborators(
+        val mergedTags = mergeTagsWithCollaboratorsAndQuote(
             normalizedSelectedTags,
-            normalizedSelectedCollaborators
+            normalizedSelectedCollaborators,
+            quoteDescriptorForSubmit
         )
         val plainTags = normalizeTagList(normalizedSelectedTags)
         val existingSet = groupTags.map { it.trim().lowercase() }.toSet()
@@ -307,6 +364,19 @@ fun GroupMemoInputPage(
                 text = updated
             },
             focusRequester = focusRequester,
+            quotePreview = quoteDescriptorForSubmit?.let {
+                {
+                    MemoQuoteReferenceCard(
+                        quotedMemo = quotePreview,
+                        onClick = quotedMemo?.let { source ->
+                            {
+                                memosViewModel.cacheMemoForDetail(source)
+                                rootNavController.navigateToMemoDetailPage(source.identifier)
+                            }
+                        }
+                    )
+                }
+            },
             validMimeTypePrefixes = validMimeTypePrefixes,
             onDroppedText = { droppedText ->
                 text = text.copy(text = text.text + droppedText)
@@ -356,17 +426,22 @@ fun GroupMemoInputPage(
         )
     }
 
-    LaunchedEffect(groupId, memoId) {
+    LaunchedEffect(groupId, memoId, quoteSourceMemoIdentifier) {
         inputViewModel.uploadResources.clear()
         inputViewModel.uploadTasks.clear()
+        currentMemo = null
         userStateViewModel.refreshFriends()
         groupViewModel.loadGroupTags(groupId)
         if (isEditMode) {
             groupViewModel.loadGroupMemos(groupId, forceSync = false)
             val targetMemo = groupViewModel.findGroupMemo(groupId, memoId.orEmpty())
             if (targetMemo != null) {
+                val memoEntity = targetMemo.toEditableGroupMemoEntity(groupId = groupId)
+                currentMemo = memoEntity
                 val collaborators = extractCollaboratorIds(targetMemo.tags)
-                val tags = normalizeTagList(stripCollaboratorTags(targetMemo.tags))
+                val tags = normalizeTagList(
+                    stripQuoteTags(stripCollaboratorTags(targetMemo.tags))
+                )
                 initialContent = targetMemo.content
                 initialTags = tags
                 initialCollaborators = collaborators
@@ -394,6 +469,7 @@ fun GroupMemoInputPage(
                 selectedTags = tags
                 selectedCollaborators = collaborators
             } else {
+                currentMemo = null
                 initialContent = ""
                 initialTags = emptyList()
                 initialCollaborators = emptyList()
@@ -403,6 +479,7 @@ fun GroupMemoInputPage(
                 selectedCollaborators = emptyList()
             }
         } else {
+            currentMemo = null
             initialContent = ""
             initialTags = emptyList()
             initialCollaborators = emptyList()
@@ -420,4 +497,12 @@ fun GroupMemoInputPage(
             inputViewModel.uploadTasks.clear()
         }
     }
+}
+
+private fun Memo.toEditableGroupMemoEntity(groupId: String): site.lcyk.keer.data.local.entity.MemoEntity {
+    return toMemoEntityForCard(
+        identifier = "group:$groupId:$remoteId",
+        accountKey = "",
+        needsSync = remoteId.startsWith("local:")
+    )
 }

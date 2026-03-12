@@ -72,7 +72,6 @@ import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
-import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToSearchPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
@@ -142,7 +141,7 @@ fun GroupChatPage(
     suspend fun reloadGroup(forceSync: Boolean = false) {
         val resolvedGroup = group ?: return
         viewModel.loadGroupMemos(resolvedGroup.id, forceSync = forceSync)
-        if (resolvedGroup.isDirect && resolvedGroup.hasUnreadDirectMessages) {
+        if (resolvedGroup.hasUnreadMessages) {
             val markReadSucceeded = viewModel.markGroupRead(resolvedGroup.id)
             if (!markReadSucceeded) {
                 return
@@ -321,7 +320,10 @@ fun GroupChatPage(
                     groupId = group.id
                 )
                 memosViewModel.cacheMemoForDetail(sourceMemo)
-                rootNavController.navigateToMemoInputPage(quoteMemoIdentifier = sourceMemo.identifier)
+                navController.navigateToGroupInputPage(
+                    groupId = group.id,
+                    quoteMemoIdentifier = sourceMemo.identifier
+                )
             },
             onOpenTopic = { _, _ -> },
             onTagClick = { tag ->
@@ -466,6 +468,7 @@ private fun GroupChatList(
                     showSyncStatus = true,
                     authorAvatarUrl = memo.creator?.avatarUrl,
                     authorName = memo.creator?.name,
+                    onRequestEdit = { onEditMemo(memo) },
                     actionButton = { memoEntity ->
                         GroupMemoCardActionButton(
                             memo = memoEntity,

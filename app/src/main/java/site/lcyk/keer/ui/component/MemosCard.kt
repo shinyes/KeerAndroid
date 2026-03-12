@@ -85,6 +85,7 @@ fun MemosCard(
     authorAvatarUrl: String? = null,
     authorName: String? = null,
     actionButton: (@Composable (MemoEntity) -> Unit)? = null,
+    onRequestEdit: ((MemoEntity) -> Unit)? = null,
     collaboratorProfiles: Map<String, CollaboratorProfile> = emptyMap(),
     avatarImageLoader: ImageLoader? = null,
     prefetchCollaborators: Boolean = true,
@@ -147,6 +148,15 @@ fun MemosCard(
             ?.uppercase()
             ?: "?"
     }
+    val requestEdit = remember(memo, onRequestEdit, rootNavController) {
+        {
+            if (onRequestEdit != null) {
+                onRequestEdit(memo)
+            } else {
+                rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
+            }
+        }
+    }
     var showCollaboratorDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(collaboratorIds, collaboratorProfiles, prefetchCollaborators) {
@@ -164,21 +174,21 @@ fun MemosCard(
         .combinedClickable(
             onClick = {
                 if (editGesture == MemoEditGesture.SINGLE) {
-                    rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
+                    requestEdit()
                 } else {
                     onClick(memo)
                 }
             },
             onLongClick = if (editGesture == MemoEditGesture.LONG) {
                 {
-                    rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
+                    requestEdit()
                 }
             } else {
                 null
             },
             onDoubleClick = if (editGesture == MemoEditGesture.DOUBLE) {
                 {
-                    rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
+                    requestEdit()
                 }
             } else {
                 null
@@ -277,7 +287,10 @@ fun MemosCard(
                 if (actionButton != null) {
                     actionButton(memo)
                 } else {
-                    MemosCardActionButton(memo)
+                    MemosCardActionButton(
+                        memo = memo,
+                        onRequestEdit = onRequestEdit
+                    )
                 }
             }
 
@@ -346,6 +359,7 @@ private fun resolveAvatarUrl(host: String, avatarUrl: String): String? {
 @Composable
 fun MemosCardActionButton(
     memo: MemoEntity,
+    onRequestEdit: ((MemoEntity) -> Unit)? = null,
     onRequestQuote: ((MemoEntity) -> Unit)? = null
 ) {
     val context = LocalContext.current
@@ -374,7 +388,11 @@ fun MemosCardActionButton(
                 label = R.string.edit.string,
                 icon = Icons.Outlined.Edit,
                 onSelected = {
-                    rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
+                    if (onRequestEdit != null) {
+                        onRequestEdit(memo)
+                    } else {
+                        rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
+                    }
                 }
             )
         )

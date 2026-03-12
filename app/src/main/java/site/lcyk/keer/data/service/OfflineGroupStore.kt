@@ -420,7 +420,7 @@ class OfflineGroupStore @Inject constructor(
             creatorName = creatorName,
             type = groupType.toMemoGroupType(),
             members = membersByGroupId[groupId].orEmpty().map { member -> member.toModel() },
-            hasUnreadDirectMessages = hasUnreadDirectMessages,
+            hasUnreadMessages = hasUnreadMessages,
             createdAtEpochMillis = createdAtEpochMillis,
             updatedAtEpochMillis = updatedAtEpochMillis.takeIf { it > 0L } ?: createdAtEpochMillis,
         )
@@ -435,7 +435,7 @@ class OfflineGroupStore @Inject constructor(
             creatorId = creatorId,
             creatorName = creatorName,
             groupType = type.name,
-            hasUnreadDirectMessages = type == MemoGroupType.DIRECT && hasUnreadDirectMessages,
+            hasUnreadMessages = hasUnreadMessages,
             createdAtEpochMillis = createdAtEpochMillis,
             updatedAtEpochMillis = updatedAtEpochMillis.takeIf { it > 0L } ?: createdAtEpochMillis,
         )

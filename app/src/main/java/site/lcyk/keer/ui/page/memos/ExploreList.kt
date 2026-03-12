@@ -315,6 +315,7 @@ private fun ExploreMemoFeed(
                     showSyncStatus = false,
                     authorAvatarUrl = memoItem.memo.creator?.avatarUrl,
                     authorName = memoItem.memo.creator?.name,
+                    onRequestEdit = { onRequestEdit(memoItem) },
                     actionButton = { memoEntity ->
                         ExploreMemoCardActionButton(
                             memo = memoEntity,

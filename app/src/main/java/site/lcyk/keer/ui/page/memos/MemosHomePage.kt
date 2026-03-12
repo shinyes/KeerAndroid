@@ -32,7 +32,10 @@ import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.SyncStatusBadge
 import site.lcyk.keer.ui.component.processManualSyncResult
+import site.lcyk.keer.ui.component.MemosCardActionButton
 import site.lcyk.keer.ui.page.common.LocalRootNavController
+import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToSearchPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
@@ -52,8 +55,12 @@ fun MemosHomePage(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val homeMemos by memosViewModel.homeMemos.collectAsState()
     val syncStatus by memosViewModel.syncStatus.collectAsState()
     val hapticFeedback = LocalHapticFeedback.current
+    val homeMemoItemsById = remember(homeMemos) {
+        homeMemos.associateBy { item -> item.memo.identifier }
+    }
 
     val expandedFab by remember {
         derivedStateOf {
@@ -120,11 +127,53 @@ fun MemosHomePage(
 
         content = { innerPadding ->
             MemosList(
+                memos = homeMemos.map { item -> item.memo },
                 lazyListState = listState,
                 contentPadding = innerPadding,
                 onRefresh = { requestManualSync() },
                 onTagClick = { tag ->
                     navController.navigateToTagPage(tag)
+                },
+                onRequestEdit = { memo ->
+                    val item = homeMemoItemsById[memo.identifier]
+                    if (item?.groupId.isNullOrBlank()) {
+                        rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
+                    } else {
+                        navController.navigateToGroupInputPage(
+                            groupId = requireNotNull(item.groupId),
+                            memoId = memo.remoteId
+                        )
+                    }
+                },
+                editGestureResolver = { memo, defaultGesture ->
+                    val item = homeMemoItemsById[memo.identifier]
+                    if (item?.groupId.isNullOrBlank()) {
+                        defaultGesture
+                    } else {
+                        site.lcyk.keer.data.model.MemoEditGesture.NONE
+                    }
+                },
+                actionButton = { memo ->
+                    val item = homeMemoItemsById[memo.identifier]
+                    if (item?.groupId.isNullOrBlank()) {
+                        MemosCardActionButton(
+                            memo = memo,
+                            onRequestEdit = { target ->
+                                rootNavController.navigate("${RouteName.EDIT}?memoId=${target.identifier}")
+                            }
+                        )
+                    } else {
+                        HomeGroupMemoActionButton(
+                            memo = memo,
+                            groupId = requireNotNull(item.groupId),
+                            onRequestEdit = {
+                                navController.navigateToGroupInputPage(
+                                    groupId = requireNotNull(item.groupId),
+                                    memoId = memo.remoteId
+                                )
+                            }
+                        )
+                    }
                 }
             )
         }

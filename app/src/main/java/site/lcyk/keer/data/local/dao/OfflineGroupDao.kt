@@ -44,7 +44,7 @@ interface OfflineGroupDao {
     @Query(
         """
         UPDATE offline_groups
-        SET hasUnreadDirectMessages = 0
+        SET hasUnreadMessages = 0
         WHERE accountKey = :accountKey AND groupId = :groupId
         """
     )

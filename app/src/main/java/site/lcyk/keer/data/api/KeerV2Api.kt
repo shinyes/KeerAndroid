@@ -388,7 +388,8 @@ data class KeerV2GroupMessage(
     val encryptedPayload: String? = null,
     val payloadEnvelope: KeerV2PayloadEnvelope? = null,
     val tags: List<String>? = null,
-    val attachments: List<KeerV2Resource>? = null
+    val attachments: List<KeerV2Resource>? = null,
+    val quote: KeerV2MemoQuote? = null,
 )
 
 @Serializable

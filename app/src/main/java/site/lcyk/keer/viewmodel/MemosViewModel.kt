@@ -14,10 +14,14 @@ import com.skydoves.sandwich.ApiResponse
 import com.skydoves.sandwich.suspendOnSuccess
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
@@ -27,23 +31,35 @@ import kotlinx.coroutines.withContext
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
+import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.data.model.toMemo
 import site.lcyk.keer.data.model.DailyUsageStat
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.data.service.MemoService
+import site.lcyk.keer.data.service.OfflineGroupStore
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.util.normalizeCollaboratorId
+import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.widget.WidgetUpdater
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import javax.inject.Inject
 
+data class HomeMemoItem(
+    val memo: MemoEntity,
+    val groupId: String? = null,
+)
+
 @HiltViewModel
+@OptIn(ExperimentalCoroutinesApi::class)
 class MemosViewModel @Inject constructor(
     private val memoService: MemoService,
     private val accountService: AccountService,
+    private val offlineGroupStore: OfflineGroupStore,
     @param:ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
@@ -65,6 +81,30 @@ class MemosViewModel @Inject constructor(
 
     val syncStatus: StateFlow<SyncStatus> =
         memoService.syncStatus.stateIn(viewModelScope, SharingStarted.Eagerly, SyncStatus())
+
+    val homeMemos: StateFlow<List<HomeMemoItem>> =
+        accountService.currentAccount
+            .flatMapLatest { account ->
+                val accountKey = account?.accountKey().orEmpty()
+                if (accountKey.isBlank()) {
+                    flowOf(emptyList())
+                } else {
+                    combine(
+                        memoService.memos,
+                        offlineGroupStore.observeAllCachedGroupMemos(accountKey),
+                        offlineGroupStore.observePinnedGroupMemoKeys(accountKey),
+                    ) { localMemos, cachedGroupMemos, pinnedGroupMemoKeys ->
+                        buildHomeMemoItems(
+                            account = account,
+                            accountKey = accountKey,
+                            localMemos = localMemos,
+                            cachedGroupMemos = cachedGroupMemos,
+                            pinnedGroupMemoKeys = pinnedGroupMemoKeys,
+                        )
+                    }
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
         snapshotFlow { memos.toList() }
@@ -277,6 +317,56 @@ class MemosViewModel @Inject constructor(
 
     private companion object {
         private const val MAX_TRANSIENT_DETAIL_MEMO_COUNT = 200
+    }
+
+    private fun buildHomeMemoItems(
+        account: Account?,
+        accountKey: String,
+        localMemos: List<MemoEntity>,
+        cachedGroupMemos: List<Pair<site.lcyk.keer.data.model.CachedMemoItem, String>>,
+        pinnedGroupMemoKeys: Set<String>,
+    ): List<HomeMemoItem> {
+        val currentUserId = (account as? Account.KeerV2)
+            ?.info
+            ?.id
+            ?.toString()
+            ?.let(::normalizeCollaboratorId)
+        val personalItems = localMemos.map { memo -> HomeMemoItem(memo = memo) }
+        val groupItems = if (currentUserId.isNullOrBlank()) {
+            emptyList()
+        } else {
+            cachedGroupMemos.mapNotNull { (cachedMemo, groupId) ->
+                val creatorId = normalizeCollaboratorId(cachedMemo.creatorId.orEmpty())
+                if (creatorId != currentUserId) {
+                    return@mapNotNull null
+                }
+                val resolvedMemo = cachedMemo.toMemo().let { memo ->
+                    val pinned = groupMemoKey(groupId, memo.remoteId) in pinnedGroupMemoKeys
+                    if (memo.pinned == pinned) memo else memo.copy(pinned = pinned)
+                }
+                val syncedAt = resolvedMemo.updatedAt ?: resolvedMemo.date
+                HomeMemoItem(
+                    memo = resolvedMemo.toMemoEntityForCard(
+                        identifier = "group:$groupId:${resolvedMemo.remoteId}",
+                        accountKey = accountKey,
+                        needsSync = false,
+                        lastModified = syncedAt,
+                        lastSyncedAt = syncedAt,
+                    ),
+                    groupId = groupId,
+                )
+            }
+        }
+        return (personalItems + groupItems)
+            .distinctBy { item -> item.memo.identifier }
+            .sortedWith(
+                compareByDescending<HomeMemoItem> { it.memo.pinned }
+                    .thenByDescending { it.memo.date }
+            )
+    }
+
+    private fun groupMemoKey(groupId: String, memoRemoteId: String): String {
+        return "$groupId|$memoRemoteId"
     }
 }
 

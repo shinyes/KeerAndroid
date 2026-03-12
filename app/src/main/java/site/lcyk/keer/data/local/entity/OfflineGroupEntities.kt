@@ -20,7 +20,7 @@ data class OfflineGroupEntity(
     val creatorId: String,
     val creatorName: String,
     val groupType: String,
-    val hasUnreadDirectMessages: Boolean,
+    val hasUnreadMessages: Boolean,
     val createdAtEpochMillis: Long,
     val updatedAtEpochMillis: Long,
 )

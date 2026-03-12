@@ -149,9 +149,14 @@ fun MemosNavigation(
         }
 
         composable(
-            "${RouteName.GROUP_INPUT}?groupId={groupId}&memoId={memoId}",
+            "${RouteName.GROUP_INPUT}?groupId={groupId}&memoId={memoId}&quoteMemoId={quoteMemoId}",
             arguments = listOf(
                 navArgument("memoId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("quoteMemoId") {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
@@ -160,11 +165,13 @@ fun MemosNavigation(
         ) { entry ->
             val groupId = entry.arguments?.getString("groupId")?.let(Uri::decode)
             val memoId = entry.arguments?.getString("memoId")?.let(Uri::decode)
+            val quoteMemoId = entry.arguments?.getString("quoteMemoId")?.let(Uri::decode)
             if (!groupId.isNullOrBlank()) {
                 GroupMemoInputPage(
                     navController = navController,
                     groupId = groupId,
-                    memoId = memoId
+                    memoId = memoId,
+                    quoteSourceMemoIdentifier = quoteMemoId,
                 )
             }
         }
