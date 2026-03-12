@@ -24,6 +24,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
+
+private enum class PullSyncLineVisualState {
+    Hidden,
+    Pulling,
+    Ready,
+    Syncing,
+    Settling,
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,7 +45,10 @@ fun BoxScope.PullSyncLineIndicator(
     val pullFraction = rawPullFraction.coerceIn(0f, 1f)
     val isPulling = rawPullFraction > 0f
     val readyToRefresh = !syncing && rawPullFraction >= 1f
+    val isActive = syncing || isPulling
     var thresholdHapticTriggered by remember { mutableStateOf(false) }
+    var settling by remember { mutableStateOf(false) }
+    var wasActive by remember { mutableStateOf(false) }
 
     LaunchedEffect(readyToRefresh, syncing) {
         if (readyToRefresh && !thresholdHapticTriggered) {
@@ -47,21 +59,53 @@ fun BoxScope.PullSyncLineIndicator(
         }
     }
 
-    val targetWidthFraction = when {
-        syncing -> 0.36f
-        readyToRefresh -> 0.42f
-        else -> 0.12f + (0.28f * pullFraction)
+    LaunchedEffect(isActive) {
+        if (isActive) {
+            wasActive = true
+            settling = false
+            return@LaunchedEffect
+        }
+        if (!wasActive) {
+            return@LaunchedEffect
+        }
+        settling = true
+        delay(110)
+        settling = false
+        wasActive = false
     }
-    val targetAlpha = when {
-        syncing -> 0.9f
-        readyToRefresh -> 0.95f
-        pullFraction > 0f -> 0.2f + (0.7f * pullFraction)
-        else -> 0f
+
+    val visualState = when {
+        syncing -> PullSyncLineVisualState.Syncing
+        readyToRefresh -> PullSyncLineVisualState.Ready
+        isPulling -> PullSyncLineVisualState.Pulling
+        settling -> PullSyncLineVisualState.Settling
+        else -> PullSyncLineVisualState.Hidden
+    }
+
+    val targetWidthFraction = when (visualState) {
+        PullSyncLineVisualState.Syncing -> 0.36f
+        PullSyncLineVisualState.Ready -> 0.42f
+        PullSyncLineVisualState.Pulling -> 0.12f + (0.28f * pullFraction)
+        PullSyncLineVisualState.Settling -> 0.18f
+        PullSyncLineVisualState.Hidden -> 0f
+    }
+    val targetAlpha = when (visualState) {
+        PullSyncLineVisualState.Syncing -> 0.9f
+        PullSyncLineVisualState.Ready -> 0.95f
+        PullSyncLineVisualState.Pulling -> 0.2f + (0.7f * pullFraction)
+        PullSyncLineVisualState.Settling -> 0.16f
+        PullSyncLineVisualState.Hidden -> 0f
     }
     val widthFraction by animateFloatAsState(
         targetValue = targetWidthFraction,
         animationSpec = tween(
-            durationMillis = if (isPulling) 90 else 260,
+            durationMillis = when (visualState) {
+                PullSyncLineVisualState.Pulling -> 90
+                PullSyncLineVisualState.Ready,
+                PullSyncLineVisualState.Syncing -> 140
+                PullSyncLineVisualState.Settling -> 150
+                PullSyncLineVisualState.Hidden -> 220
+            },
             easing = FastOutSlowInEasing
         ),
         label = "pull_indicator_width"
@@ -69,7 +113,13 @@ fun BoxScope.PullSyncLineIndicator(
     val alpha by animateFloatAsState(
         targetValue = targetAlpha,
         animationSpec = tween(
-            durationMillis = if (isPulling || syncing) 90 else 340,
+            durationMillis = when (visualState) {
+                PullSyncLineVisualState.Pulling -> 90
+                PullSyncLineVisualState.Ready,
+                PullSyncLineVisualState.Syncing -> 130
+                PullSyncLineVisualState.Settling -> 160
+                PullSyncLineVisualState.Hidden -> 240
+            },
             easing = FastOutSlowInEasing
         ),
         label = "pull_indicator_alpha"
