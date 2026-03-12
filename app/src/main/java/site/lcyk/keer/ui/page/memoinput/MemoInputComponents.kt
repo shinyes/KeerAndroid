@@ -9,7 +9,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -45,9 +47,11 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.BottomAppBar
+import androidx.compose.material3.BottomAppBarDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -63,6 +67,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -169,6 +174,8 @@ internal fun MemoInputBottomBar(
     onTakePhoto: () -> Unit,
     onTakeVideo: () -> Unit,
     onFormat: (MarkdownFormat) -> Unit,
+    compact: Boolean = false,
+    trailingAction: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val scrollState = rememberScrollState()
     val normalizedSelectedTags = remember(selectedTags) { normalizeTagList(selectedTags) }
@@ -199,7 +206,7 @@ internal fun MemoInputBottomBar(
             LazyRow(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 12.dp, vertical = if (compact) 4.dp else 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 items(normalizedSelectedTags, key = { it }) { tag ->
@@ -210,19 +217,29 @@ internal fun MemoInputBottomBar(
                 }
             }
         }
-        BottomAppBar {
+        BottomAppBar(
+            modifier = Modifier.height(if (compact) 60.dp else 80.dp),
+            containerColor = if (compact) Color.Transparent else BottomAppBarDefaults.containerColor,
+            tonalElevation = if (compact) 0.dp else BottomAppBarDefaults.ContainerElevation,
+            contentPadding = if (compact) {
+                PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+            } else {
+                BottomAppBarDefaults.ContentPadding
+            }
+        ) {
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
                         modifier = Modifier.horizontalScroll(scrollState),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = onTagSelectorClick) {
+                        MemoToolbarIconButton(compact = compact, onClick = onTagSelectorClick) {
                             BadgedBox(
                                 badge = {
                                     if (selectedTagCount > 0) {
@@ -236,7 +253,7 @@ internal fun MemoInputBottomBar(
                             }
                         }
 
-                        IconButton(onClick = onCollaboratorSelectorClick) {
+                        MemoToolbarIconButton(compact = compact, onClick = onCollaboratorSelectorClick) {
                             BadgedBox(
                                 badge = {
                                     if (normalizedCollaborators.isNotEmpty()) {
@@ -253,38 +270,61 @@ internal fun MemoInputBottomBar(
                             }
                         }
 
-                        IconButton(onClick = onPickImage) {
+                        MemoToolbarIconButton(compact = compact, onClick = onPickImage) {
                             Icon(Icons.Outlined.Image, contentDescription = stringResource(R.string.add_media))
                         }
 
-                        IconButton(onClick = onTakePhoto) {
+                        MemoToolbarIconButton(compact = compact, onClick = onTakePhoto) {
                             Icon(Icons.Outlined.PhotoCamera, contentDescription = stringResource(R.string.take_photo))
                         }
 
-                        IconButton(onClick = onTakeVideo) {
+                        MemoToolbarIconButton(compact = compact, onClick = onTakeVideo) {
                             Icon(
                                 Icons.Filled.Videocam,
                                 contentDescription = stringResource(R.string.record_video),
-                                modifier = Modifier.size(26.dp)
+                                modifier = Modifier.size(if (compact) 22.dp else 26.dp)
                             )
                         }
 
-                        IconButton(onClick = onPickAttachment) {
+                        MemoToolbarIconButton(compact = compact, onClick = onPickAttachment) {
                             Icon(Icons.Outlined.Attachment, contentDescription = stringResource(R.string.attachment))
                         }
 
-                        IconButton(onClick = onToggleTodoItem) {
+                        MemoToolbarIconButton(compact = compact, onClick = onToggleTodoItem) {
                             Icon(Icons.Outlined.CheckBox, contentDescription = stringResource(R.string.add_task))
                         }
 
-                        Spacer(modifier = Modifier.size(4.dp))
+                        Spacer(modifier = Modifier.size(if (compact) 2.dp else 4.dp))
 
                         FormattingButtons(onFormat = onFormat)
                     }
                 }
+                if (trailingAction != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.End,
+                        content = trailingAction
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun MemoToolbarIconButton(
+    compact: Boolean,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(if (compact) 40.dp else 48.dp),
+        colors = IconButtonDefaults.iconButtonColors(
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        ),
+        content = content
+    )
 }
 
 @Composable

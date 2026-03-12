@@ -32,6 +32,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,7 +46,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -423,25 +423,10 @@ fun QuickMemoComposer(
                             indication = null,
                         ) {}
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(width = 38.dp, height = 4.dp)
-                                .background(
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                                    shape = CircleShape
-                                )
-                        )
-                    }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 4.dp),
+                            .padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(onClick = { dismissComposer() }) {
@@ -452,20 +437,7 @@ fun QuickMemoComposer(
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.weight(1f)
                         )
-                        IconButton(
-                            enabled = (text.text.isNotEmpty() || inputViewModel.uploadResources.isNotEmpty()) &&
-                                !inputViewModel.hasActiveUpload(),
-                            onClick = { attemptSubmit() }
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Send,
-                                contentDescription = R.string.post.string
-                            )
-                        }
                     }
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
-                    )
                     MemoInputEditor(
                         modifier = Modifier.weight(1f),
                         text = text,
@@ -529,7 +501,21 @@ fun QuickMemoComposer(
                         onTakeVideo = ::launchCaptureVideo,
                         onFormat = { format ->
                             text = applyMarkdownFormatToText(text, format)
-                        }
+                        },
+                        compact = true,
+                        trailingAction = {
+                            IconButton(
+                                enabled = (text.text.isNotEmpty() || inputViewModel.uploadResources.isNotEmpty()) &&
+                                    !inputViewModel.hasActiveUpload(),
+                                onClick = { attemptSubmit() },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = R.string.post.string
+                                )
+                            }
+                        },
                     )
                 }
             }
