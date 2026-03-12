@@ -2,12 +2,13 @@ package site.lcyk.keer.ui.page.login
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.text.KeyboardActions
@@ -20,20 +21,17 @@ import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PermIdentity
 import androidx.compose.material3.BottomAppBar
-import androidx.compose.material3.BottomAppBarDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +48,6 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
@@ -60,7 +57,6 @@ import site.lcyk.keer.R
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.suspendOnErrorMessage
-import site.lcyk.keer.ui.component.Markdown
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.viewmodel.LoginCompatibility
 import site.lcyk.keer.viewmodel.LocalUserState
@@ -71,7 +67,6 @@ fun LoginPage(
     navController: NavHostController
 ) {
     val coroutineScope = rememberCoroutineScope()
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val lifecycleOwner = LocalLifecycleOwner.current
     val userStateViewModel = LocalUserState.current
     val snackbarState = remember { SnackbarHostState() }
@@ -172,13 +167,11 @@ fun LoginPage(
     }
 
     Scaffold(
-        modifier = Modifier
-            .nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = {
             SnackbarHost(hostState = snackbarState)
         },
         topBar = {
-            LargeTopAppBar(
+            TopAppBar(
                 title = { Text(text = if (userStateViewModel.currentUser != null) R.string.add_account.string else R.string.keer.string) },
                 navigationIcon = {
                     if (userStateViewModel.currentUser != null) {
@@ -188,92 +181,81 @@ fun LoginPage(
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = R.string.back.string)
                         }
                     }
-                },
-                scrollBehavior = scrollBehavior
-            )
-        },
-        bottomBar = {
-            BottomAppBar(
-                actions = {},
-                floatingActionButton = {
-                    ExtendedFloatingActionButton(
-                        onClick = { submit() },
-                        containerColor = BottomAppBarDefaults.bottomAppBarFabColor,
-                        elevation = FloatingActionButtonDefaults.bottomAppBarFabElevation(),
-                        text = { Text(if (registerMode) R.string.register.string else R.string.sign_in.string) },
-                        icon = {
-                            Icon(
-                                Icons.AutoMirrored.Outlined.Login,
-                                contentDescription = if (registerMode) R.string.register.string else R.string.sign_in.string
-                            )
-                        }
-                    )
                 }
             )
         }
     ) { innerPadding ->
-        LazyColumn(
-            Modifier
+        Column(
+            modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
-                .imePadding(),
+                .imePadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 30.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(
-                start = 30.dp,
-                top = 24.dp,
-                end = 30.dp,
-                bottom = 120.dp,
-            ),
         ) {
-            item {
-                Markdown(
-                    R.string.input_login_information.string,
-                    textAlign = TextAlign.Center
-                )
-            }
-
-            item {
-                OutlinedTextField(
-                    modifier = fieldModifier(hostRequester),
-                    value = host,
-                    onValueChange = { host = it },
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Outlined.Computer,
-                            contentDescription = R.string.address.string
-                        )
-                    },
-                    label = {
-                        Text(R.string.host.string)
-                    },
-                    keyboardOptions = KeyboardOptions(
-                        capitalization = KeyboardCapitalization.None,
-                        autoCorrectEnabled = false,
-                        keyboardType = KeyboardType.Uri,
-                        imeAction = ImeAction.Next
+            OutlinedTextField(
+                modifier = fieldModifier(hostRequester),
+                value = host,
+                onValueChange = { host = it },
+                singleLine = true,
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Outlined.Computer,
+                        contentDescription = R.string.address.string
                     )
+                },
+                label = {
+                    Text(R.string.host.string)
+                },
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.None,
+                    autoCorrectEnabled = false,
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Next
                 )
-            }
+            )
 
-            item {
+            OutlinedTextField(
+                modifier = fieldModifier(usernameRequester),
+                value = username,
+                onValueChange = { username = it },
+                singleLine = true,
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Outlined.PermIdentity,
+                        contentDescription = R.string.username.string
+                    )
+                },
+                label = {
+                    Text(R.string.username.string)
+                },
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.None,
+                    autoCorrectEnabled = false,
+                    keyboardType = KeyboardType.Text,
+                    imeAction = ImeAction.Next
+                )
+            )
+
+            if (registerMode) {
                 OutlinedTextField(
-                    modifier = fieldModifier(usernameRequester),
-                    value = username,
-                    onValueChange = { username = it },
+                    modifier = fieldModifier(displayNameRequester),
+                    value = displayName,
+                    onValueChange = { displayName = it },
                     singleLine = true,
                     leadingIcon = {
                         Icon(
-                            imageVector = Icons.Outlined.PermIdentity,
-                            contentDescription = R.string.username.string
+                            imageVector = Icons.Outlined.Badge,
+                            contentDescription = R.string.display_name.string
                         )
                     },
                     label = {
-                        Text(R.string.username.string)
+                        Text(R.string.display_name.string)
                     },
                     keyboardOptions = KeyboardOptions(
-                        capitalization = KeyboardCapitalization.None,
+                        capitalization = KeyboardCapitalization.Words,
                         autoCorrectEnabled = false,
                         keyboardType = KeyboardType.Text,
                         imeAction = ImeAction.Next
@@ -281,102 +263,90 @@ fun LoginPage(
                 )
             }
 
-            if (registerMode) {
-                item {
-                    OutlinedTextField(
-                        modifier = fieldModifier(displayNameRequester),
-                        value = displayName,
-                        onValueChange = { displayName = it },
-                        singleLine = true,
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Outlined.Badge,
-                                contentDescription = R.string.display_name.string
-                            )
-                        },
-                        label = {
-                            Text(R.string.display_name.string)
-                        },
-                        keyboardOptions = KeyboardOptions(
-                            capitalization = KeyboardCapitalization.Words,
-                            autoCorrectEnabled = false,
-                            keyboardType = KeyboardType.Text,
-                            imeAction = ImeAction.Next
-                        )
+            OutlinedTextField(
+                modifier = fieldModifier(passwordRequester),
+                value = password,
+                onValueChange = { password = it },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Outlined.Lock,
+                        contentDescription = R.string.password.string
                     )
-                }
-            }
+                },
+                label = {
+                    Text(R.string.password.string)
+                },
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.None,
+                    autoCorrectEnabled = false,
+                    keyboardType = KeyboardType.Password,
+                    imeAction = if (registerMode) ImeAction.Next else ImeAction.Go
+                ),
+                keyboardActions = KeyboardActions(onGo = { submit() })
+            )
 
-            item {
+            if (registerMode) {
                 OutlinedTextField(
-                    modifier = fieldModifier(passwordRequester),
-                    value = password,
-                    onValueChange = { password = it },
+                    modifier = fieldModifier(confirmPasswordRequester),
+                    value = confirmPassword,
+                    onValueChange = { confirmPassword = it },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Outlined.Lock,
-                            contentDescription = R.string.password.string
+                            contentDescription = R.string.confirm_password.string
                         )
                     },
                     label = {
-                        Text(R.string.password.string)
+                        Text(R.string.confirm_password.string)
                     },
                     keyboardOptions = KeyboardOptions(
                         capitalization = KeyboardCapitalization.None,
                         autoCorrectEnabled = false,
                         keyboardType = KeyboardType.Password,
-                        imeAction = if (registerMode) ImeAction.Next else ImeAction.Go
+                        imeAction = ImeAction.Go
                     ),
                     keyboardActions = KeyboardActions(onGo = { submit() })
                 )
             }
 
-            if (registerMode) {
-                item {
-                    OutlinedTextField(
-                        modifier = fieldModifier(confirmPasswordRequester),
-                        value = confirmPassword,
-                        onValueChange = { confirmPassword = it },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Outlined.Lock,
-                                contentDescription = R.string.confirm_password.string
-                            )
-                        },
-                        label = {
-                            Text(R.string.confirm_password.string)
-                        },
-                        keyboardOptions = KeyboardOptions(
-                            capitalization = KeyboardCapitalization.None,
-                            autoCorrectEnabled = false,
-                            keyboardType = KeyboardType.Password,
-                            imeAction = ImeAction.Go
-                        ),
-                        keyboardActions = KeyboardActions(onGo = { submit() })
-                    )
-                }
-            }
+            Spacer(modifier = Modifier.weight(1f))
 
-            item {
-                TextButton(
-                    onClick = {
-                        registerMode = !registerMode
-                        confirmPassword = TextFieldValue()
-                    }
-                ) {
-                    Text(
-                        if (registerMode) {
-                            R.string.switch_to_sign_in.string
-                        } else {
-                            R.string.switch_to_register.string
+            BottomAppBar(
+                modifier = Modifier.fillMaxWidth(),
+                containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                tonalElevation = 0.dp,
+                actions = {
+                    TextButton(
+                        onClick = {
+                            registerMode = !registerMode
+                            confirmPassword = TextFieldValue()
                         }
+                    ) {
+                        Text(
+                            if (registerMode) {
+                                R.string.switch_to_sign_in.string
+                            } else {
+                                R.string.switch_to_register.string
+                            }
+                        )
+                    }
+                },
+            )
+            ExtendedFloatingActionButton(
+                modifier = Modifier.align(Alignment.End),
+                onClick = { submit() },
+                text = { Text(if (registerMode) R.string.register.string else R.string.sign_in.string) },
+                icon = {
+                    Icon(
+                        Icons.AutoMirrored.Outlined.Login,
+                        contentDescription = if (registerMode) R.string.register.string else R.string.sign_in.string
                     )
                 }
-            }
+            )
         }
     }
 }
