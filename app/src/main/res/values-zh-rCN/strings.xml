@@ -17,6 +17,7 @@
     <string name="config">配置</string>
     <string name="settings">设置</string>
     <string name="profile_settings">个人资料</string>
+    <string name="more">更多</string>
     <string name="tags">标签</string>
     <string name="memo">灵感</string>
     <string name="memo_detail">详情</string>
@@ -132,6 +133,17 @@
     <string name="collaborators">共创人</string>
     <string name="collaborator_id">共创人 ID</string>
     <string name="add_collaborator">添加共创人</string>
+    <string name="friends">好友</string>
+    <string name="add_friend">添加好友</string>
+    <string name="remove_friend">删除好友</string>
+    <string name="friend_user_identifier">好友用户名或 ID</string>
+    <string name="friend_user_identifier_required">好友用户名或 ID 不能为空。</string>
+    <string name="friends_remote_only">仅同步账户支持好友功能。</string>
+    <string name="no_friends_yet">还没有好友。</string>
+    <string name="invite_friend">邀请好友</string>
+    <string name="no_invitable_friends">当前群组没有可邀请的好友。</string>
+    <string name="no_friends_available_for_collaboration">请先添加好友后再使用共同创作。</string>
+    <string name="private_chat">私聊</string>
     <string name="no_groups_joined">你还没有加入任何群组，先创建或加入一个群组。</string>
     <string name="delete_group_confirm">仅群组发起人可删除，删除后不可恢复。</string>
     <string name="leave_group_confirm">确认退出该群组吗？</string>

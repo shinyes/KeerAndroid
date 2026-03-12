@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -89,7 +90,7 @@ fun AvatarSettingsPage(
     }
 
     PageScaffold(
-        title = R.string.profile_settings.string,
+        title = R.string.more.string,
         drawerState = drawerState,
         onMenuButtonOpenRequested = onMenuButtonOpenRequested,
         onBack = if (drawerState == null) {
@@ -105,7 +106,7 @@ fun AvatarSettingsPage(
         ) {
             item {
                 Text(
-                    text = R.string.profile_settings.string,
+                    text = R.string.more.string,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(24.dp, 10.dp),
@@ -130,6 +131,7 @@ fun AvatarSettingsPage(
                                 model = displayAvatarModel,
                                 imageLoader = imageLoader,
                                 contentDescription = null,
+                                contentScale = ContentScale.Crop,
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)

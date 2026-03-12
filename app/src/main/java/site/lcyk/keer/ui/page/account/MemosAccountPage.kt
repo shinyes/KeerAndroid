@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
@@ -99,6 +100,7 @@ fun MemosAccountPage(
                                 model = accountAvatarUrl,
                                 imageLoader = imageLoader,
                                 contentDescription = null,
+                                contentScale = ContentScale.Crop,
                                 modifier = Modifier
                                     .size(42.dp)
                                     .clip(CircleShape),

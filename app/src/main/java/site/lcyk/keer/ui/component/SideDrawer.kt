@@ -352,7 +352,7 @@ fun SideDrawer(
         }
         item {
             NavigationDrawerItem(
-                label = { Text(R.string.settings.string) },
+                label = { Text(R.string.more.string) },
                 icon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
                 selected = isSelected(RouteName.SETTINGS),
                 onClick = {
