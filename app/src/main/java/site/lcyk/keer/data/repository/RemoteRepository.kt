@@ -51,6 +51,10 @@ abstract class RemoteRepository {
     abstract suspend fun listFriends(): ApiResponse<List<User>>
     abstract suspend fun addFriend(userIdentifier: String): ApiResponse<User>
     abstract suspend fun removeFriend(userIdentifier: String): ApiResponse<Unit>
+    abstract suspend fun changePassword(
+        currentPassword: String,
+        newPassword: String
+    ): ApiResponse<Unit>
 
     abstract suspend fun listGroups(): ApiResponse<List<MemoGroup>>
     abstract suspend fun createGroup(name: String, description: String): ApiResponse<MemoGroup>

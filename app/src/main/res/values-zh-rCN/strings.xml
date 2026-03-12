@@ -136,6 +136,12 @@
     <string name="friends">好友</string>
     <string name="add_friend">添加好友</string>
     <string name="remove_friend">删除好友</string>
+    <string name="change_password">修改密码</string>
+    <string name="current_password">当前密码</string>
+    <string name="new_password">新密码</string>
+    <string name="current_password_required">当前密码不能为空。</string>
+    <string name="new_password_required">新密码不能为空。</string>
+    <string name="password_change_success">密码已修改。</string>
     <string name="friend_user_identifier">好友用户名或 ID</string>
     <string name="friend_user_identifier_required">好友用户名或 ID 不能为空。</string>
     <string name="friends_remote_only">仅同步账户支持好友功能。</string>

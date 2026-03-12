@@ -145,6 +145,12 @@
     <string name="friends">Friends</string>
     <string name="add_friend">Add Friend</string>
     <string name="remove_friend">Remove Friend</string>
+    <string name="change_password">Change Password</string>
+    <string name="current_password">Current password</string>
+    <string name="new_password">New password</string>
+    <string name="current_password_required">Current password is required.</string>
+    <string name="new_password_required">New password is required.</string>
+    <string name="password_change_success">Password changed.</string>
     <string name="friend_user_identifier">Friend username or ID</string>
     <string name="friend_user_identifier_required">Friend username or ID is required.</string>
     <string name="friends_remote_only">Friends are only available for synced accounts.</string>

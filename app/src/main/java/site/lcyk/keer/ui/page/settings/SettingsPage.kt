@@ -2,9 +2,11 @@ package site.lcyk.keer.ui.page.settings
 
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -15,6 +17,7 @@ import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Group
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
@@ -22,6 +25,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,10 +36,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
@@ -47,6 +53,7 @@ import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemoEditGesture
 import site.lcyk.keer.data.model.Settings
+import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
@@ -108,6 +115,12 @@ fun SettingsPage(
             userStateViewModel.uploadCurrentUserAvatar(uri)
         }
     }
+    var showChangePasswordDialog by remember { mutableStateOf(false) }
+    var currentPassword by rememberSaveable { mutableStateOf("") }
+    var newPassword by rememberSaveable { mutableStateOf("") }
+    var confirmNewPassword by rememberSaveable { mutableStateOf("") }
+    var passwordChangeError by rememberSaveable { mutableStateOf<String?>(null) }
+    var passwordChangeLoading by remember { mutableStateOf(false) }
 
     LaunchedEffect(currentAccount?.accountKey()) {
         userStateViewModel.loadCurrentUser()
@@ -222,6 +235,18 @@ fun SettingsPage(
                 }
             }
 
+            if (currentAccount is Account.KeerV2) {
+                item {
+                    SettingItem(
+                        icon = Icons.Outlined.Lock,
+                        text = R.string.change_password.string
+                    ) {
+                        passwordChangeError = null
+                        showChangePasswordDialog = true
+                    }
+                }
+            }
+
             item {
                 SettingItem(
                     icon = Icons.Outlined.Edit,
@@ -292,6 +317,134 @@ fun SettingsPage(
             confirmButton = {
                 TextButton(onClick = { showEditGestureDialog = false }) {
                     Text(R.string.close.string)
+                }
+            }
+        )
+    }
+
+    if (showChangePasswordDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!passwordChangeLoading) {
+                    showChangePasswordDialog = false
+                    currentPassword = ""
+                    newPassword = ""
+                    confirmNewPassword = ""
+                    passwordChangeError = null
+                }
+            },
+            title = { Text(R.string.change_password.string) },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = currentPassword,
+                        onValueChange = {
+                            currentPassword = it
+                            passwordChangeError = null
+                        },
+                        label = { Text(R.string.current_password.string) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp)
+                    )
+                    OutlinedTextField(
+                        value = newPassword,
+                        onValueChange = {
+                            newPassword = it
+                            passwordChangeError = null
+                        },
+                        label = { Text(R.string.new_password.string) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp)
+                    )
+                    OutlinedTextField(
+                        value = confirmNewPassword,
+                        onValueChange = {
+                            confirmNewPassword = it
+                            passwordChangeError = null
+                        },
+                        label = { Text(R.string.confirm_password.string) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    passwordChangeError?.takeIf { it.isNotBlank() }?.let { message ->
+                        Text(
+                            text = message,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 12.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        when {
+                            currentPassword.isBlank() -> {
+                                passwordChangeError = context.getString(R.string.current_password_required)
+                            }
+                            newPassword.isBlank() -> {
+                                passwordChangeError = context.getString(R.string.new_password_required)
+                            }
+                            newPassword != confirmNewPassword -> {
+                                passwordChangeError = context.getString(R.string.passwords_do_not_match)
+                            }
+                            else -> {
+                                passwordChangeLoading = true
+                                scope.launch {
+                                    val response = userStateViewModel.changePassword(
+                                        currentPassword = currentPassword,
+                                        newPassword = newPassword
+                                    )
+                                    passwordChangeLoading = false
+                                    if (response is com.skydoves.sandwich.ApiResponse.Success) {
+                                        showChangePasswordDialog = false
+                                        currentPassword = ""
+                                        newPassword = ""
+                                        confirmNewPassword = ""
+                                        passwordChangeError = null
+                                        Toast.makeText(
+                                            context,
+                                            R.string.password_change_success.string,
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        passwordChangeError = response.getErrorMessage()
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    enabled = !passwordChangeLoading
+                ) {
+                    Text(
+                        if (passwordChangeLoading) {
+                            R.string.loading.string
+                        } else {
+                            R.string.confirm.string
+                        }
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showChangePasswordDialog = false
+                        currentPassword = ""
+                        newPassword = ""
+                        confirmNewPassword = ""
+                        passwordChangeError = null
+                    },
+                    enabled = !passwordChangeLoading
+                ) {
+                    Text(R.string.cancel.string)
                 }
             }
         )

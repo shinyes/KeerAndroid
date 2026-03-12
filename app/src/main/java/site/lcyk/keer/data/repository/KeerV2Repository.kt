@@ -717,6 +717,18 @@ class KeerV2Repository(
         return memosApi.removeFriend(userIdentifier.trim())
     }
 
+    override suspend fun changePassword(
+        currentPassword: String,
+        newPassword: String
+    ): ApiResponse<Unit> {
+        return accountKeyManager.changePassword(
+            account = account,
+            api = memosApi,
+            currentPassword = currentPassword,
+            newPassword = newPassword,
+        )
+    }
+
     override suspend fun listGroups(): ApiResponse<List<MemoGroup>> {
         return memosApi.listGroups().mapSuccess {
             groups.map { group -> convertGroup(group) }

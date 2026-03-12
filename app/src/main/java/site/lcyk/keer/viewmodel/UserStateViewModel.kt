@@ -305,6 +305,15 @@ class UserStateViewModel @Inject constructor(
         }
     }
 
+    suspend fun changePassword(
+        currentPassword: String,
+        newPassword: String
+    ): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+        val remoteRepository = accountService.getRemoteRepository()
+            ?: return@withContext ApiResponse.exception(IllegalStateException("Current account does not support password changes"))
+        remoteRepository.changePassword(currentPassword, newPassword)
+    }
+
     suspend fun openDirectChat(userIdentifier: String): ApiResponse<MemoGroup> = withContext(viewModelScope.coroutineContext) {
         val remoteRepository = accountService.getRemoteRepository()
             ?: return@withContext ApiResponse.exception(IllegalStateException("Current account does not support direct chats"))

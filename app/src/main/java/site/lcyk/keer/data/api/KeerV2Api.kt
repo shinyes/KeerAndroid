@@ -52,6 +52,12 @@ interface KeerV2Api {
         @Body body: UpdateUserEncryptionSettingRequest
     ): ApiResponse<KeerV2UserEncryptionSettingResponse>
 
+    @PUT("api/v1/users/{id}/password")
+    suspend fun updateUserPassword(
+        @Path("id") userId: String,
+        @Body body: UpdateUserPasswordRequest
+    ): ApiResponse<Unit>
+
     @GET("api/v1/users/keys/batch")
     suspend fun getUserPublicKeysBatch(@Query("ids") ids: String): ApiResponse<ListUserPublicKeysResponse>
 
@@ -562,6 +568,13 @@ data class KeerV2RecoveryBundle(
 
 @Serializable
 data class UpdateUserEncryptionSettingRequest(
+    val encryptionSetting: UpdateUserEncryptionSettingBody
+)
+
+@Serializable
+data class UpdateUserPasswordRequest(
+    val currentPassword: String,
+    val newPassword: String,
     val encryptionSetting: UpdateUserEncryptionSettingBody
 )
 

@@ -12,6 +12,7 @@ import site.lcyk.keer.data.api.KeerV2GroupKeyVersion
 import site.lcyk.keer.data.api.KeerV2RecoveryBundle
 import site.lcyk.keer.data.api.KeerV2UserEncryptionSetting
 import site.lcyk.keer.data.api.KeerV2UserPublicKey
+import site.lcyk.keer.data.api.UpdateUserPasswordRequest
 import site.lcyk.keer.data.api.UpdateUserEncryptionSettingBody
 import site.lcyk.keer.data.api.UpdateUserEncryptionSettingRequest
 import site.lcyk.keer.data.model.Account
@@ -193,11 +194,63 @@ class AccountKeyManager @Inject constructor(
                     IllegalStateException("upload sharing key pair failed: HTTP ${updateResponse.statusCode.code}")
                 )
                 is ApiResponse.Failure.Exception -> ApiResponse.exception(updateResponse.throwable)
-                else -> ApiResponse.exception(IllegalStateException("upload sharing key pair failed"))
             }
         }
         sharingPrivateKeyCache[sharingCacheKey(account.accountKey(), account.info.id.toString())] = keyPair.private.encoded
         return ApiResponse.Success(Unit)
+    }
+
+    suspend fun changePassword(
+        account: Account.KeerV2,
+        api: KeerV2Api,
+        currentPassword: String,
+        newPassword: String,
+    ): ApiResponse<Unit> {
+        val normalizedCurrentPassword = currentPassword.trim()
+        val normalizedNewPassword = newPassword.trim()
+        val settingResponse = api.getUserEncryptionSetting(account.info.id.toString())
+        val setting = when (settingResponse) {
+            is ApiResponse.Success -> settingResponse.data.encryptionSetting
+            is ApiResponse.Failure.Error -> {
+                return ApiResponse.exception(
+                    IllegalStateException("load user encryption setting failed: HTTP ${settingResponse.statusCode.code}")
+                )
+            }
+            is ApiResponse.Failure.Exception -> return ApiResponse.exception(settingResponse.throwable)
+        }
+
+        val accountMasterKey = secureAccountMasterKeyStorage.getKey(account.accountKey()) ?: runCatching {
+            unwrapAccountMasterKey(normalizedCurrentPassword, setting)
+        }.getOrElse { throwable ->
+            return ApiResponse.exception(
+                IllegalStateException("recover account encryption key failed", throwable)
+            )
+        }
+        if (secureAccountMasterKeyStorage.getKey(account.accountKey()) == null) {
+            if (!secureAccountMasterKeyStorage.saveKey(account.accountKey(), accountMasterKey)) {
+                return ApiResponse.exception(
+                    IllegalStateException("persist account encryption key failed")
+                )
+            }
+        }
+
+        val updateResponse = api.updateUserPassword(
+            account.info.id.toString(),
+            UpdateUserPasswordRequest(
+                currentPassword = normalizedCurrentPassword,
+                newPassword = normalizedNewPassword,
+                encryptionSetting = buildWrappedAccountKeySetting(
+                    password = normalizedNewPassword,
+                    accountMasterKey = accountMasterKey,
+                ).copy(
+                    sharingPublicKey = setting.sharingPublicKey,
+                    wrappedSharingPrivateKey = setting.wrappedSharingPrivateKey,
+                    keyVersion = setting.keyVersion.takeIf { it > 0 } ?: 1,
+                    algorithms = setting.algorithms,
+                )
+            )
+        )
+        return updateResponse.mapSuccess { Unit }
     }
 
     suspend fun encryptForCollaborators(
