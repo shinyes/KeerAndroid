@@ -65,9 +65,10 @@ import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.isQuoteTag
 import site.lcyk.keer.util.normalizeTagList
-import site.lcyk.keer.util.parseMemoQuoteDescriptor
 import site.lcyk.keer.util.resolveMemoByIdentifier
 import site.lcyk.keer.util.resolveMemoByRemoteId
+import site.lcyk.keer.util.resolveMemoFromQuoteDescriptor
+import site.lcyk.keer.util.resolveMemoQuoteDescriptor
 import site.lcyk.keer.util.storedMemoQuotePreviewOrNull
 import site.lcyk.keer.util.toMemoQuotePreview
 import site.lcyk.keer.viewmodel.LocalMemos
@@ -89,6 +90,7 @@ fun MemosCard(
     collaboratorProfiles: Map<String, CollaboratorProfile> = emptyMap(),
     avatarImageLoader: ImageLoader? = null,
     prefetchCollaborators: Boolean = true,
+    quoteMemoCandidates: List<MemoEntity> = emptyList(),
     quoteResolverSettings: Settings = Settings()
 ) {
     val memosViewModel = LocalMemos.current
@@ -105,26 +107,26 @@ fun MemosCard(
     }
     val collaboratorIds = remember(memo.tags) { extractCollaboratorIds(memo.tags) }
     val memoSnapshot = remember(memosViewModel.memos) { memosViewModel.memos.toList() }
-    val quoteDescriptor = remember(memo.tags) { parseMemoQuoteDescriptor(memo.tags) }
-    val quotedMemo = remember(quoteDescriptor, memoSnapshot, quoteResolverSettings.currentUser, quoteResolverSettings.usersList) {
+    val quoteDescriptor = remember(memo.quoteSourceKind, memo.quoteSource, memo.tags) {
+        memo.resolveMemoQuoteDescriptor()
+    }
+    val quoteSearchSpace = remember(quoteMemoCandidates, memoSnapshot) {
+        (quoteMemoCandidates + memoSnapshot)
+            .distinctBy { candidate -> "${candidate.identifier}|${candidate.remoteId.orEmpty()}" }
+    }
+    val quotedMemo = remember(
+        quoteDescriptor,
+        quoteSearchSpace,
+        quoteResolverSettings.currentUser,
+        quoteResolverSettings.usersList,
+    ) {
         val descriptor = quoteDescriptor ?: return@remember null
-        when (descriptor.sourceKind) {
-            MemoQuoteSourceKind.LOCAL -> {
-                memosViewModel.getMemoForDetail(descriptor.source)
-                    ?: resolveMemoByIdentifier(
-                        memoIdentifier = descriptor.source,
-                        memos = memoSnapshot,
-                        settings = quoteResolverSettings
-                    )
-            }
-            MemoQuoteSourceKind.REMOTE -> {
-                resolveMemoByRemoteId(
-                    remoteId = descriptor.source,
-                    memos = memoSnapshot,
-                    settings = quoteResolverSettings
-                )
-            }
-        }
+        memosViewModel.getMemoForDetail(descriptor.source)
+            ?: resolveMemoFromQuoteDescriptor(
+                descriptor = descriptor,
+                memos = quoteSearchSpace,
+                settings = quoteResolverSettings
+            )
     }
     val quotePreview = remember(
         quotedMemo?.content,

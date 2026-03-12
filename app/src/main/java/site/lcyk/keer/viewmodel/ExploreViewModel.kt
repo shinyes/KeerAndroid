@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.Account
@@ -32,6 +33,7 @@ import site.lcyk.keer.data.service.OfflineGroupStore
 import site.lcyk.keer.data.service.OfflineSyncTaskScheduler
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
+import site.lcyk.keer.ext.string
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
@@ -103,7 +105,7 @@ class ExploreViewModel @Inject constructor(
         tags: List<String>
     ): Boolean {
         val remoteRepository = accountService.getRemoteRepository() ?: run {
-            _mutationErrorMessage.value = "Current account does not support remote memo operations"
+            _mutationErrorMessage.value = R.string.current_account_no_remote_memo_operations.string
             return false
         }
         val normalizedContent = content.trim()
@@ -140,7 +142,7 @@ class ExploreViewModel @Inject constructor(
 
     suspend fun deleteExploreMemo(item: ExploreMemoItem): Boolean {
         val remoteRepository = accountService.getRemoteRepository() ?: run {
-            _mutationErrorMessage.value = "Current account does not support remote memo operations"
+            _mutationErrorMessage.value = R.string.current_account_no_remote_memo_operations.string
             return false
         }
         val response = if (item.groupId.isNullOrBlank()) {

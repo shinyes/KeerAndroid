@@ -370,7 +370,7 @@ class AccountService @Inject constructor(
     suspend fun uploadCurrentUserAvatar(uri: Uri): ApiResponse<Unit> = withContext(Dispatchers.IO) {
         val account = currentAccount.first()
         if (account !is Account.KeerV2) {
-            return@withContext ApiResponse.exception(IllegalStateException("Current account does not support avatar sync"))
+            return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_avatar_sync.string))
         }
 
         val previousAvatarUri = context.settingsDataStore.data.first().usersList

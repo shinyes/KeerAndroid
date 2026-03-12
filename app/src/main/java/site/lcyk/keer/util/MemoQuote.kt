@@ -1,6 +1,7 @@
 package site.lcyk.keer.util
 
 import site.lcyk.keer.data.local.entity.MemoEntity
+import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoQuotePreview
 
 private const val QUOTE_TAG_ROOT = "quote/src"
@@ -93,6 +94,38 @@ fun mergeTagsWithCollaboratorsAndQuote(
         return withoutQuote
     }
     return (withoutQuote + quoteTag).distinct()
+}
+
+fun resolveMemoQuoteDescriptor(
+    sourceKindRaw: String?,
+    sourceRaw: String?,
+    tags: List<String>,
+): MemoQuoteDescriptor? {
+    val sourceKind = resolveQuoteSourceKind(sourceKindRaw)
+    val source = sourceRaw?.trim().orEmpty()
+    if (sourceKind != null && source.isNotEmpty()) {
+        return MemoQuoteDescriptor(
+            sourceKind = sourceKind,
+            source = source,
+        )
+    }
+    return parseMemoQuoteDescriptor(tags)
+}
+
+fun MemoEntity.resolveMemoQuoteDescriptor(): MemoQuoteDescriptor? {
+    return resolveMemoQuoteDescriptor(
+        sourceKindRaw = quoteSourceKind,
+        sourceRaw = quoteSource,
+        tags = tags,
+    )
+}
+
+fun Memo.resolveMemoQuoteDescriptor(): MemoQuoteDescriptor? {
+    return resolveMemoQuoteDescriptor(
+        sourceKindRaw = quoteSourceKind,
+        sourceRaw = quoteSource,
+        tags = tags,
+    )
 }
 
 fun MemoEntity.toMemoQuotePreview(): MemoQuotePreview {

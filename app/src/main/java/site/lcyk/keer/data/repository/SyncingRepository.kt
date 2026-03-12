@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import site.lcyk.keer.R
 import site.lcyk.keer.data.local.FileStorage
 import site.lcyk.keer.data.local.dao.MemoDao
 import site.lcyk.keer.data.local.entity.MemoEntity
@@ -32,6 +33,7 @@ import site.lcyk.keer.data.model.Resource
 import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.data.model.User
 import site.lcyk.keer.ext.getErrorMessage
+import site.lcyk.keer.ext.string
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.isValidTagName
 import site.lcyk.keer.util.normalizeTagName
@@ -165,7 +167,7 @@ class SyncingRepository(
     ): ApiResponse<MemoEntity> {
         return try {
             val existingMemo = memoDao.getMemoById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception("Memo not found"))
+                ?: return ApiResponse.Failure.Exception(Exception(R.string.memo_not_found.string))
 
             val updatedMemo = existingMemo.copy(
                 content = content ?: existingMemo.content,
@@ -210,7 +212,7 @@ class SyncingRepository(
     override suspend fun deleteMemo(identifier: String): ApiResponse<Unit> {
         return try {
             val memo = memoDao.getMemoById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception("Memo not found"))
+                ?: return ApiResponse.Failure.Exception(Exception(R.string.memo_not_found.string))
             memoDao.insertMemo(
                 memo.copy(
                     isDeleted = true,
@@ -229,7 +231,7 @@ class SyncingRepository(
     override suspend fun archiveMemo(identifier: String): ApiResponse<Unit> {
         return try {
             val memo = memoDao.getMemoById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception("Memo not found"))
+                ?: return ApiResponse.Failure.Exception(Exception(R.string.memo_not_found.string))
             memoDao.insertMemo(
                 memo.copy(
                     archived = true,
@@ -248,7 +250,7 @@ class SyncingRepository(
     override suspend fun restoreMemo(identifier: String): ApiResponse<Unit> {
         return try {
             val memo = memoDao.getMemoById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception("Memo not found"))
+                ?: return ApiResponse.Failure.Exception(Exception(R.string.memo_not_found.string))
             memoDao.insertMemo(
                 memo.copy(
                     archived = false,
@@ -281,10 +283,10 @@ class SyncingRepository(
             val normalizedOldTag = normalizeTagName(oldTag)
             val normalizedNewTag = normalizeTagName(newTag)
             if (normalizedOldTag.isEmpty() || normalizedNewTag.isEmpty()) {
-                return ApiResponse.Failure.Exception(IllegalArgumentException("Tag name cannot be empty"))
+                return ApiResponse.Failure.Exception(IllegalArgumentException(R.string.tag_name_empty.string))
             }
             if (!isValidTagName(normalizedNewTag)) {
-                return ApiResponse.Failure.Exception(IllegalArgumentException("Invalid tag name"))
+                return ApiResponse.Failure.Exception(IllegalArgumentException(R.string.invalid_tag_name.string))
             }
             if (normalizedOldTag == normalizedNewTag) {
                 return ApiResponse.Success(Unit)
@@ -329,7 +331,7 @@ class SyncingRepository(
         return try {
             val normalizedTag = normalizeTagName(tag)
             if (normalizedTag.isEmpty()) {
-                return ApiResponse.Failure.Exception(IllegalArgumentException("Tag name cannot be empty"))
+                return ApiResponse.Failure.Exception(IllegalArgumentException(R.string.tag_name_empty.string))
             }
 
             operationMutex.withLock {
@@ -470,7 +472,7 @@ class SyncingRepository(
     override suspend fun deleteResource(identifier: String): ApiResponse<Unit> {
         return try {
             val resource = memoDao.getResourceById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception("Resource not found"))
+                ?: return ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
 
             val memoId = resource.memoId
             deleteLocalFile(resource)
@@ -527,7 +529,7 @@ class SyncingRepository(
     override suspend fun cacheResourceFile(identifier: String, downloadedUri: Uri): ApiResponse<Unit> {
         return try {
             val resource = memoDao.getResourceById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception("Resource not found"))
+                ?: return ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
             val existingLocal = existingLocalUri(resource)
             if (existingLocal != null) {
                 return ApiResponse.Success(Unit)
@@ -566,7 +568,7 @@ class SyncingRepository(
     override suspend fun cacheResourceThumbnail(identifier: String, downloadedUri: Uri): ApiResponse<Unit> {
         return try {
             val resource = memoDao.getResourceById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception("Resource not found"))
+                ?: return ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
             val existingLocal = existingThumbnailLocalUri(resource)
             if (existingLocal != null) {
                 return ApiResponse.Success(Unit)

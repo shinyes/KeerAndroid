@@ -16,10 +16,12 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
+import site.lcyk.keer.R
 import site.lcyk.keer.data.api.MemosProfile
 import site.lcyk.keer.data.api.KeerV2Api
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.service.AccountService
+import site.lcyk.keer.ext.string
 
 @HiltViewModel(assistedFactory = AccountViewModel.AccountViewModelFactory::class)
 class AccountViewModel @AssistedInject constructor(
@@ -67,7 +69,7 @@ class AccountViewModel @AssistedInject constructor(
 
     suspend fun exportLocalAccount(destinationUri: Uri): Result<Unit> = withContext(viewModelScope.coroutineContext) {
         if (selectedAccountKey != Account.Local().accountKey()) {
-            return@withContext Result.failure(IllegalStateException("Export is available for local account only"))
+            return@withContext Result.failure(IllegalStateException(R.string.export_local_only.string))
         }
         runCatching {
             accountService.exportLocalAccountZip(destinationUri)

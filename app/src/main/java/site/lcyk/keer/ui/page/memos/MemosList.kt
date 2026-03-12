@@ -264,6 +264,7 @@ private fun MemoFeedList(
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
                     prefetchCollaborators = false,
+                    quoteMemoCandidates = memos,
                     quoteResolverSettings = quoteResolverSettings
                 )
             }

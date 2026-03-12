@@ -331,7 +331,7 @@ fun QuickMemoComposer(
             takePhoto.launch(uri)
         } catch (e: ActivityNotFoundException) {
             coroutineScope.launch {
-                snackbarState.showSnackbar(e.localizedMessage ?: "Unable to take picture.")
+                snackbarState.showSnackbar(e.localizedMessage ?: R.string.unable_to_take_picture.string)
             }
         }
     }

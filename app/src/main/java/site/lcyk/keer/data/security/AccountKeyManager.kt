@@ -4,6 +4,7 @@ import com.skydoves.sandwich.ApiResponse
 import com.skydoves.sandwich.StatusCode
 import com.skydoves.sandwich.mapSuccess
 import com.skydoves.sandwich.retrofit.statusCode
+import site.lcyk.keer.R
 import site.lcyk.keer.data.api.CreateGroupKeyVersionBody
 import site.lcyk.keer.data.api.CreateGroupKeyVersionRequest
 import site.lcyk.keer.data.api.KeerV2Api
@@ -17,6 +18,8 @@ import site.lcyk.keer.data.api.UpdateUserEncryptionSettingBody
 import site.lcyk.keer.data.api.UpdateUserEncryptionSettingRequest
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.service.SecureAccountMasterKeyStorage
+import site.lcyk.keer.ext.formatString
+import site.lcyk.keer.ext.string
 import java.security.SecureRandom
 import java.security.KeyPairGenerator
 import java.util.Base64
@@ -75,13 +78,13 @@ class AccountKeyManager @Inject constructor(
                     null
                 } else {
                     return ApiResponse.exception(
-                        IllegalStateException("load account encryption key failed: HTTP ${settingResponse.statusCode.code}")
+                        IllegalStateException(R.string.load_account_encryption_key_failed_http.formatString(settingResponse.statusCode.code))
                     )
                 }
             }
             is ApiResponse.Failure.Exception -> {
                 return ApiResponse.exception(
-                    IllegalStateException("load account encryption key failed", settingResponse.throwable)
+                    IllegalStateException(R.string.load_account_encryption_key_failed.string, settingResponse.throwable)
                 )
             }
         }
@@ -104,12 +107,12 @@ class AccountKeyManager @Inject constructor(
                 unwrapAccountMasterKey(password, remoteSetting)
             }.getOrElse { throwable ->
                 return ApiResponse.exception(
-                    IllegalStateException("recover account encryption key failed", throwable)
+                    IllegalStateException(R.string.recover_account_encryption_key_failed.string, throwable)
                 )
             }
             if (!secureAccountMasterKeyStorage.saveKey(normalizedAccountKey, recoveredAccountMasterKey)) {
                 return ApiResponse.exception(
-                    IllegalStateException("persist account encryption key failed")
+                    IllegalStateException(R.string.persist_account_encryption_key_failed.string)
                 )
             }
             return ApiResponse.Success(Unit)
@@ -118,7 +121,7 @@ class AccountKeyManager @Inject constructor(
         val generatedAccountMasterKey = randomBytes(ACCOUNT_MASTER_KEY_SIZE_BYTES)
         if (!secureAccountMasterKeyStorage.saveKey(normalizedAccountKey, generatedAccountMasterKey)) {
             return ApiResponse.exception(
-                IllegalStateException("persist account encryption key failed")
+                IllegalStateException(R.string.persist_account_encryption_key_failed.string)
             )
         }
         return uploadAccountEncryptionKey(
@@ -150,7 +153,7 @@ class AccountKeyManager @Inject constructor(
             is ApiResponse.Success -> settingResponse.data.encryptionSetting
             is ApiResponse.Failure.Error -> {
                 return ApiResponse.exception(
-                    IllegalStateException("load user encryption setting failed: HTTP ${settingResponse.statusCode.code}")
+                    IllegalStateException(R.string.load_user_encryption_setting_failed_http.formatString(settingResponse.statusCode.code))
                 )
             }
             is ApiResponse.Failure.Exception -> return ApiResponse.exception(settingResponse.throwable)
@@ -166,7 +169,7 @@ class AccountKeyManager @Inject constructor(
         }
 
         if (secureAccountMasterKeyStorage.getKey(account.accountKey()) == null) {
-            return ApiResponse.exception(IllegalStateException("Missing account master key"))
+            return ApiResponse.exception(IllegalStateException(R.string.missing_account_master_key.string))
         }
         val keyPairGenerator = KeyPairGenerator.getInstance("RSA")
         keyPairGenerator.initialize(2048)
@@ -191,7 +194,7 @@ class AccountKeyManager @Inject constructor(
         if (updateResponse !is ApiResponse.Success) {
             return when (updateResponse) {
                 is ApiResponse.Failure.Error -> ApiResponse.exception(
-                    IllegalStateException("upload sharing key pair failed: HTTP ${updateResponse.statusCode.code}")
+                    IllegalStateException(R.string.upload_sharing_key_pair_failed_http.formatString(updateResponse.statusCode.code))
                 )
                 is ApiResponse.Failure.Exception -> ApiResponse.exception(updateResponse.throwable)
             }
@@ -213,7 +216,7 @@ class AccountKeyManager @Inject constructor(
             is ApiResponse.Success -> settingResponse.data.encryptionSetting
             is ApiResponse.Failure.Error -> {
                 return ApiResponse.exception(
-                    IllegalStateException("load user encryption setting failed: HTTP ${settingResponse.statusCode.code}")
+                    IllegalStateException(R.string.load_user_encryption_setting_failed_http.formatString(settingResponse.statusCode.code))
                 )
             }
             is ApiResponse.Failure.Exception -> return ApiResponse.exception(settingResponse.throwable)
@@ -223,13 +226,13 @@ class AccountKeyManager @Inject constructor(
             unwrapAccountMasterKey(normalizedCurrentPassword, setting)
         }.getOrElse { throwable ->
             return ApiResponse.exception(
-                IllegalStateException("recover account encryption key failed", throwable)
+                IllegalStateException(R.string.recover_account_encryption_key_failed.string, throwable)
             )
         }
         if (secureAccountMasterKeyStorage.getKey(account.accountKey()) == null) {
             if (!secureAccountMasterKeyStorage.saveKey(account.accountKey(), accountMasterKey)) {
                 return ApiResponse.exception(
-                    IllegalStateException("persist account encryption key failed")
+                    IllegalStateException(R.string.persist_account_encryption_key_failed.string)
                 )
             }
         }
@@ -297,11 +300,11 @@ class AccountKeyManager @Inject constructor(
                 (api.getUserEncryptionSetting(account.info.id.toString()) as? ApiResponse.Success)
                     ?.data
                     ?.encryptionSetting
-                    ?: throw IllegalStateException("Missing user encryption setting")
+                    ?: throw IllegalStateException(R.string.missing_user_encryption_setting.string)
             )
         val wrappedKey = currentVersion.wrappedKeys.firstOrNull { wrapped ->
             normalizeUserId(wrapped.slotRef) == account.info.id.toString()
-        } ?: throw IllegalStateException("Current user is missing group key access")
+        } ?: throw IllegalStateException(R.string.current_user_missing_group_key_access.string)
         val groupKey = E2eeKeyEnvelope.unwrapFirstSupportedKey(
             accountKey = account.accountKey(),
             wrappedKeys = listOf(
@@ -316,7 +319,7 @@ class AccountKeyManager @Inject constructor(
             sharingPrivateKeyResolver = { slotRef ->
                 if (normalizeUserId(slotRef) == account.info.id.toString()) privateKeyBytes else null
             },
-        ) ?: throw IllegalStateException("Unable to unwrap current group key")
+        ) ?: throw IllegalStateException(R.string.unwrap_current_group_key_failed.string)
         groupKeyCache[groupCacheKey(account.accountKey(), currentVersion.name)] = groupKey
         return currentVersion to groupKey
     }
@@ -334,7 +337,7 @@ class AccountKeyManager @Inject constructor(
                 if (response.statusCode == StatusCode.NotFound) {
                     return null
                 }
-                throw IllegalStateException("load current group key version failed: HTTP ${response.statusCode.code}")
+                throw IllegalStateException(R.string.load_current_group_key_version_failed_http.formatString(response.statusCode.code))
             }
             is ApiResponse.Failure.Exception -> throw response.throwable
         }
@@ -422,7 +425,7 @@ class AccountKeyManager @Inject constructor(
                 return current
             }
         } else if (currentResponse is ApiResponse.Failure.Error && currentResponse.statusCode != StatusCode.NotFound) {
-            throw IllegalStateException("load current group key version failed: HTTP ${currentResponse.statusCode.code}")
+            throw IllegalStateException(R.string.load_current_group_key_version_failed_http.formatString(currentResponse.statusCode.code))
         }
         return rotateGroupKeyVersion(account, api, group)
     }
@@ -460,7 +463,7 @@ class AccountKeyManager @Inject constructor(
         val created = when (response) {
             is ApiResponse.Success -> response.data.groupKeyVersion
             is ApiResponse.Failure.Error -> throw IllegalStateException(
-                "create group key version failed: HTTP ${response.statusCode.code}"
+                R.string.create_group_key_version_failed_http.formatString(response.statusCode.code)
             )
             is ApiResponse.Failure.Exception -> throw response.throwable
         }
@@ -479,7 +482,7 @@ class AccountKeyManager @Inject constructor(
         val users = when (response) {
             is ApiResponse.Success -> response.data.users
             is ApiResponse.Failure.Error -> throw IllegalStateException(
-                "load user public keys failed: HTTP ${response.statusCode.code}"
+                R.string.load_user_public_keys_failed_http.formatString(response.statusCode.code)
             )
             is ApiResponse.Failure.Exception -> throw response.throwable
         }

@@ -9,3 +9,5 @@ import site.lcyk.keer.KeerApp
  * @author Xeu<thankrain@qq.com>
  */
 val Int.string get() = KeerApp.CONTEXT.getString(this)
+
+fun Int.formatString(vararg args: Any) = KeerApp.CONTEXT.getString(this, *args)

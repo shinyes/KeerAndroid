@@ -276,7 +276,7 @@ class UserStateViewModel @Inject constructor(
 
     suspend fun addFriend(userIdentifier: String): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
         val remoteRepository = accountService.getRemoteRepository()
-            ?: return@withContext ApiResponse.exception(IllegalStateException("Current account does not support friends"))
+            ?: return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_friends.string))
         when (val response = remoteRepository.addFriend(userIdentifier)) {
             is ApiResponse.Success -> {
                 val next = (_friends.value + response.data)
@@ -292,7 +292,7 @@ class UserStateViewModel @Inject constructor(
 
     suspend fun removeFriend(userIdentifier: String): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
         val remoteRepository = accountService.getRemoteRepository()
-            ?: return@withContext ApiResponse.exception(IllegalStateException("Current account does not support friends"))
+            ?: return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_friends.string))
         when (val response = remoteRepository.removeFriend(userIdentifier)) {
             is ApiResponse.Success -> {
                 val normalized = normalizeCollaboratorUserID(userIdentifier)
@@ -310,13 +310,13 @@ class UserStateViewModel @Inject constructor(
         newPassword: String
     ): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
         val remoteRepository = accountService.getRemoteRepository()
-            ?: return@withContext ApiResponse.exception(IllegalStateException("Current account does not support password changes"))
+            ?: return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_password_change.string))
         remoteRepository.changePassword(currentPassword, newPassword)
     }
 
     suspend fun openDirectChat(userIdentifier: String): ApiResponse<MemoGroup> = withContext(viewModelScope.coroutineContext) {
         val remoteRepository = accountService.getRemoteRepository()
-            ?: return@withContext ApiResponse.exception(IllegalStateException("Current account does not support direct chats"))
+            ?: return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_direct_chats.string))
         when (val response = remoteRepository.createDirectGroup(userIdentifier)) {
             is ApiResponse.Success -> {
                 currentAccount.first()?.accountKey()?.takeIf { accountKey -> accountKey.isNotBlank() }?.let { accountKey ->

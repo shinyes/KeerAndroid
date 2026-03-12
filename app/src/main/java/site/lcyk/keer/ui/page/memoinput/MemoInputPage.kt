@@ -67,8 +67,9 @@ import site.lcyk.keer.util.mergeTagsWithCollaboratorsAndQuote
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.normalizeTagName
-import site.lcyk.keer.util.parseMemoQuoteDescriptor
 import site.lcyk.keer.util.resolveMemoByIdentifier
+import site.lcyk.keer.util.resolveMemoFromQuoteDescriptor
+import site.lcyk.keer.util.resolveMemoQuoteDescriptor
 import site.lcyk.keer.util.resolveMemoByRemoteId
 import site.lcyk.keer.util.storedMemoQuotePreviewOrNull
 import site.lcyk.keer.util.stripCollaboratorTags
@@ -107,8 +108,8 @@ fun MemoInputPage(
                 )
         }
     }
-    val existingQuoteDescriptor = remember(memo?.tags) {
-        parseMemoQuoteDescriptor(memo?.tags.orEmpty())
+    val existingQuoteDescriptor = remember(memo?.quoteSourceKind, memo?.quoteSource, memo?.tags) {
+        memo?.resolveMemoQuoteDescriptor()
     }
     val requestedQuoteDescriptor = remember(quoteSourceMemoIdentifier) {
         val source = quoteSourceMemoIdentifier?.trim().orEmpty()
@@ -124,23 +125,12 @@ fun MemoInputPage(
     val activeQuoteDescriptor = if (memo != null) existingQuoteDescriptor else requestedQuoteDescriptor
     val quotedMemo = remember(activeQuoteDescriptor, memoSnapshot, settings.currentUser, settings.usersList) {
         val descriptor = activeQuoteDescriptor ?: return@remember null
-        when (descriptor.sourceKind) {
-            MemoQuoteSourceKind.LOCAL -> {
-                memosViewModel.getMemoForDetail(descriptor.source)
-                    ?: resolveMemoByIdentifier(
-                        memoIdentifier = descriptor.source,
-                        memos = memoSnapshot,
-                        settings = settings
-                    )
-            }
-            MemoQuoteSourceKind.REMOTE -> {
-                resolveMemoByRemoteId(
-                    remoteId = descriptor.source,
-                    memos = memoSnapshot,
-                    settings = settings
-                )
-            }
-        }
+        memosViewModel.getMemoForDetail(descriptor.source)
+            ?: resolveMemoFromQuoteDescriptor(
+                descriptor = descriptor,
+                memos = memoSnapshot,
+                settings = settings
+            )
     }
     val quotePreview = remember(
         quotedMemo?.content,
@@ -392,7 +382,7 @@ fun MemoInputPage(
             takePhoto.launch(uri)
         } catch (e: ActivityNotFoundException) {
             coroutineScope.launch {
-                snackbarState.showSnackbar(e.localizedMessage ?: "Unable to take picture.")
+                snackbarState.showSnackbar(e.localizedMessage ?: R.string.unable_to_take_picture.string)
             }
         }
     }

@@ -57,14 +57,13 @@ import site.lcyk.keer.ui.component.MemoQuoteReferenceCard
 import site.lcyk.keer.ui.component.MemosCardActionButton
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
-import site.lcyk.keer.util.MemoQuoteSourceKind
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.isQuoteTag
 import site.lcyk.keer.util.normalizeTagList
-import site.lcyk.keer.util.parseMemoQuoteDescriptor
 import site.lcyk.keer.util.resolveMemoByIdentifier
-import site.lcyk.keer.util.resolveMemoByRemoteId
+import site.lcyk.keer.util.resolveMemoFromQuoteDescriptor
+import site.lcyk.keer.util.resolveMemoQuoteDescriptor
 import site.lcyk.keer.util.storedMemoQuotePreviewOrNull
 import site.lcyk.keer.util.toMemoQuotePreview
 import site.lcyk.keer.viewmodel.LocalMemos
@@ -131,26 +130,51 @@ fun MemoDetailPage(
                 .filterNot(::isQuoteTag)
         )
     }
-    val quoteDescriptor = remember(memo?.tags) { parseMemoQuoteDescriptor(memo?.tags.orEmpty()) }
-    val quotedMemo = remember(quoteDescriptor, memoSnapshot, settings.currentUser, settings.usersList) {
-        val descriptor = quoteDescriptor ?: return@remember null
-        when (descriptor.sourceKind) {
-            MemoQuoteSourceKind.LOCAL -> {
-                memosViewModel.getMemoForDetail(descriptor.source)
-                    ?: resolveMemoByIdentifier(
-                        memoIdentifier = descriptor.source,
-                        memos = memoSnapshot,
-                        settings = settings
-                    )
-            }
-            MemoQuoteSourceKind.REMOTE -> {
-                resolveMemoByRemoteId(
-                    remoteId = descriptor.source,
-                    memos = memoSnapshot,
-                    settings = settings
-                )
-            }
+    val quoteDescriptor = remember(memo?.quoteSourceKind, memo?.quoteSource, memo?.tags) {
+        memo?.resolveMemoQuoteDescriptor()
+    }
+    val quotedFallbackMemo by produceState<MemoEntity?>(
+        initialValue = null,
+        memo?.identifier,
+        quoteDescriptor,
+        currentAccount?.accountKey()
+    ) {
+        val descriptor = quoteDescriptor
+        val accountKey = currentAccount?.accountKey().orEmpty()
+        if (descriptor == null || accountKey.isBlank()) {
+            value = null
+            return@produceState
         }
+        val candidateIdentifier = buildQuoteCandidateIdentifier(
+            currentMemoIdentifier = memo?.identifier.orEmpty(),
+            descriptor = descriptor
+        )
+        value = if (candidateIdentifier == null) {
+            null
+        } else {
+            detailViewModel.resolveFallbackMemoEntity(
+                accountKey = accountKey,
+                memoIdentifier = candidateIdentifier,
+            )
+        }
+    }
+    val quoteSearchSpace = remember(memoSnapshot, quotedFallbackMemo) {
+        listOfNotNull(quotedFallbackMemo) + memoSnapshot
+    }
+    val quotedMemo = remember(
+        quoteDescriptor,
+        quoteSearchSpace,
+        settings.currentUser,
+        settings.usersList,
+    ) {
+        val descriptor = quoteDescriptor ?: return@remember null
+        memosViewModel.getMemoForDetail(descriptor.source)
+            ?: quotedFallbackMemo
+            ?: resolveMemoFromQuoteDescriptor(
+                descriptor = descriptor,
+                memos = quoteSearchSpace,
+                settings = settings
+            )
     }
     val quotePreview = remember(
         quotedMemo?.content,
@@ -311,5 +335,28 @@ fun MemoDetailPage(
                 onDismiss = { showCollaboratorDialog = false }
             )
         }
+    }
+}
+
+private fun buildQuoteCandidateIdentifier(
+    currentMemoIdentifier: String,
+    descriptor: site.lcyk.keer.util.MemoQuoteDescriptor,
+): String? {
+    val normalizedCurrentIdentifier = currentMemoIdentifier.trim()
+    return when {
+        descriptor.sourceKind == site.lcyk.keer.util.MemoQuoteSourceKind.LOCAL -> descriptor.source
+        normalizedCurrentIdentifier.startsWith(GROUP_MEMO_PREFIX) -> {
+            val payload = normalizedCurrentIdentifier.removePrefix(GROUP_MEMO_PREFIX)
+            val separatorIndex = payload.indexOf(':')
+            if (separatorIndex <= 0) {
+                null
+            } else {
+                "group:${payload.substring(0, separatorIndex)}:${descriptor.source}"
+            }
+        }
+        normalizedCurrentIdentifier.startsWith(EXPLORE_MEMO_PREFIX) -> {
+            "explore:${descriptor.source}"
+        }
+        else -> descriptor.source
     }
 }

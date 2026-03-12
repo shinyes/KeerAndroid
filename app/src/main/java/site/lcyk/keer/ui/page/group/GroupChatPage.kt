@@ -182,6 +182,15 @@ fun GroupChatPage(
             .distinct()
             .toList()
     }
+    val quoteMemoCandidates = remember(memos, activeAccountKey, group?.id) {
+        val resolvedGroupId = group?.id ?: return@remember emptyList()
+        memos.map { memo ->
+            memo.toGroupMemoEntity(
+                accountKey = activeAccountKey,
+                groupId = resolvedGroupId,
+            )
+        }
+    }
 
     LaunchedEffect(collaboratorIdsToPrefetch) {
         if (collaboratorIdsToPrefetch.isNotEmpty()) {
@@ -276,6 +285,7 @@ fun GroupChatPage(
             hapticFeedback = hapticFeedback,
             collaboratorProfiles = collaboratorProfiles,
             avatarImageLoader = avatarImageLoader,
+            quoteMemoCandidates = quoteMemoCandidates,
             onRefresh = {
                 if (syncStatus.syncing) {
                     return@GroupChatList
@@ -410,6 +420,7 @@ private fun GroupChatList(
     hapticFeedback: HapticFeedback,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
+    quoteMemoCandidates: List<MemoEntity>,
     onRefresh: () -> Unit,
     canManageMemo: (Memo) -> Boolean,
     onOpenMemoDetail: (MemoEntity) -> Unit,
@@ -485,7 +496,8 @@ private fun GroupChatList(
                     onTagClick = onTagClick,
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
-                    prefetchCollaborators = false
+                    prefetchCollaborators = false,
+                    quoteMemoCandidates = quoteMemoCandidates,
                 )
             }
         }

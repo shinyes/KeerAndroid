@@ -61,7 +61,8 @@ import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.mergeTagsWithCollaboratorsAndQuote
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
-import site.lcyk.keer.util.parseMemoQuoteDescriptor
+import site.lcyk.keer.util.resolveMemoFromQuoteDescriptor
+import site.lcyk.keer.util.resolveMemoQuoteDescriptor
 import site.lcyk.keer.util.storedMemoQuotePreviewOrNull
 import site.lcyk.keer.util.stripCollaboratorTags
 import site.lcyk.keer.util.stripQuoteTags
@@ -90,7 +91,10 @@ fun GroupMemoInputPage(
     val groupTags by groupViewModel.groupTags.collectAsState()
     val errorMessage by groupViewModel.errorMessage.collectAsState()
     val userStateViewModel = LocalUserState.current
+    val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val friends by userStateViewModel.friends.collectAsState()
+    val groupMemos by groupViewModel.memos.collectAsState()
+    val accountKey = currentAccount?.accountKey().orEmpty()
 
     var initialContent by remember { mutableStateOf("") }
     var initialTags by remember { mutableStateOf(emptyList<String>()) }
@@ -107,8 +111,12 @@ fun GroupMemoInputPage(
     var showCollaboratorSelector by remember { mutableStateOf(false) }
     var showExitConfirmation by remember { mutableStateOf(false) }
     val isEditMode = !memoId.isNullOrBlank()
-    val existingQuoteDescriptor = remember(currentMemo?.tags) {
-        parseMemoQuoteDescriptor(currentMemo?.tags.orEmpty())
+    val existingQuoteDescriptor = remember(
+        currentMemo?.quoteSourceKind,
+        currentMemo?.quoteSource,
+        currentMemo?.tags,
+    ) {
+        currentMemo?.resolveMemoQuoteDescriptor()
     }
     val requestedQuoteDescriptor = remember(quoteSourceMemoIdentifier) {
         val source = quoteSourceMemoIdentifier?.trim().orEmpty()
@@ -126,12 +134,27 @@ fun GroupMemoInputPage(
     } else {
         requestedQuoteDescriptor
     }
-    val quotedMemo = remember(activeQuoteDescriptor) {
-        val descriptor = activeQuoteDescriptor ?: return@remember null
-        when (descriptor.sourceKind) {
-            MemoQuoteSourceKind.LOCAL -> memosViewModel.getMemoForDetail(descriptor.source)
-            MemoQuoteSourceKind.REMOTE -> null
+    val quoteMemoCandidates = remember(groupMemos, accountKey, groupId) {
+        if (accountKey.isBlank()) {
+            emptyList()
+        } else {
+            groupMemos.map { memo ->
+                memo.toMemoEntityForCard(
+                    identifier = "group:$groupId:${memo.remoteId}",
+                    accountKey = accountKey,
+                    needsSync = memo.remoteId.startsWith("local:"),
+                )
+            }
         }
+    }
+    val quotedMemo = remember(activeQuoteDescriptor, quoteMemoCandidates) {
+        val descriptor = activeQuoteDescriptor ?: return@remember null
+        memosViewModel.getMemoForDetail(descriptor.source)
+            ?: resolveMemoFromQuoteDescriptor(
+                descriptor = descriptor,
+                memos = quoteMemoCandidates,
+                settings = site.lcyk.keer.data.model.Settings(),
+            )
     }
     val quotePreview = remember(
         quotedMemo?.content,
@@ -258,7 +281,7 @@ fun GroupMemoInputPage(
             takePhoto.launch(uri)
         } catch (e: ActivityNotFoundException) {
             coroutineScope.launch {
-                snackbarState.showSnackbar(e.localizedMessage ?: "Unable to take picture.")
+                snackbarState.showSnackbar(e.localizedMessage ?: R.string.unable_to_take_picture.string)
             }
         }
     }

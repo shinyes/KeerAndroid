@@ -87,6 +87,9 @@ fun ExploreList(
     var deletingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
     val accountKey = currentAccount?.accountKey() ?: "explore"
     val snapshotItems = memos.itemSnapshotList.items
+    val quoteMemoCandidates = remember(snapshotItems, accountKey) {
+        snapshotItems.map { item -> item.memo.toExploreMemoEntity(accountKey) }
+    }
     val collaboratorIdsToPrefetch = remember(snapshotItems) {
         snapshotItems
             .asSequence()
@@ -125,6 +128,7 @@ fun ExploreList(
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
         accountKey = accountKey,
+        quoteMemoCandidates = quoteMemoCandidates,
         currentUserId = currentUserId,
         onRefresh = {
             if (syncStatus.syncing) {
@@ -265,6 +269,7 @@ private fun ExploreMemoFeed(
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
     accountKey: String,
+    quoteMemoCandidates: List<MemoEntity>,
     currentUserId: String,
     onRefresh: () -> Unit,
     onOpenMemoDetail: (MemoEntity) -> Unit,
@@ -328,7 +333,8 @@ private fun ExploreMemoFeed(
                     onTagClick = onTagClick,
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
-                    prefetchCollaborators = false
+                    prefetchCollaborators = false,
+                    quoteMemoCandidates = quoteMemoCandidates,
                 )
             }
         }
