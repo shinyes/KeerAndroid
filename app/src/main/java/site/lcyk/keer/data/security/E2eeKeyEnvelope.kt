@@ -100,18 +100,12 @@ internal object E2eeKeyEnvelope {
         } else {
             null
         }
-        val expectedAccountSlotRef = if (normalizedAccountKey.isNotEmpty()) {
-            accountMasterKeyRef(normalizedAccountKey)
-        } else {
-            ""
-        }
         wrappedKeys.forEach { wrappedKey ->
             when (wrappedKey.slotType) {
                 SLOT_TYPE_ACCOUNT_MASTER -> {
                     if (
                         wrappedKey.wrapAlgorithm != ACCOUNT_MASTER_KEY_WRAP_ALGORITHM ||
-                        accountMasterKey == null ||
-                        wrappedKey.slotRef != expectedAccountSlotRef
+                        accountMasterKey == null
                     ) {
                         return@forEach
                     }
