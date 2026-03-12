@@ -170,11 +170,10 @@ class UserStateViewModel @Inject constructor(
         host: String,
         username: String,
         password: String,
-        displayName: String
     ): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
         try {
             when (val compatibility = accountService.checkLoginCompatibility(host)) {
-                is AccountService.LoginCompatibility.Supported -> registerKeerV2Account(host, username, password, displayName)
+                is AccountService.LoginCompatibility.Supported -> registerKeerV2Account(host, username, password)
                 is AccountService.LoginCompatibility.Unsupported -> {
                     ApiResponse.exception(KeerException(compatibility.message))
                 }
@@ -217,16 +216,13 @@ class UserStateViewModel @Inject constructor(
         host: String,
         username: String,
         password: String,
-        displayName: String
     ): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
         try {
             val trimmedUsername = username.trim()
-            val trimmedDisplayName = displayName.trim()
             val createResponse = accountService.createKeerV2Client(host).second.createUser(
                 CreateUserRequest(
                     user = CreateUserBody(
                         username = trimmedUsername,
-                        displayName = trimmedDisplayName.ifBlank { null },
                         password = password,
                     )
                 )
@@ -409,8 +405,7 @@ class UserStateViewModel @Inject constructor(
                     val user = remoteUsersByID[userId]
                     CollaboratorProfile(
                         id = userId,
-                        name = user?.displayName?.takeIf { it.isNotBlank() }
-                            ?: user?.username?.takeIf { it.isNotBlank() }
+                        name = user?.username?.takeIf { it.isNotBlank() }
                             ?: userId,
                         avatarUrl = resolveAvatarUrl(account.info.host, user?.avatarUrl.orEmpty())
                     )

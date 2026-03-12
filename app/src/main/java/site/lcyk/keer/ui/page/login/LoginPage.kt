@@ -18,7 +18,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Login
-import androidx.compose.material.icons.outlined.Badge
 import androidx.compose.material.icons.outlined.Computer
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PermIdentity
@@ -73,7 +72,6 @@ fun LoginPage(
     val formScrollState = rememberScrollState()
     val hostRequester = remember { BringIntoViewRequester() }
     val usernameRequester = remember { BringIntoViewRequester() }
-    val displayNameRequester = remember { BringIntoViewRequester() }
     val passwordRequester = remember { BringIntoViewRequester() }
     val confirmPasswordRequester = remember { BringIntoViewRequester() }
 
@@ -86,10 +84,6 @@ fun LoginPage(
     }
 
     var password by rememberSaveable(stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue())
-    }
-
-    var displayName by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue())
     }
 
@@ -132,7 +126,6 @@ fun LoginPage(
                 host = sanitizedHost,
                 username = username.text.trim(),
                 password = password.text,
-                displayName = displayName.text.trim()
             )
         } else {
             userStateViewModel.loginMemosWithPassword(
@@ -252,30 +245,6 @@ fun LoginPage(
                         imeAction = ImeAction.Next
                     )
                 )
-
-                if (registerMode) {
-                    OutlinedTextField(
-                        modifier = fieldModifier(displayNameRequester),
-                        value = displayName,
-                        onValueChange = { displayName = it },
-                        singleLine = true,
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Outlined.Badge,
-                                contentDescription = R.string.display_name.string
-                            )
-                        },
-                        label = {
-                            Text(R.string.display_name.string)
-                        },
-                        keyboardOptions = KeyboardOptions(
-                            capitalization = KeyboardCapitalization.Words,
-                            autoCorrectEnabled = false,
-                            keyboardType = KeyboardType.Text,
-                            imeAction = ImeAction.Next
-                        )
-                    )
-                }
 
                 OutlinedTextField(
                     modifier = fieldModifier(passwordRequester),

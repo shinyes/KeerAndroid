@@ -72,7 +72,6 @@
     <string name="any_thoughts">Any thoughts…</string>
     <string name="input_login_information">Please input the login information of your \n[✍️memos](https://github.com/usememos/memos) server.</string>
     <string name="username">Username</string>
-    <string name="display_name">Display name</string>
     <string name="password">Password</string>
     <string name="confirm_password">Confirm password</string>
     <string name="passwords_do_not_match">Passwords do not match.</string>

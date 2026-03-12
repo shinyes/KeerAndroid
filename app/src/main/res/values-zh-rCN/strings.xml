@@ -70,7 +70,6 @@
     <string name="input_login_information">请输入您的 [✍️memos](https://github.com/usememos/memos) 服务器的登录信息。</string>
     <string name="day">天</string>
     <string name="username">用户名</string>
-    <string name="display_name">显示名称</string>
     <string name="password">密码</string>
     <string name="confirm_password">确认密码</string>
     <string name="passwords_do_not_match">两次输入的密码不一致。</string>

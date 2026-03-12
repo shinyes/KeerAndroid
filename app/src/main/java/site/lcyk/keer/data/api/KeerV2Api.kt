@@ -190,7 +190,6 @@ data class KeerV2User(
     val role: MemosRole = MemosRole.ROLE_UNSPECIFIED,
     val username: String,
     val email: String? = null,
-    val displayName: String? = null,
     val avatarUrl: String? = null,
     val description: String? = null,
     val state: KeerV2State = KeerV2State.STATE_UNSPECIFIED,
@@ -225,7 +224,6 @@ data class CreateUserRequest(
 @Serializable
 data class CreateUserBody(
     val username: String,
-    val displayName: String? = null,
     val password: String,
 )
 
@@ -337,7 +335,6 @@ data class UpdateGroupRequest(
 data class KeerV2GroupMember(
     val name: String,
     val username: String,
-    val displayName: String? = null
 )
 
 @Serializable

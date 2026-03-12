@@ -193,9 +193,7 @@ class KeerV2Repository(
         val members = group.members.map { member ->
             GroupMember(
                 userId = member.name,
-                userName = member.displayName
-                    ?.takeIf { it.isNotBlank() }
-                    ?: member.username
+                userName = member.username
             )
         }
         val groupType = group.type.toMemoGroupType()
@@ -230,7 +228,7 @@ class KeerV2Repository(
     private fun convertUser(user: KeerV2User): User {
         return User(
             identifier = getId(user.name),
-            name = user.displayName?.takeIf { it.isNotBlank() } ?: user.username,
+            name = user.username,
             startDate = user.createTime ?: Instant.now(),
             avatarUrl = resolveAvatarUrl(account.info.host, user.avatarUrl.orEmpty())
         )
@@ -244,7 +242,7 @@ class KeerV2Repository(
         val creator = (userMap[creatorId] ?: userMap[getId(creatorId)])?.let { user ->
             User(
                 identifier = user.name,
-                name = user.displayName?.takeIf { it.isNotBlank() } ?: user.username,
+                name = user.username,
                 startDate = user.createTime ?: Instant.now(),
                 avatarUrl = resolveAvatarUrl(account.info.host, user.avatarUrl.orEmpty())
             )
@@ -484,7 +482,6 @@ class KeerV2Repository(
         return KeerV2User(
             name = "users/$accountId",
             username = fallbackName,
-            displayName = fallbackName,
             avatarUrl = account.info.avatarUrl.ifBlank { null },
             createTime = if (account.info.startDateEpochSecond > 0L) {
                 Instant.ofEpochSecond(account.info.startDateEpochSecond)
@@ -1771,7 +1768,7 @@ class KeerV2Repository(
             }
             User(
                 user.name,
-                user.displayName ?: user.username,
+                user.username,
                 user.createTime ?: Instant.now(),
                 avatarUrl = user.avatarUrl
             )
