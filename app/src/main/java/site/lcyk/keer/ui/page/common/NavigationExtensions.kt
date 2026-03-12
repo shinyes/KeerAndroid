@@ -14,6 +14,17 @@ fun NavHostController.navigateToTopLevel(route: String) {
     }
 }
 
+fun NavHostController.navigateToMemosPage() {
+    if (popBackStack(RouteName.MEMOS, inclusive = false)) {
+        return
+    }
+    navigate(RouteName.MEMOS) {
+        popUpTo(graph.id)
+        launchSingleTop = true
+        restoreState = false
+    }
+}
+
 fun NavHostController.navigateSingleTop(route: String) {
     navigate(route) {
         launchSingleTop = true

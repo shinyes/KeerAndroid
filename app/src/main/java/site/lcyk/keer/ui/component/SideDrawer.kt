@@ -70,6 +70,7 @@ import site.lcyk.keer.data.model.MemoGroupType
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
+import site.lcyk.keer.ui.page.common.navigateToMemosPage
 import site.lcyk.keer.ui.page.common.navigateToTopLevel
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.isCollaboratorTag
@@ -256,7 +257,7 @@ fun SideDrawer(
                 onClick = {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
-                        memosNavController.navigateToTopLevel(RouteName.MEMOS)
+                        memosNavController.navigateToMemosPage()
                         onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
                     }
@@ -612,7 +613,7 @@ fun SideDrawer(
                                     currentSelectedTag
                                         ?.takeIf { matchesTagOrDescendant(it, normalizedTag) }
                                         ?.let {
-                                            memosNavController.navigateToTopLevel(RouteName.MEMOS)
+                                            memosNavController.navigateToMemosPage()
                                         }
                                     deleteTargetTag = null
                                 } else {
@@ -674,13 +675,13 @@ fun SideDrawer(
                             val response = memosViewModel.deleteTag(targetTag, deleteAssociatedMemos = true)
                             tagActionInProgress = false
                             if (response is com.skydoves.sandwich.ApiResponse.Success) {
-                                currentSelectedTag
-                                    ?.takeIf { matchesTagOrDescendant(it, targetTag) }
-                                    ?.let {
-                                        memosNavController.navigateToTopLevel(RouteName.MEMOS)
-                                    }
-                                confirmDeleteAndMemosTargetTag = null
-                                confirmDeleteAndMemosInput = ""
+                                    currentSelectedTag
+                                        ?.takeIf { matchesTagOrDescendant(it, targetTag) }
+                                        ?.let {
+                                            memosNavController.navigateToMemosPage()
+                                        }
+                                    confirmDeleteAndMemosTargetTag = null
+                                    confirmDeleteAndMemosInput = ""
                             } else {
                                 tagActionErrorMessage = response.getErrorMessage()
                             }
