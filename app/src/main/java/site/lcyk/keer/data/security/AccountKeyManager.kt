@@ -20,14 +20,14 @@ import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.service.SecureAccountMasterKeyStorage
 import site.lcyk.keer.ext.formatString
 import site.lcyk.keer.ext.string
+import org.bouncycastle.crypto.generators.Argon2BytesGenerator
+import org.bouncycastle.crypto.params.Argon2Parameters
 import java.security.SecureRandom
 import java.security.KeyPairGenerator
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import javax.crypto.Cipher
-import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -511,7 +511,13 @@ class AccountKeyManager @Inject constructor(
         accountMasterKey: ByteArray,
     ): UpdateUserEncryptionSettingBody {
         val salt = randomBytes(ACCOUNT_MASTER_KEY_KDF_SALT_SIZE_BYTES)
-        val derivedKey = derivePasswordWrappingKey(password, salt, ACCOUNT_MASTER_KEY_KDF_ITERATIONS)
+        val derivedKey = derivePasswordWrappingKey(
+            password = password,
+            salt = salt,
+            timeCost = ACCOUNT_MASTER_KEY_KDF_TIME_COST,
+            memoryKiB = ACCOUNT_MASTER_KEY_KDF_MEMORY_KIB,
+            parallelism = ACCOUNT_MASTER_KEY_KDF_PARALLELISM,
+        )
         val iv = randomBytes(ACCOUNT_MASTER_KEY_WRAP_IV_SIZE_BYTES)
         val cipher = Cipher.getInstance(ACCOUNT_MASTER_KEY_WRAP_TRANSFORMATION)
         cipher.init(
@@ -525,7 +531,9 @@ class AccountKeyManager @Inject constructor(
                 version = ACCOUNT_MASTER_KEY_SYNC_VERSION,
                 kdfAlgorithm = ACCOUNT_MASTER_KEY_KDF_ALGORITHM,
                 kdfSalt = Base64.getEncoder().encodeToString(salt),
-                kdfIterations = ACCOUNT_MASTER_KEY_KDF_ITERATIONS,
+                kdfTimeCost = ACCOUNT_MASTER_KEY_KDF_TIME_COST,
+                kdfMemoryKiB = ACCOUNT_MASTER_KEY_KDF_MEMORY_KIB,
+                kdfParallelism = ACCOUNT_MASTER_KEY_KDF_PARALLELISM,
                 wrapAlgorithm = ACCOUNT_MASTER_KEY_WRAP_ALGORITHM,
                 wrappedAccountKey = listOf(
                     Base64.getEncoder().encodeToString(iv),
@@ -553,15 +561,27 @@ class AccountKeyManager @Inject constructor(
         require(bundle.wrapAlgorithm == ACCOUNT_MASTER_KEY_WRAP_ALGORITHM) {
             "Unsupported account encryption key wrapping algorithm"
         }
-        require(bundle.kdfIterations > 0) {
-            "Invalid account encryption key iterations"
+        require(bundle.kdfTimeCost > 0) {
+            "Invalid account encryption key time cost"
+        }
+        require(bundle.kdfMemoryKiB > 0) {
+            "Invalid account encryption key memory cost"
+        }
+        require(bundle.kdfParallelism > 0) {
+            "Invalid account encryption key parallelism"
         }
         val parts = bundle.wrappedAccountKey.split(':', limit = 2)
         require(parts.size == 2) { "Invalid wrapped account key payload" }
         val salt = Base64.getDecoder().decode(bundle.kdfSalt)
         val iv = Base64.getDecoder().decode(parts[0])
         val ciphertext = Base64.getDecoder().decode(parts[1])
-        val derivedKey = derivePasswordWrappingKey(password, salt, bundle.kdfIterations)
+        val derivedKey = derivePasswordWrappingKey(
+            password = password,
+            salt = salt,
+            timeCost = bundle.kdfTimeCost,
+            memoryKiB = bundle.kdfMemoryKiB,
+            parallelism = bundle.kdfParallelism,
+        )
         val cipher = Cipher.getInstance(ACCOUNT_MASTER_KEY_WRAP_TRANSFORMATION)
         cipher.init(
             Cipher.DECRYPT_MODE,
@@ -571,19 +591,29 @@ class AccountKeyManager @Inject constructor(
         return cipher.doFinal(ciphertext)
     }
 
-    private fun derivePasswordWrappingKey(password: String, salt: ByteArray, iterations: Int): ByteArray {
-        val keySpec = PBEKeySpec(
-            password.toCharArray(),
-            salt,
-            iterations,
-            ACCOUNT_MASTER_KEY_SIZE_BYTES * 8,
-        )
+    private fun derivePasswordWrappingKey(
+        password: String,
+        salt: ByteArray,
+        timeCost: Int,
+        memoryKiB: Int,
+        parallelism: Int,
+    ): ByteArray {
+        val passwordBytes = password.toByteArray(Charsets.UTF_8)
         return try {
-            SecretKeyFactory.getInstance(ACCOUNT_MASTER_KEY_SECRET_FACTORY_ALGORITHM)
-                .generateSecret(keySpec)
-                .encoded
+            val parameters = Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
+                .withVersion(Argon2Parameters.ARGON2_VERSION_13)
+                .withSalt(salt)
+                .withIterations(timeCost)
+                .withMemoryAsKB(memoryKiB)
+                .withParallelism(parallelism)
+                .build()
+            val generator = Argon2BytesGenerator()
+            generator.init(parameters)
+            ByteArray(ACCOUNT_MASTER_KEY_SIZE_BYTES).also { derivedKey ->
+                generator.generateBytes(passwordBytes, derivedKey, 0, derivedKey.size)
+            }
         } finally {
-            keySpec.clearPassword()
+            passwordBytes.fill(0)
         }
     }
 
@@ -629,17 +659,18 @@ class AccountKeyManager @Inject constructor(
         return bytes
     }
 
-    private companion object {
+        private companion object {
         const val defaultAlgorithmsJson =
             "{\"accountMasterWrap\":\"AES_GCM_ACCOUNT_MASTER_KEY_V1\",\"accountPublicWrap\":\"RSA_OAEP_SHA256_V1\",\"groupKeyWrap\":\"AES_GCM_GROUP_KEY_V1\"}"
-        private const val ACCOUNT_MASTER_KEY_SYNC_VERSION = 1
+        private const val ACCOUNT_MASTER_KEY_SYNC_VERSION = 2
         private const val ACCOUNT_MASTER_KEY_SIZE_BYTES = 32
         private const val ACCOUNT_MASTER_KEY_KDF_SALT_SIZE_BYTES = 16
         private const val ACCOUNT_MASTER_KEY_WRAP_IV_SIZE_BYTES = 12
-        private const val ACCOUNT_MASTER_KEY_KDF_ITERATIONS = 210_000
+        private const val ACCOUNT_MASTER_KEY_KDF_TIME_COST = 3
+        private const val ACCOUNT_MASTER_KEY_KDF_MEMORY_KIB = 32 * 1024
+        private const val ACCOUNT_MASTER_KEY_KDF_PARALLELISM = 1
         private const val ACCOUNT_MASTER_KEY_GCM_TAG_LENGTH_BITS = 128
-        private const val ACCOUNT_MASTER_KEY_KDF_ALGORITHM = "PBKDF2_HMAC_SHA256"
-        private const val ACCOUNT_MASTER_KEY_SECRET_FACTORY_ALGORITHM = "PBKDF2WithHmacSHA256"
+        private const val ACCOUNT_MASTER_KEY_KDF_ALGORITHM = "ARGON2ID"
         private const val ACCOUNT_MASTER_KEY_WRAP_ALGORITHM = "AES_GCM"
         private const val ACCOUNT_MASTER_KEY_WRAP_KEY_ALGORITHM = "AES"
         private const val ACCOUNT_MASTER_KEY_WRAP_TRANSFORMATION = "AES/GCM/NoPadding"

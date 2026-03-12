@@ -561,7 +561,9 @@ data class KeerV2RecoveryBundle(
     val version: Int,
     val kdfAlgorithm: String,
     val kdfSalt: String,
-    val kdfIterations: Int,
+    val kdfTimeCost: Int,
+    val kdfMemoryKiB: Int,
+    val kdfParallelism: Int,
     val wrapAlgorithm: String,
     val wrappedAccountKey: String,
 )
