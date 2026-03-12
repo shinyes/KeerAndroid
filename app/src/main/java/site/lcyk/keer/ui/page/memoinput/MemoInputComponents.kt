@@ -811,6 +811,8 @@ internal fun MemoInputEditor(
     onTextChange: (TextFieldValue) -> Unit,
     focusRequester: FocusRequester,
     quotePreview: (@Composable () -> Unit)? = null,
+    quotePreviewPadding: PaddingValues = PaddingValues(start = 20.dp, top = 0.dp, end = 20.dp, bottom = 12.dp),
+    editorPadding: PaddingValues = PaddingValues(start = 20.dp, top = 0.dp, end = 20.dp, bottom = 20.dp),
     validMimeTypePrefixes: Set<String>,
     onDroppedText: (String) -> Unit,
     uploadResources: List<ResourceEntity>,
@@ -858,7 +860,7 @@ internal fun MemoInputEditor(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 20.dp, end = 20.dp, bottom = 12.dp)
+                    .padding(quotePreviewPadding)
             ) {
                 quotePreview()
             }
@@ -867,7 +869,7 @@ internal fun MemoInputEditor(
         OutlinedTextField(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 20.dp, end = 20.dp, bottom = 20.dp)
+                .padding(editorPadding)
                 .weight(1f)
                 .focusRequester(focusRequester),
             value = text,

@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -91,6 +92,12 @@ import site.lcyk.keer.viewmodel.MemoInputViewModel
 import kotlin.coroutines.resume
 
 private val quickComposerEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+private val quickComposerEditorPadding = PaddingValues(
+    start = 16.dp,
+    top = 16.dp,
+    end = 16.dp,
+    bottom = 8.dp
+)
 
 @Composable
 fun QuickMemoComposer(
@@ -440,6 +447,7 @@ fun QuickMemoComposer(
                             text = updated
                         },
                         focusRequester = focusRequester,
+                        editorPadding = quickComposerEditorPadding,
                         validMimeTypePrefixes = validMimeTypePrefixes,
                         onDroppedText = { droppedText ->
                             text = text.copy(text = text.text + droppedText)
