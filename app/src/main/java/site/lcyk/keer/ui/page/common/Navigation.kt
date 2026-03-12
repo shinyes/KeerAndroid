@@ -207,8 +207,8 @@ fun Navigation() {
 
     LaunchedEffect(Unit) {
         if (!userStateViewModel.hasAnyAccount()) {
-            if (navController.currentDestination?.route != RouteName.ADD_ACCOUNT) {
-                navController.navigate(RouteName.ADD_ACCOUNT) {
+            if (navController.currentDestination?.route != RouteName.LOGIN) {
+                navController.navigate(RouteName.LOGIN) {
                     popUpTo(navController.graph.id) {
                         inclusive = true
                     }

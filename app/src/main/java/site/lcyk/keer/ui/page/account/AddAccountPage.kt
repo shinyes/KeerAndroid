@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -28,10 +27,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
-import com.skydoves.sandwich.suspendOnSuccess
-import kotlinx.coroutines.launch
 import site.lcyk.keer.R
-import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.MemosIcon
@@ -47,17 +43,6 @@ fun AddAccountPage(
     val accounts by userStateViewModel.accounts.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    val coroutineScope = rememberCoroutineScope()
-    val hasLocalAccount = accounts.any { it is Account.Local }
-
-    fun toMemos() {
-        navController.navigate(RouteName.MEMOS) {
-            popUpTo(navController.graph.id) {
-                inclusive = true
-            }
-            launchSingleTop = true
-        }
-    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -91,33 +76,6 @@ fun AddAccountPage(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(vertical = 16.dp),
         ) {
-            if (!hasLocalAccount) {
-                item {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                coroutineScope.launch {
-                                    userStateViewModel.addLocalAccount()
-                                        .suspendOnSuccess { toMemos() }
-                                }
-                            }
-                    ) {
-                        ListItem(
-                            headlineContent = { Text(R.string.add_local_account.string) },
-                            supportingContent = { Text(R.string.local_account_description.string) },
-                            leadingContent = {
-                                Icon(
-                                    imageVector = Icons.Outlined.Home,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        )
-                    }
-                }
-            }
-
             item {
                 Card(
                     modifier = Modifier

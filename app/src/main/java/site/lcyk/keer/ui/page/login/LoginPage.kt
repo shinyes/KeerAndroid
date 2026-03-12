@@ -1,14 +1,13 @@
 package site.lcyk.keer.ui.page.login
 
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.text.KeyboardActions
@@ -71,12 +70,16 @@ import site.lcyk.keer.viewmodel.LocalUserState
 fun LoginPage(
     navController: NavHostController
 ) {
-    val bringIntoViewRequester = remember { BringIntoViewRequester() }
     val coroutineScope = rememberCoroutineScope()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val lifecycleOwner = LocalLifecycleOwner.current
     val userStateViewModel = LocalUserState.current
     val snackbarState = remember { SnackbarHostState() }
+    val hostRequester = remember { BringIntoViewRequester() }
+    val usernameRequester = remember { BringIntoViewRequester() }
+    val displayNameRequester = remember { BringIntoViewRequester() }
+    val passwordRequester = remember { BringIntoViewRequester() }
+    val confirmPasswordRequester = remember { BringIntoViewRequester() }
 
     var host by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(userStateViewModel.host))
@@ -155,9 +158,21 @@ fun LoginPage(
         }
     }
 
+    fun fieldModifier(requester: BringIntoViewRequester): Modifier {
+        return Modifier
+            .fillMaxWidth()
+            .bringIntoViewRequester(requester)
+            .onFocusEvent { focusState ->
+                if (focusState.isFocused) {
+                    coroutineScope.launch {
+                        requester.bringIntoView()
+                    }
+                }
+            }
+    }
+
     Scaffold(
         modifier = Modifier
-            .imePadding()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         snackbarHost = {
             SnackbarHost(hostState = snackbarState)
@@ -197,36 +212,30 @@ fun LoginPage(
             )
         }
     ) { innerPadding ->
-        Column(
+        LazyColumn(
             Modifier
                 .padding(innerPadding)
-                .fillMaxHeight()
-                .fillMaxWidth(),
+                .fillMaxSize()
+                .imePadding(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(
+                start = 30.dp,
+                top = 24.dp,
+                end = 30.dp,
+                bottom = 120.dp,
+            ),
         ) {
-            Markdown(
-                R.string.input_login_information.string,
-                modifier = Modifier.padding(bottom = 20.dp),
-                textAlign = TextAlign.Center
-            )
+            item {
+                Markdown(
+                    R.string.input_login_information.string,
+                    textAlign = TextAlign.Center
+                )
+            }
 
-            Column(
-                modifier = Modifier
-                    .padding(horizontal = 30.dp)
-                    .fillMaxWidth()
-                    .bringIntoViewRequester(bringIntoViewRequester)
-            ) {
+            item {
                 OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusEvent { focusState ->
-                            if (focusState.isFocused) {
-                                coroutineScope.launch {
-                                    bringIntoViewRequester.bringIntoView()
-                                }
-                            }
-                        },
+                    modifier = fieldModifier(hostRequester),
                     value = host,
                     onValueChange = { host = it },
                     singleLine = true,
@@ -246,17 +255,11 @@ fun LoginPage(
                         imeAction = ImeAction.Next
                     )
                 )
+            }
 
+            item {
                 OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusEvent { focusState ->
-                            if (focusState.isFocused) {
-                                coroutineScope.launch {
-                                    bringIntoViewRequester.bringIntoView()
-                                }
-                            }
-                        },
+                    modifier = fieldModifier(usernameRequester),
                     value = username,
                     onValueChange = { username = it },
                     singleLine = true,
@@ -276,18 +279,12 @@ fun LoginPage(
                         imeAction = ImeAction.Next
                     )
                 )
+            }
 
-                if (registerMode) {
+            if (registerMode) {
+                item {
                     OutlinedTextField(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onFocusEvent { focusState ->
-                                if (focusState.isFocused) {
-                                    coroutineScope.launch {
-                                        bringIntoViewRequester.bringIntoView()
-                                    }
-                                }
-                            },
+                        modifier = fieldModifier(displayNameRequester),
                         value = displayName,
                         onValueChange = { displayName = it },
                         singleLine = true,
@@ -308,17 +305,11 @@ fun LoginPage(
                         )
                     )
                 }
+            }
 
+            item {
                 OutlinedTextField(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .onFocusEvent { focusState ->
-                            if (focusState.isFocused) {
-                                coroutineScope.launch {
-                                    bringIntoViewRequester.bringIntoView()
-                                }
-                            }
-                        },
+                    modifier = fieldModifier(passwordRequester),
                     value = password,
                     onValueChange = { password = it },
                     singleLine = true,
@@ -340,18 +331,12 @@ fun LoginPage(
                     ),
                     keyboardActions = KeyboardActions(onGo = { submit() })
                 )
+            }
 
-                if (registerMode) {
+            if (registerMode) {
+                item {
                     OutlinedTextField(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onFocusEvent { focusState ->
-                                if (focusState.isFocused) {
-                                    coroutineScope.launch {
-                                        bringIntoViewRequester.bringIntoView()
-                                    }
-                                }
-                            },
+                        modifier = fieldModifier(confirmPasswordRequester),
                         value = confirmPassword,
                         onValueChange = { confirmPassword = it },
                         singleLine = true,
@@ -374,9 +359,9 @@ fun LoginPage(
                         keyboardActions = KeyboardActions(onGo = { submit() })
                     )
                 }
+            }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
+            item {
                 TextButton(
                     onClick = {
                         registerMode = !registerMode

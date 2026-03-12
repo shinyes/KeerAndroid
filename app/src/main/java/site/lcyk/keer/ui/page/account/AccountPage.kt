@@ -50,23 +50,8 @@ fun AccountPage(
     val selectedAccount by viewModel.selectedAccountState.collectAsState()
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val memosAccount = selectedAccount.toMemosAccount()
-    val isLocalAccount = selectedAccountKey == Account.Local().accountKey() || selectedAccount is Account.Local
     val showSwitchAccountButton = selectedAccountKey != currentAccount?.accountKey()
     val coroutineScope = rememberCoroutineScope()
-    val exportLauncher = rememberLauncherForActivityResult(CreateDocument("application/zip")) { uri ->
-        if (uri == null) {
-            return@rememberLauncherForActivityResult
-        }
-        coroutineScope.launch {
-            val result = viewModel.exportLocalAccount(uri)
-            result.onSuccess {
-                Toast.makeText(navController.context, R.string.local_export_success.string, Toast.LENGTH_SHORT).show()
-            }.onFailure { error ->
-                val message = error.localizedMessage ?: R.string.local_export_failed.string
-                Toast.makeText(navController.context, message, Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
 
     Scaffold(
         topBar = {
@@ -82,24 +67,7 @@ fun AccountPage(
             )
         },
     ) { innerPadding ->
-        if (isLocalAccount) {
-            LocalAccountPage(
-                innerPadding = innerPadding,
-                showSwitchAccountButton = showSwitchAccountButton,
-                onSwitchAccount = {
-                    coroutineScope.launch {
-                        userStateViewModel.switchAccount(selectedAccountKey)
-                            .onSuccess {
-                                navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
-                            }
-                    }
-                },
-                onExportLocalAccount = {
-                    val filename = "Keer-Export-${exportTimestamp(Instant.now())}.zip"
-                    exportLauncher.launch(filename)
-                }
-            )
-        } else if (memosAccount != null) {
+        if (memosAccount != null) {
             MemosAccountPage(
                 innerPadding = innerPadding,
                 account = memosAccount,
@@ -118,7 +86,7 @@ fun AccountPage(
                     coroutineScope.launch {
                         userStateViewModel.logout(selectedAccountKey)
                         if (userStateViewModel.currentAccount.first() == null) {
-                            navController.navigate(RouteName.ADD_ACCOUNT) {
+                            navController.navigate(RouteName.LOGIN) {
                                 popUpTo(navController.graph.id) {
                                     inclusive = true
                                 }
@@ -138,12 +106,6 @@ fun AccountPage(
     LaunchedEffect(selectedAccountKey) {
         viewModel.loadInstanceProfile()
     }
-}
-
-private fun exportTimestamp(instant: Instant): String {
-    return DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss", Locale.US)
-        .withZone(ZoneId.systemDefault())
-        .format(instant)
 }
 
 private fun Account?.toMemosAccount(): MemosAccount? = when (this) {

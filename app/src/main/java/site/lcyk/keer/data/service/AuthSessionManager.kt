@@ -50,8 +50,9 @@ class AuthSessionManager @Inject constructor(
     }
 
     val currentAccount = combine(context.settingsDataStore.data, authStateVersion) { settings, _ ->
-        settings.usersList.firstOrNull { it.accountKey == settings.currentUser }
-            ?.let(::parseAccountWithStoredTokens)
+        val parsedAccounts = settings.usersList.mapNotNull(::parseAccountWithStoredTokens)
+        parsedAccounts.firstOrNull { account -> account.accountKey() == settings.currentUser }
+            ?: parsedAccounts.firstOrNull()
     }
 
     fun createKeerV2Client(host: String, accountKey: String? = null): KeerV2ClientBundle {
@@ -110,7 +111,7 @@ class AuthSessionManager @Inject constructor(
                 )
             )
 
-            is Account.Local -> account
+            is Account.Local -> null
         }
     }
 

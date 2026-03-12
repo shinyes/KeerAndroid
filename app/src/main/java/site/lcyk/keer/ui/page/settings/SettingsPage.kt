@@ -7,7 +7,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
@@ -103,17 +102,7 @@ fun SettingsPage(
                             }
                         )
                     }
-                    is Account.Local -> item {
-                        AccountSettingItem(
-                            icon = Icons.Outlined.Home,
-                            text = R.string.local_account.string,
-                            accountKey = account.accountKey(),
-                            currentAccountKey = currentAccountKey,
-                            onClick = {
-                                rootNavController.navigateToAccountPage(account.accountKey())
-                            }
-                        )
-                    }
+                    is Account.Local -> Unit
                 }
             }
 

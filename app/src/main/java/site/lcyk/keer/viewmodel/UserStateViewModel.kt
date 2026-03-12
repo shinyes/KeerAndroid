@@ -40,7 +40,6 @@ import site.lcyk.keer.data.constant.KeerException
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.CollaboratorProfile
 import site.lcyk.keer.data.model.GroupIdAlias
-import site.lcyk.keer.data.model.LocalAccount
 import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.MemosAccount
 import site.lcyk.keer.data.model.User
@@ -52,7 +51,6 @@ import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.suspendOnNotLogin
 import okhttp3.OkHttpClient
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import java.time.Instant
 import javax.inject.Inject
 
 @HiltViewModel
@@ -252,19 +250,6 @@ class UserStateViewModel @Inject constructor(
     suspend fun switchAccount(accountKey: String) = withContext(viewModelScope.coroutineContext) {
         accountService.switchAccount(accountKey)
         loadCurrentUser()
-    }
-
-    suspend fun addLocalAccount(): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
-        try {
-            accountService.addAccount(
-                Account.Local(
-                    LocalAccount(startDateEpochSecond = Instant.now().epochSecond)
-                )
-            )
-            loadCurrentUser().mapSuccess {}
-        } catch (e: Throwable) {
-            ApiResponse.exception(e)
-        }
     }
 
     suspend fun uploadCurrentUserAvatar(uri: Uri): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {

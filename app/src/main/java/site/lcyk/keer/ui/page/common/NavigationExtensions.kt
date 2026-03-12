@@ -43,7 +43,7 @@ fun NavHostController.navigateToAccountPage(accountKey: String) {
 }
 
 fun NavHostController.navigateToAddAccountPage() {
-    navigateSingleTop(RouteName.ADD_ACCOUNT)
+    navigateSingleTop(RouteName.LOGIN)
 }
 
 fun NavHostController.navigateToDebugLogsPage() {
