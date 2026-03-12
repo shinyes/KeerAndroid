@@ -24,7 +24,6 @@ import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Inventory2
-import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Settings
@@ -113,6 +112,9 @@ fun SideDrawer(
     val navBackStackEntry by memosNavController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
     val hapticFeedback = LocalHapticFeedback.current
+    val drawerTitle = remember(currentAccount) {
+        currentAccount?.toUser()?.name?.ifBlank { R.string.keer.string } ?: R.string.keer.string
+    }
     var exploreExpanded by rememberSaveable { mutableStateOf(true) }
     val expandedTagNodes = remember { mutableStateMapOf<String, Boolean>() }
     var activeTagActionTarget by remember { mutableStateOf<String?>(null) }
@@ -183,33 +185,13 @@ fun SideDrawer(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = R.string.keer.string,
+                        text = drawerTitle,
                         style = MaterialTheme.typography.headlineMedium
                     )
                 }
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(
-                        onClick = {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                            scope.launch {
-                                memosNavController.navigateToTopLevel(RouteName.DEBUG_LOGS)
-                                onDrawerItemCloseRequested?.invoke()
-                                drawerState?.close()
-                            }
-                        }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.NotificationsNone,
-                            contentDescription = R.string.debug_logs.string,
-                            tint = if (isSelected(RouteName.DEBUG_LOGS)) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
-                    }
                     IconButton(
                         onClick = {
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
