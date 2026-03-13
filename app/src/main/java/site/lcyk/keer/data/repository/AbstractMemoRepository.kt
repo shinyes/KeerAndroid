@@ -55,6 +55,8 @@ abstract class AbstractMemoRepository {
 
     open fun observeMemos(): Flow<List<MemoEntity>> = emptyFlow()
 
+    open fun observeResources(): Flow<List<ResourceEntity>> = emptyFlow()
+
     open suspend fun cacheResourceFile(identifier: String, downloadedUri: Uri): ApiResponse<Unit> {
         return ApiResponse.Success(Unit)
     }

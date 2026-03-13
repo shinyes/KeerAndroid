@@ -18,6 +18,7 @@ import site.lcyk.keer.ui.page.group.GroupMemoInputPage
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.ui.page.resource.ResourceListPage
 import site.lcyk.keer.ui.page.settings.AvatarSettingsPage
+import site.lcyk.keer.ui.page.settings.ColumnConfigPage
 import site.lcyk.keer.ui.page.settings.DebugLogPage
 import site.lcyk.keer.ui.page.settings.FriendManagementPage
 import site.lcyk.keer.ui.page.settings.SettingsPage
@@ -116,6 +117,10 @@ fun MemosNavigation(
             )
         }
 
+        composable(RouteName.COLUMN_CONFIG) {
+            ColumnConfigPage(navController = navController)
+        }
+
         composable(RouteName.DEBUG_LOGS) {
             DebugLogPage(navController = navController)
         }
@@ -126,6 +131,17 @@ fun MemosNavigation(
                 navController = navController,
                 onMenuButtonOpenRequested = onMenuButtonOpenRequested
             )
+        }
+
+        composable("${RouteName.COLUMN}/{columnId}") { entry ->
+            val columnId = entry.arguments?.getString("columnId")?.let(Uri::decode).orEmpty()
+            if (columnId.isNotBlank()) {
+                ColumnMemoPage(
+                    columnId = columnId,
+                    drawerState = drawerState,
+                    onMenuButtonOpenRequested = onMenuButtonOpenRequested
+                )
+            }
         }
 
         composable(RouteName.GROUP_MANAGEMENT) {

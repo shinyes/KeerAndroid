@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -85,15 +86,19 @@ class SyncingRepository(
             memos.map { item ->
                 item.memo.copy().also {
                     it.resources = item.resources
-                    it.tags = memoDao.getMemoTags(item.memo.identifier, accountKey)
+                    it.tags = item.tags.map { tag -> tag.name }
                 }
             }
-        }
+        }.flowOn(Dispatchers.Default)
+    }
+
+    override fun observeResources(): Flow<List<ResourceEntity>> {
+        return memoDao.observeAllResources(accountKey)
     }
 
     override suspend fun listMemos(): ApiResponse<List<MemoEntity>> {
         return try {
-            val memos = memoDao.getAllMemos(accountKey).map { withResources(it) }
+            val memos = memoDao.getAllMemoItems(accountKey).map(::toMemoEntity)
             ApiResponse.Success(memos)
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
@@ -102,9 +107,9 @@ class SyncingRepository(
 
     override suspend fun listArchivedMemos(): ApiResponse<List<MemoEntity>> {
         return try {
-            val memos = memoDao.getArchivedMemos(accountKey)
+            val memos = memoDao.getArchivedMemoItems(accountKey)
+                .map(::toMemoEntity)
                 .filterNot { it.isDeleted }
-                .map { withResources(it) }
             ApiResponse.Success(memos)
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
@@ -148,6 +153,7 @@ class SyncingRepository(
                     )
                 )
             }
+            notifyMemoRelationsChanged(localMemo)
 
             refreshUnsyncedCount()
             enqueuePushMemo(localMemo.identifier)
@@ -200,6 +206,7 @@ class SyncingRepository(
                     )
                 }
             }
+            notifyMemoRelationsChanged(updatedMemo)
 
             refreshUnsyncedCount()
             enqueuePushMemo(updatedMemo.identifier)
@@ -405,6 +412,9 @@ class SyncingRepository(
                             memoId = existing?.memoId,
                         )
                     }
+                    remoteResources.forEach { resource ->
+                        memoDao.insertResource(resource)
+                    }
                     val localDrafts = localResources.filter { resource -> resource.remoteId == null }
                     ApiResponse.Success(
                         (remoteResources + localDrafts).sortedByDescending { resource -> resource.date }
@@ -577,7 +587,7 @@ class SyncingRepository(
             val canonical = fileStorage.saveThumbnailFromUri(
                 accountKey = accountKey,
                 sourceUri = downloadedUri,
-                filename = "thumb_${resource.identifier}_${resource.filename}"
+                filename = buildCachedThumbnailFilename(resource)
             ).toString()
 
             resource.thumbnailLocalUri?.takeIf { it != canonical }?.let { oldLocal ->
@@ -1444,6 +1454,13 @@ class SyncingRepository(
         }
     }
 
+    private fun toMemoEntity(item: site.lcyk.keer.data.local.entity.MemoWithResources): MemoEntity {
+        return item.memo.copy().also { memo ->
+            memo.resources = item.resources
+            memo.tags = item.tags.map { tag -> tag.name }
+        }
+    }
+
     private suspend fun permanentlyDeleteMemo(identifier: String) {
         memoDao.getMemoById(identifier, accountKey)?.let { memo ->
             memoDao.getMemoResources(identifier, accountKey).forEach { resource ->
@@ -1513,7 +1530,21 @@ class SyncingRepository(
     private fun existingThumbnailLocalUri(resource: ResourceEntity): Uri? {
         val local = resource.thumbnailLocalUri ?: return null
         val uri = local.toUri()
-        return if (uri.scheme == "file" && File(uri.path ?: "").exists()) uri else null
+        val file = if (uri.scheme == "file") File(uri.path ?: "") else null
+        return if (file != null && file.exists() && !isLegacyVideoNamedThumbnail(file)) uri else null
+    }
+
+    private fun buildCachedThumbnailFilename(resource: ResourceEntity): String {
+        val sanitizedIdentifier = resource.identifier.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        return "thumb_${sanitizedIdentifier}.jpg"
+    }
+
+    private fun isLegacyVideoNamedThumbnail(file: File): Boolean {
+        return file.extension.lowercase() in setOf("mp4", "mov", "m4v", "webm", "mkv", "avi", "3gp", "mpeg", "mpg")
+    }
+
+    private suspend fun notifyMemoRelationsChanged(memo: MemoEntity) {
+        memoDao.insertMemo(memo.copy())
     }
 
     private fun buildUploadThumbnail(resource: ResourceEntity): ResourceUploadThumbnail? {

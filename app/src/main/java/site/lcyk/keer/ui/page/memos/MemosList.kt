@@ -27,7 +27,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
@@ -44,7 +43,6 @@ import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.PullSyncLineIndicator
 import site.lcyk.keer.ui.component.processManualSyncResult
-import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.component.MemosCardActionButton
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
@@ -86,7 +84,6 @@ fun MemosList(
         ?.editGesture
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
-    val hapticFeedback = LocalHapticFeedback.current
     val avatarImageLoader = rememberAuthorizedImageLoader()
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     val sourceMemos = memos ?: viewModel.memos
@@ -122,14 +119,6 @@ fun MemosList(
             }
         }
     }
-    val atTop = !lazyListState.canScrollBackward
-    val atBottom = filteredMemos.isNotEmpty() && !lazyListState.canScrollForward
-
-    rememberListEdgeHaptics(
-        itemCount = filteredMemos.size,
-        atTop = atTop,
-        atBottom = atBottom
-    )
 
     val collaboratorIdsToPrefetch = remember(filteredMemos) {
         filteredMemos
@@ -155,7 +144,6 @@ fun MemosList(
         refreshState = refreshState,
         contentPadding = contentPadding,
         syncStatus = syncStatus,
-        hapticFeedback = hapticFeedback,
         showSyncStatus = currentAccount !is Account.Local,
         editGesture = editGesture ?: MemoEditGesture.NONE,
         collaboratorProfiles = collaboratorProfiles,
@@ -217,7 +205,6 @@ private fun MemoFeedList(
     refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState,
     contentPadding: PaddingValues,
     syncStatus: site.lcyk.keer.data.model.SyncStatus,
-    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
     showSyncStatus: Boolean,
     editGesture: MemoEditGesture,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
@@ -232,13 +219,13 @@ private fun MemoFeedList(
 ) {
     RefreshableListContainer(
         isRefreshing = syncStatus.syncing,
+        pullRefreshActive = false,
         onRefresh = onRefresh,
         state = refreshState,
         indicator = {
             PullSyncLineIndicator(
                 refreshState = refreshState,
-                syncing = syncStatus.syncing,
-                hapticFeedback = hapticFeedback
+                syncing = syncStatus.syncing
             )
         },
         modifier = Modifier.padding(contentPadding)

@@ -25,11 +25,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -73,7 +71,6 @@ fun MemoVideo(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val hapticFeedback = LocalHapticFeedback.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState(initial = null)
     val memosViewModel = LocalMemos.current
@@ -91,13 +88,13 @@ fun MemoVideo(
         resource.localUri,
         resource.uri
     ) {
-        cachedPreviewUri ?: resolveMemoVideoPreviewUri(resource)
+        resolveUsableThumbnailLocalUri(cachedPreviewUri) ?: resolveMemoVideoPreviewUri(resource)
     }
 
     LaunchedEffect(resource.remoteId, resource.thumbnailUri, resource.thumbnailLocalUri) {
         val resourceEntity = resource as? ResourceEntity ?: return@LaunchedEffect
-        val localThumbnail = resourceEntity.thumbnailLocalUri?.trim().orEmpty()
-        if (localThumbnail.isNotEmpty()) {
+        val localThumbnail = resolveUsableThumbnailLocalUri(resourceEntity.thumbnailLocalUri)
+        if (!localThumbnail.isNullOrBlank()) {
             return@LaunchedEffect
         }
 
@@ -125,10 +122,11 @@ fun MemoVideo(
         try {
             val result = memosViewModel.cacheResourceThumbnail(resourceEntity.identifier, downloaded.toUri())
             if (result is ApiResponse.Success) {
-                cachedPreviewUri = memosViewModel
-                    .getResourceById(resourceEntity.identifier)
-                    ?.thumbnailLocalUri
-                    ?.takeIf { it.isNotBlank() }
+                cachedPreviewUri = resolveUsableThumbnailLocalUri(
+                    memosViewModel
+                        .getResourceById(resourceEntity.identifier)
+                        ?.thumbnailLocalUri
+                )
             } else {
                 Timber.d("Cache video thumbnail failed: %s", result)
             }
@@ -143,10 +141,7 @@ fun MemoVideo(
         modifier = modifier
             .aspectRatio(1f)
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable {
-                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                showPlayerDialog = true
-            },
+            .clickable { showPlayerDialog = true },
         contentAlignment = Alignment.Center
     ) {
         AsyncImage(
@@ -304,8 +299,8 @@ private fun MemoVideoPlayerDialog(
 }
 
 private fun resolveMemoVideoPreviewUri(resource: ResourceRepresentable): String {
-    val localThumbnail = resource.thumbnailLocalUri?.trim().orEmpty()
-    if (localThumbnail.isNotEmpty()) {
+    val localThumbnail = resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)
+    if (!localThumbnail.isNullOrBlank()) {
         return localThumbnail
     }
     if (!resource.encryptionMetadata.isNullOrBlank()) {

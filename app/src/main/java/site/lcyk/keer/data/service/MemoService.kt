@@ -9,15 +9,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.data.local.entity.MemoEntity
+import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.data.repository.AbstractMemoRepository
+import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.settingsDataStore
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,7 +36,11 @@ class MemoService @Inject constructor(
     private val offlineSyncTaskScheduler: OfflineSyncTaskScheduler,
     private val offlineGroupStore: OfflineGroupStore,
 ) {
-    private data class SyncRequest(val force: Boolean, val trigger: SyncTrigger)
+    private data class SyncRequest(
+        val force: Boolean,
+        val trigger: SyncTrigger,
+        val tasks: Set<OfflineSyncTask>,
+    )
 
     private var lastSyncAttemptTime = 0L
     private var backoffUntilTime = 0L
@@ -38,6 +48,7 @@ class MemoService @Inject constructor(
     private val syncMutex = Mutex()
     private val requestChannel = Channel<SyncRequest>(capacity = Channel.UNLIMITED)
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val serviceSyncStatus = MutableStateFlow(SyncStatus())
 
     init {
         syncScope.launch {
@@ -50,23 +61,47 @@ class MemoService @Inject constructor(
     }
 
     val syncStatus: Flow<SyncStatus> = accountService.currentAccount.flatMapLatest {
-        accountService.getRepository().syncStatus
+        combine(
+            accountService.getRepository().syncStatus,
+            serviceSyncStatus
+        ) { repositoryStatus, serviceStatus ->
+            repositoryStatus.copy(
+                syncing = repositoryStatus.syncing || serviceStatus.syncing,
+                errorMessage = repositoryStatus.errorMessage ?: serviceStatus.errorMessage
+            )
+        }
     }
 
-    val memos: Flow<List<MemoEntity>> = accountService.currentAccount.flatMapLatest {
-        accountService.getRepository().observeMemos()
-    }
+    val memos = accountService.currentAccount
+        .flatMapLatest {
+            accountService.getRepository().observeMemos()
+        }
+        .stateIn(syncScope, SharingStarted.WhileSubscribed(5_000L), emptyList())
+
+    val resources = accountService.currentAccount
+        .flatMapLatest {
+            accountService.getRepository().observeResources()
+        }
+        .stateIn(syncScope, SharingStarted.WhileSubscribed(5_000L), emptyList<ResourceEntity>())
 
     fun requestSync(
         trigger: SyncTrigger = SyncTrigger.AUTO,
-        force: Boolean = false
+        force: Boolean = false,
+        tasks: Set<OfflineSyncTask> = OfflineSyncTaskScheduler.FULL_TASKS
     ) {
-        requestChannel.trySend(SyncRequest(force = force, trigger = trigger))
+        requestChannel.trySend(
+            SyncRequest(
+                force = force,
+                trigger = trigger,
+                tasks = tasks
+            )
+        )
     }
 
     suspend fun sync(
         force: Boolean,
-        trigger: SyncTrigger = if (force) SyncTrigger.MANUAL else SyncTrigger.AUTO
+        trigger: SyncTrigger = if (force) SyncTrigger.MANUAL else SyncTrigger.AUTO,
+        tasks: Set<OfflineSyncTask> = OfflineSyncTaskScheduler.FULL_TASKS
     ): ApiResponse<Unit> = withContext(Dispatchers.IO) {
         syncMutex.withLock {
             val now = System.currentTimeMillis()
@@ -86,25 +121,12 @@ class MemoService @Inject constructor(
                 return@withLock ApiResponse.Success(Unit)
             }
             lastSyncAttemptTime = now
+            setServiceSyncing(true)
 
-            val preSyncResult = offlineSyncTaskScheduler.dispatch(
-                setOf(
-                    OfflineSyncTask.AVATAR,
-                    OfflineSyncTask.GROUP_OPERATIONS,
-                    OfflineSyncTask.GROUP_TAGS,
-                    OfflineSyncTask.GROUP_MESSAGES,
-                    OfflineSyncTask.USERS
-                )
-            )
-            val memoSyncResult = offlineSyncTaskScheduler.dispatch(OfflineSyncTask.MEMOS)
-
-            val finalResult: ApiResponse<Unit> = when {
-                memoSyncResult !is ApiResponse.Success -> memoSyncResult
-                preSyncResult !is ApiResponse.Success -> preSyncResult
-                else -> ApiResponse.Success(Unit)
-            }
+            val finalResult = offlineSyncTaskScheduler.dispatch(tasks)
 
             if (finalResult !is ApiResponse.Success) {
+                setServiceSyncError(finalResult.getErrorMessage())
                 if (!force) {
                     consecutiveFailureCount += 1
                     backoffUntilTime = SyncTriggerPolicy.calculateBackoffUntil(
@@ -117,8 +139,10 @@ class MemoService @Inject constructor(
             } else {
                 consecutiveFailureCount = 0
                 backoffUntilTime = 0L
+                setServiceSyncError(null)
             }
 
+            setServiceSyncing(false)
             finalResult
         }
     }
@@ -161,14 +185,24 @@ class MemoService @Inject constructor(
                 } else {
                     merged.trigger
                 }
+                val mergedTasks = merged.tasks + next.tasks
                 merged = SyncRequest(
                     force = mergedForce,
-                    trigger = mergedTrigger
+                    trigger = mergedTrigger,
+                    tasks = mergedTasks
                 )
             }
             runCatching {
-                sync(force = merged.force, trigger = merged.trigger)
+                sync(force = merged.force, trigger = merged.trigger, tasks = merged.tasks)
             }
         }
+    }
+
+    private fun setServiceSyncing(syncing: Boolean) {
+        serviceSyncStatus.value = serviceSyncStatus.value.copy(syncing = syncing)
+    }
+
+    private fun setServiceSyncError(message: String?) {
+        serviceSyncStatus.value = serviceSyncStatus.value.copy(errorMessage = message)
     }
 }

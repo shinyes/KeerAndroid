@@ -7,6 +7,7 @@ import androidx.paging.cachedIn
 import com.skydoves.sandwich.ApiResponse
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.collectLatest
@@ -84,7 +86,7 @@ class ExploreViewModel @Inject constructor(
                         pinnedGroupMemoKeys = pinnedGroupMemoKeys,
                     )
                 )
-            }
+            }.flowOn(Dispatchers.Default)
         }
         .cachedIn(viewModelScope)
 

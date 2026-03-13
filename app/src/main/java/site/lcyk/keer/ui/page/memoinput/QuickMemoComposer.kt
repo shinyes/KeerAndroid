@@ -105,6 +105,7 @@ private val quickComposerEditorPadding = PaddingValues(
 fun QuickMemoComposer(
     visible: Boolean,
     onDismissRequest: () -> Unit,
+    forcedTags: List<String> = emptyList(),
     inputViewModel: MemoInputViewModel = hiltViewModel(),
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -137,6 +138,7 @@ fun QuickMemoComposer(
         )
     }
     var pendingSubmitAfterLocationPermission by remember { mutableStateOf(false) }
+    val normalizedForcedTags = remember(forcedTags) { normalizeTagList(forcedTags) }
     val normalizedSelectedTags = remember(selectedTags) { normalizeTagList(selectedTags) }
     val normalizedSelectedCollaborators = remember(selectedCollaborators) {
         selectedCollaborators
@@ -249,7 +251,7 @@ fun QuickMemoComposer(
         }
 
         val mergedTags = mergeTagsWithCollaboratorsAndQuote(
-            normalizedSelectedTags,
+            normalizeTagList(normalizedForcedTags + normalizedSelectedTags),
             normalizedSelectedCollaborators,
             quoteDescriptor = null,
         )
@@ -473,6 +475,9 @@ fun QuickMemoComposer(
                         selectedCollaborators = selectedCollaborators,
                         onTagSelectorClick = { showTagSelector = true },
                         onTagRemove = { tagToRemove ->
+                            if (normalizedForcedTags.any { it == normalizeTagName(tagToRemove) }) {
+                                return@MemoInputBottomBar
+                            }
                             selectedTags = normalizeTagList(
                                 selectedTags.filterNot { existing ->
                                     normalizeTagName(existing) == normalizeTagName(tagToRemove)
@@ -535,7 +540,7 @@ fun QuickMemoComposer(
                 .filterNot(::isCollaboratorTag)
                 .filterNot(::isQuoteTag),
             selectedTags = selectedTags,
-            onSelectedTagsChange = { selectedTags = normalizeTagList(it) },
+            onSelectedTagsChange = { selectedTags = normalizeTagList(normalizedForcedTags + it) },
             onDismiss = { showTagSelector = false }
         )
     }
@@ -580,7 +585,7 @@ fun QuickMemoComposer(
 
         inputViewModel.uploadResources.clear()
         inputViewModel.uploadTasks.clear()
-        selectedTags = emptyList()
+        selectedTags = normalizedForcedTags
         selectedCollaborators = emptyList()
         memosViewModel.loadTags()
         userStateViewModel.refreshFriends()
@@ -588,7 +593,7 @@ fun QuickMemoComposer(
         val draft = inputViewModel.draft.first().orEmpty()
         text = TextFieldValue(draft, TextRange(draft.length))
         initialContent = text.text
-        initialTags = emptyList()
+        initialTags = normalizedForcedTags
         initialCollaborators = emptyList()
         withFrameNanos { }
         withFrameNanos { }

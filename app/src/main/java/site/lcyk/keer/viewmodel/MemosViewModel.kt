@@ -7,13 +7,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.skydoves.sandwich.ApiResponse
 import com.skydoves.sandwich.suspendOnSuccess
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -21,10 +21,9 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,6 +37,7 @@ import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.data.service.MemoService
+import site.lcyk.keer.data.service.OfflineSyncTask
 import site.lcyk.keer.data.service.OfflineGroupStore
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
@@ -101,30 +101,31 @@ class MemosViewModel @Inject constructor(
                             cachedGroupMemos = cachedGroupMemos,
                             pinnedGroupMemoKeys = pinnedGroupMemoKeys,
                         )
-                    }
+                    }.flowOn(Dispatchers.Default)
                 }
             }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
-        snapshotFlow { memos.toList() }
-            .onEach { matrix = calculateMatrix() }
-            .launchIn(viewModelScope)
+        viewModelScope.launch {
+            combine(
+                memoService.memos,
+                memoService.syncStatus.map { it.syncing }.distinctUntilChanged()
+            ) { latestMemos, syncing ->
+                if (syncing) null else latestMemos
+            }.collectLatest { latestMemos ->
+                if (latestMemos != null) {
+                    applyMemos(latestMemos)
+                }
+            }
+        }
 
         viewModelScope.launch {
-            loadMemosSnapshot()
-
-            memoService.syncStatus
-                .map { it.syncing }
-                .distinctUntilChanged()
-                .collectLatest { syncing ->
-                    if (syncing) {
-                        return@collectLatest
-                    }
-                    memoService.memos.collectLatest { latestMemos ->
-                        applyMemos(latestMemos)
-                    }
+            homeMemos.collectLatest {
+                matrix = withContext(Dispatchers.Default) {
+                    calculateMatrix(memos.toList())
                 }
+            }
         }
     }
 
@@ -144,6 +145,10 @@ class MemosViewModel @Inject constructor(
     }
 
     private fun applyMemos(latestMemos: List<MemoEntity>) {
+        if (memos.contentDeepEquals(latestMemos)) {
+            errorMessage = null
+            return
+        }
         memos.clear()
         memos.addAll(latestMemos)
         errorMessage = null
@@ -159,18 +164,25 @@ class MemosViewModel @Inject constructor(
     }
 
     suspend fun refreshMemos(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
-        val syncResult = memoService.sync(
-            force = true,
-            trigger = SyncTrigger.MANUAL
+        performManualSync(tasks = setOf(OfflineSyncTask.MEMOS))
+    }
+
+    suspend fun refreshHomeFeed(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
+        performManualSync(
+            tasks = setOf(
+                OfflineSyncTask.MEMOS,
+                OfflineSyncTask.GROUP_CACHE_REFRESH
+            )
         )
-        if (syncResult is ApiResponse.Success) {
-            WidgetUpdater.updateWidgets(appContext)
-        } else {
-            val message = syncResult.getErrorMessage()
-            errorMessage = message
-            return@withContext ManualSyncResult.Failed(message)
-        }
-        ManualSyncResult.Completed
+    }
+
+    suspend fun refreshExploreFeed(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
+        performManualSync(
+            tasks = setOf(
+                OfflineSyncTask.MEMOS,
+                OfflineSyncTask.GROUP_CACHE_REFRESH
+            )
+        )
     }
 
     fun loadTags() = viewModelScope.launch {
@@ -285,10 +297,27 @@ class MemosViewModel @Inject constructor(
         memoService.requestSync(trigger = SyncTrigger.MUTATION, force = false)
     }
 
-    private fun calculateMatrix(): List<DailyUsageStat> {
+    private suspend fun performManualSync(
+        tasks: Set<OfflineSyncTask>
+    ): ManualSyncResult {
+        val syncResult = memoService.sync(
+            force = true,
+            trigger = SyncTrigger.MANUAL,
+            tasks = tasks
+        )
+        if (syncResult is ApiResponse.Success) {
+            WidgetUpdater.updateWidgets(appContext)
+            return ManualSyncResult.Completed
+        }
+        val message = syncResult.getErrorMessage()
+        errorMessage = message
+        return ManualSyncResult.Failed(message)
+    }
+
+    private fun calculateMatrix(sourceMemos: List<MemoEntity>): List<DailyUsageStat> {
         val countMap = HashMap<LocalDate, Int>()
 
-        for (memo in memos) {
+        for (memo in sourceMemos) {
             val date = memo.date.atZone(OffsetDateTime.now().offset).toLocalDate()
             countMap[date] = (countMap[date] ?: 0) + 1
         }
@@ -300,6 +329,40 @@ class MemosViewModel @Inject constructor(
 
     private companion object {
         private const val MAX_TRANSIENT_DETAIL_MEMO_COUNT = 200
+    }
+
+    private fun List<MemoEntity>.contentDeepEquals(other: List<MemoEntity>): Boolean {
+        if (size != other.size) {
+            return false
+        }
+        return indices.all { index ->
+            this[index].sameUiContent(other[index])
+        }
+    }
+
+    private fun MemoEntity.sameUiContent(other: MemoEntity): Boolean {
+        return identifier == other.identifier &&
+            remoteId == other.remoteId &&
+            accountKey == other.accountKey &&
+            content == other.content &&
+            date == other.date &&
+            visibility == other.visibility &&
+            pinned == other.pinned &&
+            archived == other.archived &&
+            latitude == other.latitude &&
+            longitude == other.longitude &&
+            quoteSourceKind == other.quoteSourceKind &&
+            quoteSource == other.quoteSource &&
+            quoteStatus == other.quoteStatus &&
+            quoteContentPreview == other.quoteContentPreview &&
+            quoteDate == other.quoteDate &&
+            quoteHasAttachments == other.quoteHasAttachments &&
+            needsSync == other.needsSync &&
+            isDeleted == other.isDeleted &&
+            lastModified == other.lastModified &&
+            lastSyncedAt == other.lastSyncedAt &&
+            tags == other.tags &&
+            resources == other.resources
     }
 
     private fun buildHomeMemoItems(

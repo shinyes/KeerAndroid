@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 16,
-    "identityHash": "8a026c2669e3f54c9e5d4ec379c11552",
+    "identityHash": "895d09de6eeafd06bbe1de65c4465786",
     "entities": [
       {
         "tableName": "memos",
@@ -372,6 +372,15 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_memo_tags_memoId` ON `${TABLE_NAME}` (`memoId`)"
+          },
+          {
+            "name": "index_memo_tags_tagName",
+            "unique": false,
+            "columnNames": [
+              "tagName"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memo_tags_tagName` ON `${TABLE_NAME}` (`tagName`)"
           },
           {
             "name": "index_memo_tags_accountKey",
@@ -970,7 +979,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '8a026c2669e3f54c9e5d4ec379c11552')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '895d09de6eeafd06bbe1de65c4465786')"
     ]
   }
 }

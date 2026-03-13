@@ -20,12 +20,24 @@ interface MemoDao {
     @Query("SELECT * FROM memos WHERE accountKey = :accountKey AND archived = 1 ORDER BY date DESC")
     suspend fun getArchivedMemos(accountKey: String): List<MemoEntity>
 
+    @Transaction
+    @Query("SELECT * FROM memos WHERE accountKey = :accountKey AND archived = 1 ORDER BY date DESC")
+    suspend fun getArchivedMemoItems(accountKey: String): List<MemoWithResources>
+
     @Query("""
         SELECT * FROM memos 
         WHERE accountKey = :accountKey AND archived = 0 AND isDeleted = 0
         ORDER BY pinned DESC, date DESC
     """)
     suspend fun getAllMemos(accountKey: String): List<MemoEntity>
+
+    @Transaction
+    @Query("""
+        SELECT * FROM memos 
+        WHERE accountKey = :accountKey AND archived = 0 AND isDeleted = 0
+        ORDER BY pinned DESC, date DESC
+    """)
+    suspend fun getAllMemoItems(accountKey: String): List<MemoWithResources>
 
     @Transaction
     @Query("""
@@ -77,6 +89,9 @@ interface MemoDao {
 
     @Query("SELECT * FROM resources WHERE accountKey = :accountKey ORDER BY date DESC")
     suspend fun getAllResources(accountKey: String): List<ResourceEntity>
+
+    @Query("SELECT * FROM resources WHERE accountKey = :accountKey ORDER BY date DESC")
+    fun observeAllResources(accountKey: String): Flow<List<ResourceEntity>>
 
     @Query("SELECT * FROM resources WHERE identifier = :identifier AND accountKey = :accountKey")
     suspend fun getResourceById(identifier: String, accountKey: String): ResourceEntity?

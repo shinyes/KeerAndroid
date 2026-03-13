@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Group
+import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material3.AlertDialog
@@ -54,6 +55,7 @@ import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemoEditGesture
 import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.getErrorMessage
+import site.lcyk.keer.ext.currentUserColumns
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
@@ -63,6 +65,7 @@ import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.PageScaffold
 import site.lcyk.keer.ui.page.common.navigateToAccountPage
 import site.lcyk.keer.ui.page.common.navigateToAddAccountPage
+import site.lcyk.keer.ui.page.common.navigateToColumnConfigPage
 import site.lcyk.keer.ui.page.common.navigateToDebugLogsPage
 import site.lcyk.keer.ui.page.common.navigateToTopLevel
 import site.lcyk.keer.ui.page.common.RouteName
@@ -101,6 +104,7 @@ fun SettingsPage(
         ?.settings
         ?.editGesture
         ?: MemoEditGesture.NONE
+    val currentColumnsCount = settings.currentUserColumns().size
     val avatarPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -183,6 +187,23 @@ fun SettingsPage(
                     text = R.string.friends.string
                 ) {
                     navController.navigateToTopLevel(RouteName.FRIENDS)
+                }
+            }
+
+            item {
+                SettingItem(
+                    icon = Icons.Outlined.GridView,
+                    text = R.string.column_config.string,
+                    trailingIcon = {
+                        if (currentColumnsCount > 0) {
+                            Text(
+                                text = currentColumnsCount.toString(),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                ) {
+                    navController.navigateToColumnConfigPage()
                 }
             }
 

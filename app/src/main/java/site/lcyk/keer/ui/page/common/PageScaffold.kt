@@ -12,8 +12,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import kotlinx.coroutines.launch
@@ -32,7 +30,6 @@ fun PageScaffold(
     content: @Composable (PaddingValues) -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    val hapticFeedback = LocalHapticFeedback.current
 
     Scaffold(
         topBar = {
@@ -44,7 +41,6 @@ fun PageScaffold(
                             IconButton(
                                 onClick = {
                                     onMenuButtonOpenRequested?.invoke()
-                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                     scope.launch { drawerState.open() }
                                 }
                             ) {

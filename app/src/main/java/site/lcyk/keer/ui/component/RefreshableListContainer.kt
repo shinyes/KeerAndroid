@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 @Composable
 fun RefreshableListContainer(
     isRefreshing: Boolean,
+    pullRefreshActive: Boolean = isRefreshing,
     onRefresh: () -> Unit,
     state: PullToRefreshState,
     modifier: Modifier = Modifier,
@@ -28,7 +29,7 @@ fun RefreshableListContainer(
     }
     if (indicator == null) {
         PullToRefreshBox(
-            isRefreshing = isRefreshing,
+            isRefreshing = pullRefreshActive,
             onRefresh = onRefresh,
             state = state,
             modifier = modifier,
@@ -36,7 +37,7 @@ fun RefreshableListContainer(
         )
     } else {
         PullToRefreshBox(
-            isRefreshing = isRefreshing,
+            isRefreshing = pullRefreshActive,
             onRefresh = onRefresh,
             state = state,
             modifier = modifier,

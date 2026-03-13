@@ -54,9 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -66,10 +64,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.data.model.MemoGroupType
+import site.lcyk.keer.ext.currentUserColumns
 import site.lcyk.keer.ext.getErrorMessage
+import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
+import site.lcyk.keer.ui.page.common.navigateToColumnPage
 import site.lcyk.keer.ui.page.common.navigateToMemosPage
 import site.lcyk.keer.ui.page.common.navigateToTopLevel
 import site.lcyk.keer.ui.page.common.RouteName
@@ -109,10 +111,10 @@ fun SideDrawer(
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val joinedGroups by userStateViewModel.joinedGroups.collectAsState()
     val groupIdAliases by userStateViewModel.groupIdAliases.collectAsState()
+    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
     val hasExplore = currentAccount !is Account.Local
     val navBackStackEntry by memosNavController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
-    val hapticFeedback = LocalHapticFeedback.current
     val drawerTitle = remember(currentAccount) {
         currentAccount?.toUser()?.name?.ifBlank { R.string.keer.string } ?: R.string.keer.string
     }
@@ -159,6 +161,16 @@ fun SideDrawer(
             group.hasUnreadMessages && currentSelectedGroupId != group.id
         }
     }
+    val currentSelectedColumnId = remember(navBackStackEntry) {
+        navBackStackEntry
+            ?.arguments
+            ?.getString("columnId")
+            ?.let(Uri::decode)
+    }
+    val visibleColumns = remember(settings.currentUser, settings.usersList) {
+        settings.currentUserColumns()
+            .filter { it.visibleInDrawer }
+    }
 
     fun isSelected(route: String): Boolean {
         return currentDestination?.hierarchy?.any { it.route == route } == true
@@ -195,7 +207,6 @@ fun SideDrawer(
                 ) {
                     IconButton(
                         onClick = {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                             scope.launch {
                                 memosNavController.navigateToTopLevel(RouteName.SETTINGS)
                                 onDrawerItemCloseRequested?.invoke()
@@ -206,7 +217,11 @@ fun SideDrawer(
                         Icon(
                             imageVector = Icons.Outlined.Settings,
                             contentDescription = R.string.settings.string,
-                            tint = if (isSelected(RouteName.SETTINGS) || isSelected(RouteName.CONFIG)) {
+                            tint = if (
+                                isSelected(RouteName.SETTINGS) ||
+                                isSelected(RouteName.CONFIG) ||
+                                isSelected(RouteName.COLUMN_CONFIG)
+                            ) {
                                 MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.onSurfaceVariant
@@ -255,7 +270,6 @@ fun SideDrawer(
                 icon = { Icon(Icons.Outlined.GridView, contentDescription = null) },
                 selected = isSelected(RouteName.MEMOS),
                 onClick = {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
                         memosNavController.navigateToMemosPage()
                         onDrawerItemCloseRequested?.invoke()
@@ -264,6 +278,24 @@ fun SideDrawer(
                 },
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
             )
+        }
+        visibleColumns.forEach { column ->
+            item("drawer_column_${column.id}") {
+                NavigationDrawerItem(
+                    label = { Text(column.name) },
+                    icon = { Icon(Icons.Outlined.GridView, contentDescription = null) },
+                    selected = isSelected("${RouteName.COLUMN}/{columnId}") &&
+                        currentSelectedColumnId == column.id,
+                    onClick = {
+                        scope.launch {
+                            memosNavController.navigateToColumnPage(column.id)
+                            onDrawerItemCloseRequested?.invoke()
+                            drawerState?.close()
+                        }
+                    },
+                    modifier = Modifier.padding(start = 30.dp, end = 8.dp)
+                )
+            }
         }
         if (hasExplore) {
             item {
@@ -309,7 +341,6 @@ fun SideDrawer(
                     icon = { Icon(Icons.Outlined.Home, contentDescription = null) },
                     selected = isSelected(RouteName.EXPLORE),
                     onClick = {
-                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         scope.launch {
                             memosNavController.navigateToTopLevel(RouteName.EXPLORE)
                             onDrawerItemCloseRequested?.invoke()
@@ -358,7 +389,6 @@ fun SideDrawer(
                             selected = isSelected("${RouteName.GROUP_CHAT}?groupId={groupId}") &&
                                     currentSelectedGroupId == group.id,
                             onClick = {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                 scope.launch {
                                     memosNavController.navigateToGroupChatPage(group.id)
                                     onDrawerItemCloseRequested?.invoke()
@@ -377,7 +407,6 @@ fun SideDrawer(
                 icon = { Icon(Icons.Outlined.PhotoLibrary, contentDescription = null) },
                 selected = isSelected(RouteName.RESOURCE),
                 onClick = {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
                         memosNavController.navigateToTopLevel(RouteName.RESOURCE)
                         onDrawerItemCloseRequested?.invoke()
@@ -393,7 +422,6 @@ fun SideDrawer(
                 icon = { Icon(Icons.Outlined.Inventory2, contentDescription = null) },
                 selected = isSelected(RouteName.ARCHIVED),
                 onClick = {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
                         memosNavController.navigateToTopLevel(RouteName.ARCHIVED)
                         onDrawerItemCloseRequested?.invoke()

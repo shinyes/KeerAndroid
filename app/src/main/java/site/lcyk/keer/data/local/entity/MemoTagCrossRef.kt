@@ -10,6 +10,7 @@ import java.time.Instant
     primaryKeys = ["memoId", "accountKey", "tagName"],
     indices = [
         Index(value = ["memoId"]),
+        Index(value = ["tagName"]),
         Index(value = ["accountKey"]),
         Index(value = ["accountKey", "tagName"])
     ],

@@ -285,6 +285,16 @@ private fun sanitizeFilename(filename: String): String {
     return filename.replace(Regex("[^A-Za-z0-9._-]"), "_")
 }
 
+internal fun resolveUsableThumbnailLocalUri(rawLocalThumbnailUri: String?): String? {
+    val local = rawLocalThumbnailUri?.trim()?.ifBlank { null } ?: return null
+    val uri = local.toUri()
+    if (uri.scheme != "file") {
+        return local
+    }
+    val file = uri.path?.let(::File)?.takeIf { it.exists() } ?: return null
+    return local.takeUnless { file.extension.lowercase() in setOf("mp4", "mov", "m4v", "webm", "mkv", "avi", "3gp", "mpeg", "mpg") }
+}
+
 fun resolveMimeType(resource: ResourceRepresentable, file: File): String {
     AttachmentEncryptionManager.resolveOriginalMimeType(
         resource.encryptionMetadata,

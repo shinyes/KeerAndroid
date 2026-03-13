@@ -24,9 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
@@ -61,7 +59,6 @@ fun MemosHomePage(
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val homeMemos by memosViewModel.homeMemos.collectAsState()
     val syncStatus by memosViewModel.syncStatus.collectAsState()
-    val hapticFeedback = LocalHapticFeedback.current
     val homeMemoItemsById = remember(homeMemos) {
         homeMemos.associateBy { item -> item.memo.identifier }
     }
@@ -75,7 +72,7 @@ fun MemosHomePage(
     var showQuickComposer by rememberSaveable { mutableStateOf(false) }
 
     suspend fun requestManualSync() {
-        processManualSyncResult(memosViewModel.refreshMemos()) { alert ->
+        processManualSyncResult(memosViewModel.refreshHomeFeed()) { alert ->
             syncAlert = alert
         }
     }
@@ -89,7 +86,6 @@ fun MemosHomePage(
                         if (drawerState != null) {
                             IconButton(onClick = {
                                 onMenuButtonOpenRequested?.invoke()
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                 scope.launch { drawerState.open() }
                             }) {
                                 Icon(Icons.Filled.Menu, contentDescription = R.string.menu.string)
@@ -121,10 +117,7 @@ fun MemosHomePage(
             floatingActionButton = {
                 if (!showQuickComposer) {
                     ExtendedFloatingActionButton(
-                        onClick = {
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                            showQuickComposer = true
-                        },
+                        onClick = { showQuickComposer = true },
                         expanded = expandedFab,
                         text = { Text(R.string.new_memo.string) },
                         icon = { Icon(Icons.Filled.Add, contentDescription = R.string.compose.string) }

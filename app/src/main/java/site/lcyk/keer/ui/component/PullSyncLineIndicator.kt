@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.pulltorefresh.PullToRefreshState
@@ -21,8 +23,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.hapticfeedback.HapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -30,7 +30,6 @@ private enum class PullSyncLineVisualState {
     Hidden,
     Pulling,
     Ready,
-    Syncing,
     Settling,
 }
 
@@ -38,23 +37,19 @@ private enum class PullSyncLineVisualState {
 @Composable
 fun BoxScope.PullSyncLineIndicator(
     refreshState: PullToRefreshState,
-    syncing: Boolean,
-    hapticFeedback: HapticFeedback
+    syncing: Boolean
 ) {
     val rawPullFraction = refreshState.distanceFraction
     val pullFraction = rawPullFraction.coerceIn(0f, 1f)
     val isPulling = rawPullFraction > 0f
     val readyToRefresh = rawPullFraction >= 1f
-    var thresholdHapticTriggered by remember { mutableStateOf(false) }
+    var refreshArmed by remember { mutableStateOf(false) }
     var settling by remember { mutableStateOf(false) }
     var wasPulling by remember { mutableStateOf(false) }
 
-    LaunchedEffect(readyToRefresh) {
-        if (readyToRefresh && !thresholdHapticTriggered) {
-            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-            thresholdHapticTriggered = true
-        } else if (!readyToRefresh) {
-            thresholdHapticTriggered = false
+    LaunchedEffect(isPulling, readyToRefresh) {
+        if (isPulling) {
+            refreshArmed = readyToRefresh
         }
     }
 
@@ -68,10 +63,21 @@ fun BoxScope.PullSyncLineIndicator(
             return@LaunchedEffect
         }
         settling = true
-        delay(150)
+        delay(180)
         settling = false
         wasPulling = false
+        if (!refreshArmed) {
+            return@LaunchedEffect
+        }
     }
+
+    LaunchedEffect(syncing) {
+        if (!syncing) {
+            refreshArmed = false
+        }
+    }
+
+    val showSpinner = syncing && refreshArmed && !isPulling && !settling
 
     val visualState = when {
         readyToRefresh && isPulling -> PullSyncLineVisualState.Ready
@@ -83,14 +89,12 @@ fun BoxScope.PullSyncLineIndicator(
     val targetWidthFraction = when (visualState) {
         PullSyncLineVisualState.Ready -> 0.42f
         PullSyncLineVisualState.Pulling -> 0.12f + (0.28f * pullFraction)
-        PullSyncLineVisualState.Syncing -> 0.36f
         PullSyncLineVisualState.Settling -> 0.14f
         PullSyncLineVisualState.Hidden -> 0f
     }
     val targetAlpha = when (visualState) {
         PullSyncLineVisualState.Ready -> 0.95f
         PullSyncLineVisualState.Pulling -> 0.2f + (0.7f * pullFraction)
-        PullSyncLineVisualState.Syncing -> 0.9f
         PullSyncLineVisualState.Settling -> 0.12f
         PullSyncLineVisualState.Hidden -> 0f
     }
@@ -99,8 +103,7 @@ fun BoxScope.PullSyncLineIndicator(
         animationSpec = tween(
             durationMillis = when (visualState) {
                 PullSyncLineVisualState.Pulling -> 90
-                PullSyncLineVisualState.Ready,
-                PullSyncLineVisualState.Syncing -> 140
+                PullSyncLineVisualState.Ready -> 140
                 PullSyncLineVisualState.Settling -> 180
                 PullSyncLineVisualState.Hidden -> 180
             },
@@ -113,8 +116,7 @@ fun BoxScope.PullSyncLineIndicator(
         animationSpec = tween(
             durationMillis = when (visualState) {
                 PullSyncLineVisualState.Pulling -> 90
-                PullSyncLineVisualState.Ready,
-                PullSyncLineVisualState.Syncing -> 130
+                PullSyncLineVisualState.Ready -> 130
                 PullSyncLineVisualState.Settling -> 190
                 PullSyncLineVisualState.Hidden -> 190
             },
@@ -123,13 +125,25 @@ fun BoxScope.PullSyncLineIndicator(
         label = "pull_indicator_alpha"
     )
 
-    androidx.compose.foundation.layout.Box(
-        modifier = Modifier
-            .align(Alignment.TopCenter)
-            .padding(top = 8.dp)
-            .height(3.dp)
-            .fillMaxWidth(widthFraction.coerceIn(0f, 1f))
-            .clip(RoundedCornerShape(999.dp))
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha))
-    )
+    if (widthFraction > 0f && alpha > 0f) {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 8.dp)
+                .height(3.dp)
+                .fillMaxWidth(widthFraction.coerceIn(0f, 1f))
+                .clip(RoundedCornerShape(999.dp))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha))
+        )
+    }
+
+    if (showSpinner) {
+        CircularProgressIndicator(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 12.dp)
+                .size(18.dp),
+            strokeWidth = 2.dp
+        )
+    }
 }

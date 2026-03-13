@@ -100,6 +100,17 @@ fun NavHostController.navigateToMemoDetailPage(memoIdentifier: String) {
     )
 }
 
+fun NavHostController.navigateToColumnPage(columnId: String) {
+    navigateReplacingCurrent(
+        route = "${RouteName.COLUMN}/${Uri.encode(columnId)}",
+        destinationPattern = "${RouteName.COLUMN}/{columnId}"
+    )
+}
+
+fun NavHostController.navigateToColumnConfigPage() {
+    navigateSingleTop(RouteName.COLUMN_CONFIG)
+}
+
 fun NavHostController.navigateToMemoInputPage(quoteMemoIdentifier: String? = null) {
     if (quoteMemoIdentifier.isNullOrBlank()) {
         navigateSingleTop(RouteName.INPUT)

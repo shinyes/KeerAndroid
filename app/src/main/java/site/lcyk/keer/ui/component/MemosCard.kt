@@ -41,10 +41,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -370,7 +368,6 @@ fun MemosCardActionButton(
     val rootNavController = LocalRootNavController.current
     val scope = rememberCoroutineScope()
     val memoLabel = stringResource(R.string.memo)
-    val hapticFeedback = LocalHapticFeedback.current
     val actions = buildList {
         add(
             MemoMenuAction(
@@ -448,7 +445,6 @@ fun MemosCardActionButton(
                     cancelLabel = R.string.cancel.string
                 ),
                 onSelected = {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     scope.launch {
                         memosViewModel.deleteMemo(memo.identifier)
                     }

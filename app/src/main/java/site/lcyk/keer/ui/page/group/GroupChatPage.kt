@@ -40,9 +40,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.hapticfeedback.HapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -67,9 +64,7 @@ import site.lcyk.keer.ui.component.RefreshableListContainer
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.SyncStatusBadge
-import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
-import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
@@ -94,7 +89,6 @@ fun GroupChatPage(
     val lifecycleOwner = LocalLifecycleOwner.current
     val rootNavController = LocalRootNavController.current
     val scope = rememberCoroutineScope()
-    val hapticFeedback = LocalHapticFeedback.current
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
@@ -129,8 +123,6 @@ fun GroupChatPage(
     val expandedFab by remember {
         derivedStateOf { listState.firstVisibleItemIndex == 0 }
     }
-    val atTop = !listState.canScrollBackward
-    val atBottom = memos.isNotEmpty() && !listState.canScrollForward
 
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     var syncWasRunning by remember { mutableStateOf(syncStatus.syncing) }
@@ -150,15 +142,12 @@ fun GroupChatPage(
     }
 
     suspend fun requestManualSync() {
-        processManualSyncResult(memosViewModel.refreshMemos()) { alert ->
-            syncAlert = alert
-        }
+        reloadGroup(forceSync = true)
     }
 
     fun handleNavigationClick() {
         if (drawerState != null) {
             onMenuButtonOpenRequested?.invoke()
-            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
             scope.launch { drawerState.open() }
         } else {
             navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
@@ -168,12 +157,6 @@ fun GroupChatPage(
     LaunchedEffect(group?.id) {
         reloadGroup(forceSync = false)
     }
-
-    rememberListEdgeHaptics(
-        itemCount = memos.size,
-        atTop = atTop,
-        atBottom = atBottom
-    )
 
     val collaboratorIdsToPrefetch = remember(memos) {
         memos
@@ -250,7 +233,7 @@ fun GroupChatPage(
                 navigationContentDescription = navigationContentDescription,
                 onNavigationClick = ::handleNavigationClick,
                 syncStatus = syncStatus,
-                showSyncBadge = currentAccount !is Account.Local && syncStatus.syncing,
+                showSyncBadge = currentAccount !is Account.Local && (syncStatus.syncing || loading),
                 onManualSync = {
                     scope.launch {
                         requestManualSync()
@@ -265,7 +248,6 @@ fun GroupChatPage(
             GroupChatFab(
                 expanded = expandedFab,
                 onClick = {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     navController.navigateToGroupInputPage(groupId = group.id)
                 }
             )
@@ -280,9 +262,12 @@ fun GroupChatPage(
             editGesture = editGesture,
             listState = listState,
             refreshState = refreshState,
-            syncStatus = syncStatus,
+            syncStatus = if (loading && !syncStatus.syncing) {
+                syncStatus.copy(syncing = true)
+            } else {
+                syncStatus
+            },
             contentPadding = innerPadding,
-            hapticFeedback = hapticFeedback,
             collaboratorProfiles = collaboratorProfiles,
             avatarImageLoader = avatarImageLoader,
             quoteMemoCandidates = quoteMemoCandidates,
@@ -417,7 +402,6 @@ private fun GroupChatList(
     refreshState: PullToRefreshState,
     syncStatus: SyncStatus,
     contentPadding: PaddingValues,
-    hapticFeedback: HapticFeedback,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
     quoteMemoCandidates: List<MemoEntity>,
@@ -433,13 +417,13 @@ private fun GroupChatList(
 ) {
     RefreshableListContainer(
         isRefreshing = syncStatus.syncing,
+        pullRefreshActive = false,
         onRefresh = onRefresh,
         state = refreshState,
         indicator = {
             PullSyncLineIndicator(
                 refreshState = refreshState,
-                syncing = syncStatus.syncing,
-                hapticFeedback = hapticFeedback
+                syncing = syncStatus.syncing
             )
         },
         modifier = Modifier.padding(contentPadding),

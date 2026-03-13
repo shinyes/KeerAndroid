@@ -18,8 +18,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 
 data class MemoMenuConfirmation(
     val title: String,
@@ -38,10 +36,7 @@ data class MemoMenuAction(
 )
 
 @Composable
-fun MemoActionMenuButton(
-    actions: List<MemoMenuAction>,
-    hapticOnOpen: Boolean = true
-) {
+fun MemoActionMenuButton(actions: List<MemoMenuAction>) {
     if (actions.isEmpty()) {
         return
     }
@@ -51,19 +46,11 @@ fun MemoActionMenuButton(
         val destructive = actions.filter { it.destructive }
         normal + destructive
     }
-    val hapticFeedback = LocalHapticFeedback.current
     var menuExpanded by remember { mutableStateOf(false) }
     var pendingConfirmation by remember { mutableStateOf<MemoMenuAction?>(null) }
 
     Box {
-        IconButton(
-            onClick = {
-                if (hapticOnOpen) {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                }
-                menuExpanded = true
-            }
-        ) {
+        IconButton(onClick = { menuExpanded = true }) {
             Icon(Icons.Filled.MoreVert, contentDescription = null)
         }
 

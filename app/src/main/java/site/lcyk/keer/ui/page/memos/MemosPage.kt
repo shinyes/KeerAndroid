@@ -15,15 +15,9 @@ import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
 import androidx.window.core.layout.WindowSizeClass
@@ -40,10 +34,6 @@ fun MemosPage(
     val scope = rememberCoroutineScope()
     val memosNavController = rememberNavController()
     val density = LocalDensity.current
-    val hapticFeedback = LocalHapticFeedback.current
-    var suppressNextOpenHaptic by remember { mutableStateOf(false) }
-    var suppressNextCloseHaptic by remember { mutableStateOf(false) }
-    var lastDrawerValue by remember { mutableStateOf(drawerState.currentValue) }
 
     DisposableEffect(drawerState, isExpanded) {
         if (!isExpanded) {
@@ -53,33 +43,9 @@ fun MemosPage(
     }
 
     BackHandler(enabled = drawerState.isOpen) {
-        suppressNextCloseHaptic = true
-        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
         scope.launch {
             drawerState.close()
         }
-    }
-
-    LaunchedEffect(drawerState.currentValue, isExpanded) {
-        if (isExpanded) return@LaunchedEffect
-        val currentValue = drawerState.currentValue
-        if (currentValue == lastDrawerValue) {
-            return@LaunchedEffect
-        }
-        if (currentValue == DrawerValue.Open) {
-            if (suppressNextOpenHaptic) {
-                suppressNextOpenHaptic = false
-            } else {
-                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-            }
-        } else if (currentValue == DrawerValue.Closed) {
-            if (suppressNextCloseHaptic) {
-                suppressNextCloseHaptic = false
-            } else {
-                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-            }
-        }
-        lastDrawerValue = currentValue
     }
 
     if (isExpanded) {
@@ -104,10 +70,7 @@ fun MemosPage(
                 ModalDrawerSheet {
                     SideDrawer(
                         memosNavController = memosNavController,
-                        drawerState = drawerState,
-                        onDrawerItemCloseRequested = {
-                            suppressNextCloseHaptic = true
-                        }
+                        drawerState = drawerState
                     )
                 }
             }
@@ -115,9 +78,6 @@ fun MemosPage(
             MemosNavigation(
                 drawerState = drawerState,
                 navController = memosNavController,
-                onMenuButtonOpenRequested = {
-                    suppressNextOpenHaptic = true
-                },
                 startDestination = startDestination
             )
         }

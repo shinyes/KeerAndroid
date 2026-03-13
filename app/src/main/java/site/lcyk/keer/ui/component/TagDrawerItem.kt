@@ -27,9 +27,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
@@ -54,14 +52,12 @@ fun TagDrawerItem(
     onDrawerItemCloseRequested: (() -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
-    val hapticFeedback = LocalHapticFeedback.current
     var suppressNextClick by remember(tag) { mutableStateOf(false) }
 
     fun handleItemClick() {
         if (!enabled) {
             return
         }
-        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
         scope.launch {
             memosNavController.navigateToTopLevel("${RouteName.TAG}/${URLEncoder.encode(tag, "UTF-8")}")
             onDrawerItemCloseRequested?.invoke()
@@ -73,7 +69,6 @@ fun TagDrawerItem(
         if (!enabled || onLongPress == null) {
             return
         }
-        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
         onLongPress(tag)
     }
 
@@ -86,10 +81,7 @@ fun TagDrawerItem(
     ) {
         if (expandable && onToggleExpand != null) {
             IconButton(
-                onClick = {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onToggleExpand()
-                },
+                onClick = onToggleExpand,
                 modifier = Modifier.size(30.dp)
             ) {
                 Icon(

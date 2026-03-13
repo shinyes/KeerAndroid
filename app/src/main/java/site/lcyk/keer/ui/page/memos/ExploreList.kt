@@ -25,8 +25,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -49,7 +47,6 @@ import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
-import site.lcyk.keer.ui.component.rememberListEdgeHaptics
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
@@ -79,7 +76,6 @@ fun ExploreList(
     val listState = rememberLazyListState()
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
-    val hapticFeedback = LocalHapticFeedback.current
     val avatarImageLoader = rememberAuthorizedImageLoader()
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     var editingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
@@ -109,22 +105,12 @@ fun ExploreList(
         }
     }
 
-    val atTop = !listState.canScrollBackward
-    val atBottom = memos.itemCount > 0 && !listState.canScrollForward
-
-    rememberListEdgeHaptics(
-        itemCount = memos.itemCount,
-        atTop = atTop,
-        atBottom = atBottom
-    )
-
     ExploreMemoFeed(
         memos = memos,
         listState = listState,
         refreshState = refreshState,
         contentPadding = contentPadding,
         syncStatus = syncStatus,
-        hapticFeedback = hapticFeedback,
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
         accountKey = accountKey,
@@ -135,13 +121,9 @@ fun ExploreList(
                 return@ExploreMemoFeed
             }
             scope.launch {
-                val completed = processManualSyncResult(memosViewModel.refreshMemos()) { alert ->
+                processManualSyncResult(memosViewModel.refreshExploreFeed()) { alert ->
                     syncAlert = alert
                 }
-                if (!completed) {
-                    return@launch
-                }
-                viewModel.refreshExploreMemos()
             }
         },
         onOpenMemoDetail = { selectedMemo ->
@@ -265,7 +247,6 @@ private fun ExploreMemoFeed(
     refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState,
     contentPadding: PaddingValues,
     syncStatus: site.lcyk.keer.data.model.SyncStatus,
-    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
     accountKey: String,
@@ -281,13 +262,13 @@ private fun ExploreMemoFeed(
 ) {
     RefreshableListContainer(
         isRefreshing = syncStatus.syncing,
+        pullRefreshActive = false,
         onRefresh = onRefresh,
         state = refreshState,
         indicator = {
             PullSyncLineIndicator(
                 refreshState = refreshState,
-                syncing = syncStatus.syncing,
-                hapticFeedback = hapticFeedback
+                syncing = syncStatus.syncing
             )
         },
         modifier = Modifier.padding(contentPadding)

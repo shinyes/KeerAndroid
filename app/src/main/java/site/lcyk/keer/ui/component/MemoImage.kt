@@ -26,10 +26,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import com.skydoves.sandwich.ApiResponse
 import coil3.annotation.ExperimentalCoilApi
 import coil3.compose.AsyncImage
@@ -56,7 +54,6 @@ fun MemoImage(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val hapticFeedback = LocalHapticFeedback.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState(initial = null)
     val memosViewModel = LocalMemos.current
@@ -72,8 +69,8 @@ fun MemoImage(
 
     LaunchedEffect(resource.remoteId, resource.thumbnailUri, resource.thumbnailLocalUri) {
         val resourceEntity = resource as? ResourceEntity ?: return@LaunchedEffect
-        val localThumbnail = resourceEntity.thumbnailLocalUri?.trim().orEmpty()
-        if (localThumbnail.isNotEmpty()) {
+        val localThumbnail = resolveUsableThumbnailLocalUri(resourceEntity.thumbnailLocalUri)
+        if (!localThumbnail.isNullOrBlank()) {
             return@LaunchedEffect
         }
 
@@ -110,7 +107,6 @@ fun MemoImage(
     Box(
         modifier = modifier.clickable(enabled = !opening) {
             if (opening) return@clickable
-            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
             scope.launch {
                 opening = true
                 try {
@@ -216,8 +212,8 @@ fun MemoImage(
 }
 
 private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String {
-    val localThumbnail = resource.thumbnailLocalUri?.trim().orEmpty()
-    if (localThumbnail.isNotEmpty()) {
+    val localThumbnail = resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)
+    if (!localThumbnail.isNullOrBlank()) {
         return localThumbnail
     }
     if (!resource.encryptionMetadata.isNullOrBlank()) {

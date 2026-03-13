@@ -15,6 +15,7 @@ data class UserSettings(
     val draft: String = "",
     val acceptedUnsupportedSyncVersions: List<String> = emptyList(),
     val editGesture: MemoEditGesture = MemoEditGesture.NONE,
+    val columns: List<MemoColumnConfig> = emptyList(),
     val avatarUri: String = "",
     val avatarSyncPending: Boolean = false,
     val memoSyncAnchor: String = "",
