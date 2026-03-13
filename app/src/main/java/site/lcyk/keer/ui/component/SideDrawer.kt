@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Settings
@@ -293,7 +292,7 @@ fun SideDrawer(
                             drawerState?.close()
                         }
                     },
-                    modifier = Modifier.padding(start = 30.dp, end = 8.dp)
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                 )
             }
         }
@@ -409,21 +408,6 @@ fun SideDrawer(
                 onClick = {
                     scope.launch {
                         memosNavController.navigateToTopLevel(RouteName.RESOURCE)
-                        onDrawerItemCloseRequested?.invoke()
-                        drawerState?.close()
-                    }
-                },
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-            )
-        }
-        item {
-            NavigationDrawerItem(
-                label = { Text(R.string.archived.string) },
-                icon = { Icon(Icons.Outlined.Inventory2, contentDescription = null) },
-                selected = isSelected(RouteName.ARCHIVED),
-                onClick = {
-                    scope.launch {
-                        memosNavController.navigateToTopLevel(RouteName.ARCHIVED)
                         onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
                     }

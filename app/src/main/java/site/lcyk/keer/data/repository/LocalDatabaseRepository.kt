@@ -396,6 +396,7 @@ class LocalDatabaseRepository(
             memoDao.insertResource(
                 resource.copy(thumbnailLocalUri = canonical)
             )
+            notifyResourceRelationsChanged(resource)
             ApiResponse.Success(Unit)
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
@@ -490,6 +491,12 @@ class LocalDatabaseRepository(
 
     private suspend fun notifyMemoRelationsChanged(memo: MemoEntity) {
         memoDao.insertMemo(memo.copy())
+    }
+
+    private suspend fun notifyResourceRelationsChanged(resource: ResourceEntity) {
+        val memoId = resource.memoId ?: return
+        val memo = memoDao.getMemoById(memoId, accountKey) ?: return
+        notifyMemoRelationsChanged(memo)
     }
 
 }

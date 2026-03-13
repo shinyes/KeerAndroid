@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material3.AlertDialog
@@ -213,6 +214,15 @@ fun SettingsPage(
                     text = R.string.group_management.string
                 ) {
                     navController.navigateToTopLevel(RouteName.GROUP_MANAGEMENT)
+                }
+            }
+
+            item {
+                SettingItem(
+                    icon = Icons.Outlined.Inventory2,
+                    text = R.string.archived.string
+                ) {
+                    navController.navigateToTopLevel(RouteName.ARCHIVED)
                 }
             }
 

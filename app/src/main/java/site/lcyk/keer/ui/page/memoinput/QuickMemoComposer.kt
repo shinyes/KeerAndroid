@@ -43,7 +43,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Icon
@@ -420,7 +419,7 @@ fun QuickMemoComposer(
                     .animateContentSize(
                         animationSpec = tween(durationMillis = 150, easing = quickComposerEasing)
                     ),
-                shape = RoundedCornerShape(28.dp),
+                shape = MaterialTheme.shapes.medium,
                 tonalElevation = 6.dp,
                 shadowElevation = 16.dp,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh

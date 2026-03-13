@@ -569,6 +569,7 @@ class SyncingRepository(
                     localUri = canonical
                 )
             )
+            notifyResourceRelationsChanged(resource)
             ApiResponse.Success(Unit)
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
@@ -602,6 +603,7 @@ class SyncingRepository(
                     thumbnailLocalUri = canonical
                 )
             )
+            notifyResourceRelationsChanged(resource)
             ApiResponse.Success(Unit)
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
@@ -1545,6 +1547,12 @@ class SyncingRepository(
 
     private suspend fun notifyMemoRelationsChanged(memo: MemoEntity) {
         memoDao.insertMemo(memo.copy())
+    }
+
+    private suspend fun notifyResourceRelationsChanged(resource: ResourceEntity) {
+        val memoId = resource.memoId ?: return
+        val memo = memoDao.getMemoById(memoId, accountKey) ?: return
+        notifyMemoRelationsChanged(memo)
     }
 
     private fun buildUploadThumbnail(resource: ResourceEntity): ResourceUploadThumbnail? {
