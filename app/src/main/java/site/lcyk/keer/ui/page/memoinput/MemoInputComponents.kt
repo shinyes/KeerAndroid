@@ -835,7 +835,13 @@ internal fun MemoInputEditor(
 
     Column(
         modifier
-            .fillMaxHeight()
+            .then(
+                if (fillAvailableHeight) {
+                    Modifier.fillMaxHeight()
+                } else {
+                    Modifier
+                }
+            )
             .dragAndDropTarget(
                 shouldStartDragAndDrop = accept@{ startEvent ->
                     startEvent
