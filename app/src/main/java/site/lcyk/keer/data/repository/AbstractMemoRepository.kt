@@ -63,6 +63,10 @@ abstract class AbstractMemoRepository {
         return ApiResponse.Success(Unit)
     }
 
+    open suspend fun getResourceById(identifier: String): ResourceEntity? {
+        return null
+    }
+
     open suspend fun sync(): ApiResponse<Unit> {
         return ApiResponse.Success(Unit)
     }

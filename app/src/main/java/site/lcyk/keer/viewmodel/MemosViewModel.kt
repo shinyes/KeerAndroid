@@ -272,10 +272,7 @@ class MemosViewModel @Inject constructor(
     }
 
     suspend fun getResourceById(resourceIdentifier: String): ResourceEntity? = withContext(viewModelScope.coroutineContext) {
-        when (val response = memoService.getRepository().listResources()) {
-            is ApiResponse.Success -> response.data.firstOrNull { it.identifier == resourceIdentifier }
-            else -> null
-        }
+        memoService.getRepository().getResourceById(resourceIdentifier)
     }
 
     private fun updateMemo(memo: MemoEntity) {

@@ -399,6 +399,11 @@ class LocalDatabaseRepository(
         }
     }
 
+    override suspend fun getResourceById(identifier: String): ResourceEntity? {
+        return memoDao.getResourceById(identifier, accountKey)
+            ?: memoDao.getResourceByRemoteId(identifier, accountKey)
+    }
+
     override suspend fun deleteResource(identifier: String): ApiResponse<Unit> {
         return try {
             val resource = memoDao.getResourceById(identifier, accountKey)
