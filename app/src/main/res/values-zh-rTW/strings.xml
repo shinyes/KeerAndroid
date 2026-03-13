@@ -72,6 +72,7 @@
     <string name="username">使用者名稱</string>
     <string name="password">密碼</string>
     <string name="confirm_password">確認密碼</string>
+    <string name="choose_image_viewer">選擇圖片開啟方式</string>
     <string name="passwords_do_not_match">兩次輸入的密碼不一致。</string>
     <string name="sign_in">登入</string>
     <string name="register">註冊</string>

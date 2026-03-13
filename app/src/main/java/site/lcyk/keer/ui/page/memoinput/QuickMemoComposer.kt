@@ -20,6 +20,7 @@ import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -60,6 +61,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -393,13 +395,13 @@ fun QuickMemoComposer(
         visible = visible,
         enter = fadeIn(animationSpec = tween(durationMillis = 110, easing = quickComposerEasing)) +
             slideInVertically(
-                animationSpec = tween(durationMillis = 170, easing = quickComposerEasing),
-                initialOffsetY = { fullHeight -> fullHeight / 2 }
+                animationSpec = tween(durationMillis = 145, easing = quickComposerEasing),
+                initialOffsetY = { fullHeight -> fullHeight / 3 }
             ),
         exit = fadeOut(animationSpec = tween(durationMillis = 90, easing = quickComposerEasing)) +
             slideOutVertically(
-                animationSpec = tween(durationMillis = 140, easing = quickComposerEasing),
-                targetOffsetY = { fullHeight -> fullHeight / 2 }
+                animationSpec = tween(durationMillis = 120, easing = quickComposerEasing),
+                targetOffsetY = { fullHeight -> fullHeight / 3 }
             ),
         modifier = Modifier.fillMaxSize()
     ) {
@@ -412,7 +414,10 @@ fun QuickMemoComposer(
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 10.dp)
                     .navigationBarsPadding()
-                    .imePadding(),
+                    .imePadding()
+                    .animateContentSize(
+                        animationSpec = tween(durationMillis = 150, easing = quickComposerEasing)
+                    ),
                 shape = RoundedCornerShape(28.dp),
                 tonalElevation = 6.dp,
                 shadowElevation = 16.dp,
@@ -421,14 +426,14 @@ fun QuickMemoComposer(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 280.dp, max = 440.dp)
+                        .heightIn(min = 196.dp, max = 360.dp)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
                         ) {}
                 ) {
                     MemoInputEditor(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier.fillMaxWidth(),
                         text = text,
                         onTextChange = { updated ->
                             if (
@@ -448,6 +453,11 @@ fun QuickMemoComposer(
                         },
                         focusRequester = focusRequester,
                         editorPadding = quickComposerEditorPadding,
+                        fillAvailableHeight = false,
+                        editorMinHeight = 132.dp,
+                        editorMaxHeight = 216.dp,
+                        minLines = 4,
+                        maxLines = 10,
                         validMimeTypePrefixes = validMimeTypePrefixes,
                         onDroppedText = { droppedText ->
                             text = text.copy(text = text.text + droppedText)
@@ -580,7 +590,8 @@ fun QuickMemoComposer(
         initialContent = text.text
         initialTags = emptyList()
         initialCollaborators = emptyList()
-        delay(80)
+        withFrameNanos { }
+        withFrameNanos { }
         focusRequester.requestFocus()
         keyboardController?.show()
     }

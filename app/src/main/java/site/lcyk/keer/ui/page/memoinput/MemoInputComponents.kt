@@ -83,6 +83,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import site.lcyk.keer.R
@@ -813,6 +814,11 @@ internal fun MemoInputEditor(
     quotePreview: (@Composable () -> Unit)? = null,
     quotePreviewPadding: PaddingValues = PaddingValues(start = 20.dp, top = 0.dp, end = 20.dp, bottom = 12.dp),
     editorPadding: PaddingValues = PaddingValues(start = 20.dp, top = 0.dp, end = 20.dp, bottom = 20.dp),
+    fillAvailableHeight: Boolean = true,
+    editorMinHeight: Dp = Dp.Unspecified,
+    editorMaxHeight: Dp = Dp.Unspecified,
+    minLines: Int = 1,
+    maxLines: Int = Int.MAX_VALUE,
     validMimeTypePrefixes: Set<String>,
     onDroppedText: (String) -> Unit,
     uploadResources: List<ResourceEntity>,
@@ -870,12 +876,20 @@ internal fun MemoInputEditor(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(editorPadding)
-                .weight(1f)
+                .then(
+                    if (fillAvailableHeight) {
+                        Modifier.weight(1f)
+                    } else {
+                        Modifier.heightIn(min = editorMinHeight, max = editorMaxHeight)
+                    }
+                )
                 .focusRequester(focusRequester),
             value = text,
             label = { Text(R.string.any_thoughts.string) },
             onValueChange = onTextChange,
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+            minLines = minLines,
+            maxLines = maxLines
         )
 
         if (uploadTasks.isNotEmpty()) {

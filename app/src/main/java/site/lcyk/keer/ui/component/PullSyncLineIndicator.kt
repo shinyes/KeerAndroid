@@ -44,13 +44,12 @@ fun BoxScope.PullSyncLineIndicator(
     val rawPullFraction = refreshState.distanceFraction
     val pullFraction = rawPullFraction.coerceIn(0f, 1f)
     val isPulling = rawPullFraction > 0f
-    val readyToRefresh = !syncing && rawPullFraction >= 1f
-    val isActive = syncing || isPulling
+    val readyToRefresh = rawPullFraction >= 1f
     var thresholdHapticTriggered by remember { mutableStateOf(false) }
     var settling by remember { mutableStateOf(false) }
-    var wasActive by remember { mutableStateOf(false) }
+    var wasPulling by remember { mutableStateOf(false) }
 
-    LaunchedEffect(readyToRefresh, syncing) {
+    LaunchedEffect(readyToRefresh) {
         if (readyToRefresh && !thresholdHapticTriggered) {
             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
             thresholdHapticTriggered = true
@@ -59,41 +58,40 @@ fun BoxScope.PullSyncLineIndicator(
         }
     }
 
-    LaunchedEffect(isActive) {
-        if (isActive) {
-            wasActive = true
+    LaunchedEffect(isPulling) {
+        if (isPulling) {
+            wasPulling = true
             settling = false
             return@LaunchedEffect
         }
-        if (!wasActive) {
+        if (!wasPulling) {
             return@LaunchedEffect
         }
         settling = true
-        delay(110)
+        delay(150)
         settling = false
-        wasActive = false
+        wasPulling = false
     }
 
     val visualState = when {
-        syncing -> PullSyncLineVisualState.Syncing
-        readyToRefresh -> PullSyncLineVisualState.Ready
+        readyToRefresh && isPulling -> PullSyncLineVisualState.Ready
         isPulling -> PullSyncLineVisualState.Pulling
         settling -> PullSyncLineVisualState.Settling
         else -> PullSyncLineVisualState.Hidden
     }
 
     val targetWidthFraction = when (visualState) {
-        PullSyncLineVisualState.Syncing -> 0.36f
         PullSyncLineVisualState.Ready -> 0.42f
         PullSyncLineVisualState.Pulling -> 0.12f + (0.28f * pullFraction)
-        PullSyncLineVisualState.Settling -> 0.18f
+        PullSyncLineVisualState.Syncing -> 0.36f
+        PullSyncLineVisualState.Settling -> 0.14f
         PullSyncLineVisualState.Hidden -> 0f
     }
     val targetAlpha = when (visualState) {
-        PullSyncLineVisualState.Syncing -> 0.9f
         PullSyncLineVisualState.Ready -> 0.95f
         PullSyncLineVisualState.Pulling -> 0.2f + (0.7f * pullFraction)
-        PullSyncLineVisualState.Settling -> 0.16f
+        PullSyncLineVisualState.Syncing -> 0.9f
+        PullSyncLineVisualState.Settling -> 0.12f
         PullSyncLineVisualState.Hidden -> 0f
     }
     val widthFraction by animateFloatAsState(
@@ -103,8 +101,8 @@ fun BoxScope.PullSyncLineIndicator(
                 PullSyncLineVisualState.Pulling -> 90
                 PullSyncLineVisualState.Ready,
                 PullSyncLineVisualState.Syncing -> 140
-                PullSyncLineVisualState.Settling -> 150
-                PullSyncLineVisualState.Hidden -> 220
+                PullSyncLineVisualState.Settling -> 180
+                PullSyncLineVisualState.Hidden -> 180
             },
             easing = FastOutSlowInEasing
         ),
@@ -117,8 +115,8 @@ fun BoxScope.PullSyncLineIndicator(
                 PullSyncLineVisualState.Pulling -> 90
                 PullSyncLineVisualState.Ready,
                 PullSyncLineVisualState.Syncing -> 130
-                PullSyncLineVisualState.Settling -> 160
-                PullSyncLineVisualState.Hidden -> 240
+                PullSyncLineVisualState.Settling -> 190
+                PullSyncLineVisualState.Hidden -> 190
             },
             easing = FastOutSlowInEasing
         ),

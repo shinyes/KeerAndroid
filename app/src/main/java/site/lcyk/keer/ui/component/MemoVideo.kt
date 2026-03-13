@@ -81,13 +81,17 @@ fun MemoVideo(
         mutableStateOf(false)
     }
     val imageLoader = rememberAuthorizedImageLoader()
+    var cachedPreviewUri by remember(resource.remoteId, resource.thumbnailUri, resource.thumbnailLocalUri) {
+        mutableStateOf<String?>(null)
+    }
     val previewModel = remember(
+        cachedPreviewUri,
         resource.thumbnailLocalUri,
         resource.thumbnailUri,
         resource.localUri,
         resource.uri
     ) {
-        resolveMemoVideoPreviewUri(resource)
+        cachedPreviewUri ?: resolveMemoVideoPreviewUri(resource)
     }
 
     LaunchedEffect(resource.remoteId, resource.thumbnailUri, resource.thumbnailLocalUri) {
@@ -120,7 +124,12 @@ fun MemoVideo(
 
         try {
             val result = memosViewModel.cacheResourceThumbnail(resourceEntity.identifier, downloaded.toUri())
-            if (result !is ApiResponse.Success) {
+            if (result is ApiResponse.Success) {
+                cachedPreviewUri = memosViewModel
+                    .getResourceById(resourceEntity.identifier)
+                    ?.thumbnailLocalUri
+                    ?.takeIf { it.isNotBlank() }
+            } else {
                 Timber.d("Cache video thumbnail failed: %s", result)
             }
         } catch (e: Throwable) {
@@ -301,7 +310,10 @@ private fun resolveMemoVideoPreviewUri(resource: ResourceRepresentable): String 
     }
     if (!resource.encryptionMetadata.isNullOrBlank()) {
         val local = resource.localUri?.trim().orEmpty()
-        return local
+        if (local.isNotEmpty()) {
+            return local
+        }
+        return ""
     }
     val thumbnail = resource.thumbnailUri?.trim().orEmpty()
     if (thumbnail.isNotEmpty()) {

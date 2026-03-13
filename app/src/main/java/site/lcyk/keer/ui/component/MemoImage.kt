@@ -1,12 +1,19 @@
 package site.lcyk.keer.ui.component
 
+import android.content.ClipData
+import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import androidx.core.net.toUri
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -30,10 +37,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.KeerFileProvider
+import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.ResourceRepresentable
 import site.lcyk.keer.data.security.AttachmentEncryptionManager
 import site.lcyk.keer.data.security.EncryptedBlobVariant
+import site.lcyk.keer.ext.string
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import okhttp3.OkHttpClient
@@ -53,6 +62,9 @@ fun MemoImage(
     val memosViewModel = LocalMemos.current
     val scope = rememberCoroutineScope()
     var opening by remember(resource.remoteId, resource.uri, resource.localUri) { mutableStateOf(false) }
+    var viewerSelection by remember(resource.remoteId, resource.uri, resource.localUri) {
+        mutableStateOf<ImageViewerSelectionState?>(null)
+    }
     val imageLoader = rememberAuthorizedImageLoader()
     val previewModel = remember(resource.thumbnailLocalUri, resource.thumbnailUri, resource.localUri, resource.uri) {
         resolveMemoImagePreviewUri(resource)
@@ -121,12 +133,19 @@ fun MemoImage(
                     ) ?: return@launch
 
                     val fileUri: Uri = KeerFileProvider.getFileUri(context, localFile)
-                    val intent = Intent().apply {
-                        action = Intent.ACTION_VIEW
-                        setDataAndType(fileUri, "image/*")
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    val mimeType = "image/*"
+                    when (val launch = prepareImageViewerLaunch(context, fileUri, mimeType)) {
+                        is ImageViewerLaunch.Direct -> {
+                            context.startActivity(launch.intent)
+                        }
+                        is ImageViewerLaunch.Pick -> {
+                            viewerSelection = ImageViewerSelectionState(
+                                fileUri = fileUri,
+                                mimeType = mimeType,
+                                options = launch.options
+                            )
+                        }
                     }
-                    context.startActivity(intent)
                 } catch (e: Throwable) {
                     Timber.d(e)
                     return@launch
@@ -158,6 +177,42 @@ fun MemoImage(
             }
         }
     }
+
+    val selection = viewerSelection
+    if (selection != null) {
+        AlertDialog(
+            onDismissRequest = { viewerSelection = null },
+            title = { androidx.compose.material3.Text(R.string.choose_image_viewer.string) },
+            text = {
+                Column {
+                    selection.options.forEach { option ->
+                        androidx.compose.material3.TextButton(
+                            onClick = {
+                                savePreferredImageViewerPackage(context, option.packageName)
+                                context.startActivity(
+                                    buildImageViewerIntent(
+                                        context = context,
+                                        fileUri = selection.fileUri,
+                                        mimeType = selection.mimeType,
+                                        packageName = option.packageName
+                                    )
+                                )
+                                viewerSelection = null
+                            }
+                        ) {
+                            androidx.compose.material3.Text(option.label)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { viewerSelection = null }) {
+                    androidx.compose.material3.Text(R.string.cancel.string)
+                }
+            }
+        )
+    }
 }
 
 private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String {
@@ -182,4 +237,120 @@ private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String 
 
 private fun sanitizeThumbnailFilename(filename: String): String {
     return filename.replace(Regex("[^A-Za-z0-9._-]"), "_")
+}
+
+private const val IMAGE_VIEWER_PREFS_FILE = "image_viewer_preferences"
+private const val PREFERRED_IMAGE_VIEWER_PACKAGE_KEY = "preferred_image_viewer_package"
+
+private data class ImageViewerOption(
+    val packageName: String,
+    val label: String
+)
+
+private data class ImageViewerSelectionState(
+    val fileUri: Uri,
+    val mimeType: String,
+    val options: List<ImageViewerOption>
+)
+
+private sealed interface ImageViewerLaunch {
+    data class Direct(val intent: Intent) : ImageViewerLaunch
+    data class Pick(val options: List<ImageViewerOption>) : ImageViewerLaunch
+}
+
+private fun imageViewerPreferences(context: Context): SharedPreferences {
+    return context.getSharedPreferences(IMAGE_VIEWER_PREFS_FILE, Context.MODE_PRIVATE)
+}
+
+private fun savePreferredImageViewerPackage(context: Context, packageName: String) {
+    imageViewerPreferences(context)
+        .edit()
+        .putString(PREFERRED_IMAGE_VIEWER_PACKAGE_KEY, packageName)
+        .apply()
+}
+
+private fun readPreferredImageViewerPackage(context: Context): String? {
+    return imageViewerPreferences(context)
+        .getString(PREFERRED_IMAGE_VIEWER_PACKAGE_KEY, null)
+        ?.trim()
+        ?.ifBlank { null }
+}
+
+private fun prepareImageViewerLaunch(
+    context: Context,
+    fileUri: Uri,
+    mimeType: String
+): ImageViewerLaunch {
+    val options = queryImageViewerOptions(context, fileUri, mimeType)
+    if (options.isEmpty()) {
+        return ImageViewerLaunch.Direct(buildImageViewerIntent(context, fileUri, mimeType, null))
+    }
+
+    val preferredPackage = readPreferredImageViewerPackage(context)
+    val preferredOption = preferredPackage?.let { packageName ->
+        options.firstOrNull { it.packageName == packageName }
+    }
+    if (preferredOption != null) {
+        return ImageViewerLaunch.Direct(
+            buildImageViewerIntent(context, fileUri, mimeType, preferredOption.packageName)
+        )
+    }
+
+    if (options.size == 1) {
+        savePreferredImageViewerPackage(context, options[0].packageName)
+        return ImageViewerLaunch.Direct(
+            buildImageViewerIntent(context, fileUri, mimeType, options[0].packageName)
+        )
+    }
+
+    return ImageViewerLaunch.Pick(options)
+}
+
+private fun buildImageViewerIntent(
+    context: Context,
+    fileUri: Uri,
+    mimeType: String,
+    packageName: String?
+): Intent {
+    return Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(fileUri, mimeType)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        clipData = ClipData.newUri(context.contentResolver, "image", fileUri)
+        if (!packageName.isNullOrBlank()) {
+            setPackage(packageName)
+        }
+    }
+}
+
+private fun queryImageViewerOptions(
+    context: Context,
+    fileUri: Uri,
+    mimeType: String
+): List<ImageViewerOption> {
+    val packageManager = context.packageManager
+    val intent = buildImageViewerIntent(context, fileUri, mimeType, null)
+    val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        packageManager.queryIntentActivities(
+            intent,
+            PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
+    }
+    return resolved
+        .mapNotNull { info ->
+            val packageName = info.activityInfo?.packageName?.trim().orEmpty()
+            if (packageName.isEmpty()) {
+                null
+            } else {
+                val label = info.loadLabel(packageManager)?.toString()?.trim().orEmpty()
+                ImageViewerOption(
+                    packageName = packageName,
+                    label = label.ifBlank { packageName }
+                )
+            }
+        }
+        .distinctBy { it.packageName }
+        .sortedBy { it.label.lowercase() }
 }

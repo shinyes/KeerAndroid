@@ -74,6 +74,7 @@
     <string name="username">Username</string>
     <string name="password">Password</string>
     <string name="confirm_password">Confirm password</string>
+    <string name="choose_image_viewer">Choose image viewer</string>
     <string name="passwords_do_not_match">Passwords do not match.</string>
     <string name="switch_to_register">No account yet? Register</string>
     <string name="switch_to_sign_in">Already have an account? Sign in</string>
