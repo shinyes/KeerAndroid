@@ -62,7 +62,7 @@ class ApiRetryInterceptor @Inject constructor() : Interceptor {
                 }
                 response.close()
             } catch (e: IOException) {
-                if (!shouldRetryException(request, attempt)) {
+                if (!shouldRetryException(request, attempt, e)) {
                     throw e
                 }
             }
@@ -83,8 +83,15 @@ class ApiRetryInterceptor @Inject constructor() : Interceptor {
         return RETRYABLE_STATUS_CODES.contains(response.code)
     }
 
-    private fun shouldRetryException(request: Request, attempt: Int): Boolean {
-        return isRetryableMethod(request.method) && attempt < MAX_RETRY_COUNT
+    private fun shouldRetryException(request: Request, attempt: Int, exception: IOException): Boolean {
+        if (!isRetryableMethod(request.method) || attempt >= MAX_RETRY_COUNT) {
+            return false
+        }
+        val message = exception.message?.trim().orEmpty()
+        if (message.equals("Canceled", ignoreCase = true)) {
+            return false
+        }
+        return true
     }
 
     private fun isRetryableMethod(method: String): Boolean {

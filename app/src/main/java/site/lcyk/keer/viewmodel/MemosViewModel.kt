@@ -159,20 +159,6 @@ class MemosViewModel @Inject constructor(
     }
 
     suspend fun refreshMemos(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
-        when (val compatibility = accountService.checkCurrentAccountSyncCompatibility(isAutomatic = false)) {
-            is AccountService.SyncCompatibility.Blocked -> {
-                return@withContext ManualSyncResult.Blocked(
-                    compatibility.message ?: R.string.memos_supported_versions.string
-                )
-            }
-            is AccountService.SyncCompatibility.Unavailable -> {
-                return@withContext ManualSyncResult.Failed(
-                    compatibility.message ?: R.string.sync_server_unreachable.string
-                )
-            }
-            AccountService.SyncCompatibility.Allowed -> Unit
-        }
-
         val syncResult = memoService.sync(
             force = true,
             trigger = SyncTrigger.MANUAL

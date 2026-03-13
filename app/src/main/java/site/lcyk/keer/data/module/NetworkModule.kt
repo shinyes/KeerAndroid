@@ -33,8 +33,8 @@ object NetworkModule {
             .writeTimeout(90, TimeUnit.SECONDS)
             .callTimeout(120, TimeUnit.SECONDS)
             .addInterceptor(apiRequestMetadataInterceptor)
-            .addInterceptor(apiRetryInterceptor)
             .addInterceptor(debugHttpLogInterceptor)
+            .addInterceptor(apiRetryInterceptor)
             .build()
     }
 }
