@@ -1,8 +1,6 @@
 package site.lcyk.keer.data.service
 
-import android.content.Context
 import android.util.Log
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,7 +15,6 @@ import okhttp3.Response
 import site.lcyk.keer.data.model.DebugLogCategory
 import site.lcyk.keer.data.model.DebugLogEntry
 import site.lcyk.keer.data.model.DebugLogLevel
-import site.lcyk.keer.ext.settingsDataStore
 import timber.log.Timber
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
@@ -26,7 +23,7 @@ import javax.inject.Singleton
 
 @Singleton
 class DebugLogManager @Inject constructor(
-    @ApplicationContext context: Context
+    appPreferencesStore: AppPreferencesStore
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val idGenerator = AtomicLong(0L)
@@ -41,7 +38,7 @@ class DebugLogManager @Inject constructor(
 
     init {
         scope.launch {
-            context.settingsDataStore.data.collectLatest { settings ->
+            appPreferencesStore.observeDebugLogSettings().collectLatest { settings ->
                 appDebugLogEnabled = settings.appDebugLogEnabled
                 httpDebugLogEnabled = settings.httpDebugLogEnabled
             }

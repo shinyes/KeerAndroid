@@ -33,8 +33,6 @@ import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemoEditGesture
-import site.lcyk.keer.data.model.Settings
-import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.MemoActionMenuButton
 import site.lcyk.keer.ui.component.MemoMenuAction
@@ -75,13 +73,10 @@ fun MemosList(
     val viewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
+    val generalSettings by userStateViewModel.generalSettings.collectAsStateWithLifecycle()
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
     val syncStatus by viewModel.syncStatus.collectAsStateWithLifecycle()
-    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
-    val editGesture = settings.usersList
-        .firstOrNull { it.accountKey == settings.currentUser }
-        ?.settings
-        ?.editGesture
+    val editGesture = generalSettings.memoEditGesture
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
     val avatarImageLoader = rememberAuthorizedImageLoader()
@@ -145,10 +140,9 @@ fun MemosList(
         contentPadding = contentPadding,
         syncStatus = syncStatus,
         showSyncStatus = currentAccount !is Account.Local,
-        editGesture = editGesture ?: MemoEditGesture.NONE,
+        editGesture = editGesture,
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
-        quoteResolverSettings = settings,
         onRefresh = {
             if (syncStatus.syncing) {
                 return@MemoFeedList
@@ -209,7 +203,6 @@ private fun MemoFeedList(
     editGesture: MemoEditGesture,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
-    quoteResolverSettings: Settings,
     onRefresh: () -> Unit,
     onOpenMemoDetail: (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit,
     onTagClick: ((String) -> Unit)?,
@@ -252,7 +245,6 @@ private fun MemoFeedList(
                     avatarImageLoader = avatarImageLoader,
                     prefetchCollaborators = false,
                     quoteMemoCandidates = memos,
-                    quoteResolverSettings = quoteResolverSettings
                 )
             }
         }

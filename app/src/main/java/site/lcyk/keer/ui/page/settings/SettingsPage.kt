@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PersonAdd
+import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,15 +51,11 @@ import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemoEditGesture
-import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.getErrorMessage
-import site.lcyk.keer.ext.currentUserColumns
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
-import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.MemosIcon
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
@@ -70,6 +67,7 @@ import site.lcyk.keer.ui.page.common.navigateToColumnConfigPage
 import site.lcyk.keer.ui.page.common.navigateToDebugLogsPage
 import site.lcyk.keer.ui.page.common.navigateToTopLevel
 import site.lcyk.keer.ui.page.common.RouteName
+import site.lcyk.keer.util.resolveAvatarUrl
 import site.lcyk.keer.viewmodel.LocalUserState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -86,26 +84,19 @@ fun SettingsPage(
     val scope = rememberCoroutineScope()
     val accounts by userStateViewModel.accounts.collectAsState()
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val generalSettings by userStateViewModel.generalSettings.collectAsState()
+    val currentAvatarUri by userStateViewModel.currentAvatarUri.collectAsState()
     val currentAccountKey = currentAccount?.accountKey()
-    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
+    val currentUser = userStateViewModel.currentUser
     var showEditGestureDialog by remember { mutableStateOf(false) }
-    val localAvatarUri = settings.usersList
-        .firstOrNull { user -> user.accountKey == settings.currentUser }
-        ?.settings
-        ?.avatarUri
-        .orEmpty()
     val accountAvatarUrl = when (val account = currentAccount) {
         is Account.KeerV2 -> resolveAvatarUrl(account.info.host, account.info.avatarUrl)
         else -> null
     }
-    val displayAvatarModel = if (localAvatarUri.isNotBlank()) localAvatarUri else accountAvatarUrl
+    val displayAvatarModel = if (currentAvatarUri.isNotBlank()) currentAvatarUri else accountAvatarUrl
     val imageLoader = rememberAuthorizedImageLoader()
-    val currentEditGesture = settings.usersList
-        .firstOrNull { it.accountKey == settings.currentUser }
-        ?.settings
-        ?.editGesture
-        ?: MemoEditGesture.NONE
-    val currentColumnsCount = settings.currentUserColumns().size
+    val currentEditGesture = generalSettings.memoEditGesture
+    val currentColumnsCount = generalSettings.memoColumns.size
     val avatarPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -126,6 +117,9 @@ fun SettingsPage(
     var confirmNewPassword by rememberSaveable { mutableStateOf("") }
     var passwordChangeError by rememberSaveable { mutableStateOf<String?>(null) }
     var passwordChangeLoading by remember { mutableStateOf(false) }
+    var showCleanupOrphansDialog by remember { mutableStateOf(false) }
+    var cleanupOrphansLoading by remember { mutableStateOf(false) }
+    val showAdminSection = currentAccount is Account.KeerV2 && (currentUser?.isAdmin == true)
 
     LaunchedEffect(currentAccount?.accountKey()) {
         userStateViewModel.loadCurrentUser()
@@ -219,6 +213,15 @@ fun SettingsPage(
 
             item {
                 SettingItem(
+                    icon = Icons.Outlined.PhotoLibrary,
+                    text = R.string.resources.string
+                ) {
+                    navController.navigateToTopLevel(RouteName.RESOURCE)
+                }
+            }
+
+            item {
+                SettingItem(
                     icon = Icons.Outlined.Inventory2,
                     text = R.string.archived.string
                 ) {
@@ -299,6 +302,34 @@ fun SettingsPage(
                 }
             }
 
+            if (showAdminSection) {
+                item {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                    )
+                }
+
+                item {
+                    Text(
+                        R.string.admin.string,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp, 10.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                }
+
+                item {
+                    SettingItem(
+                        icon = Icons.Outlined.Inventory2,
+                        text = R.string.cleanup_orphan_files.string
+                    ) {
+                        showCleanupOrphansDialog = true
+                    }
+                }
+            }
+
         }
     }
 
@@ -313,21 +344,8 @@ fun SettingsPage(
                         TextButton(
                             onClick = {
                                 showEditGestureDialog = false
-                                scope.launch(Dispatchers.IO) {
-                                    context.settingsDataStore.updateData { existingSettings ->
-                                        val userIndex = existingSettings.usersList.indexOfFirst { user ->
-                                            user.accountKey == existingSettings.currentUser
-                                        }
-                                        if (userIndex == -1) {
-                                            return@updateData existingSettings
-                                        }
-                                        val users = existingSettings.usersList.toMutableList()
-                                        val user = users[userIndex]
-                                        users[userIndex] = user.copy(
-                                            settings = user.settings.copy(editGesture = gesture)
-                                        )
-                                        existingSettings.copy(usersList = users)
-                                    }
+                                scope.launch {
+                                    userStateViewModel.updateMemoEditGesture(gesture)
                                 }
                             },
                             modifier = Modifier.fillMaxWidth()
@@ -348,6 +366,61 @@ fun SettingsPage(
             confirmButton = {
                 TextButton(onClick = { showEditGestureDialog = false }) {
                     Text(R.string.close.string)
+                }
+            }
+        )
+    }
+
+    if (showCleanupOrphansDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!cleanupOrphansLoading) {
+                    showCleanupOrphansDialog = false
+                }
+            },
+            title = { Text(R.string.cleanup_orphan_files.string) },
+            text = { Text(R.string.cleanup_orphan_files_confirm.string) },
+            confirmButton = {
+                TextButton(
+                    enabled = !cleanupOrphansLoading,
+                    onClick = {
+                        scope.launch {
+                            cleanupOrphansLoading = true
+                            when (val response = userStateViewModel.cleanupOrphanFiles()) {
+                                is com.skydoves.sandwich.ApiResponse.Success -> {
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(
+                                            R.string.cleanup_orphan_files_result,
+                                            response.data.scannedKeys,
+                                            response.data.deletedKeys,
+                                            response.data.failedKeys,
+                                        ),
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    showCleanupOrphansDialog = false
+                                }
+                                else -> {
+                                    Toast.makeText(
+                                        context,
+                                        response.getErrorMessage(),
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                            cleanupOrphansLoading = false
+                        }
+                    }
+                ) {
+                    Text(R.string.confirm.string)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !cleanupOrphansLoading,
+                    onClick = { showCleanupOrphansDialog = false }
+                ) {
+                    Text(R.string.cancel.string)
                 }
             }
         )
@@ -514,16 +587,3 @@ private val MemoEditGesture.titleResource: Int
         MemoEditGesture.DOUBLE -> R.string.edit_gesture_double
         MemoEditGesture.LONG -> R.string.edit_gesture_long
     }
-
-private fun resolveAvatarUrl(host: String, avatarUrl: String): String? {
-    if (avatarUrl.isBlank()) {
-        return null
-    }
-    if (avatarUrl.toHttpUrlOrNull() != null || "://" in avatarUrl) {
-        return avatarUrl
-    }
-    val baseUrl = host.toHttpUrlOrNull() ?: return avatarUrl
-    return runCatching {
-        baseUrl.toUrl().toURI().resolve(avatarUrl).toString()
-    }.getOrDefault(avatarUrl)
-}

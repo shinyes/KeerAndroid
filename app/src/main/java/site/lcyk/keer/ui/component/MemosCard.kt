@@ -53,7 +53,6 @@ import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.model.CollaboratorProfile
 import site.lcyk.keer.data.model.MemoEditGesture
-import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.RouteName
@@ -67,11 +66,11 @@ import site.lcyk.keer.util.resolveMemoByIdentifier
 import site.lcyk.keer.util.resolveMemoByRemoteId
 import site.lcyk.keer.util.resolveMemoFromQuoteDescriptor
 import site.lcyk.keer.util.resolveMemoQuoteDescriptor
+import site.lcyk.keer.util.resolveAvatarUrl
 import site.lcyk.keer.util.storedMemoQuotePreviewOrNull
 import site.lcyk.keer.util.toMemoQuotePreview
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 @Composable
 fun MemosCard(
@@ -89,7 +88,6 @@ fun MemosCard(
     avatarImageLoader: ImageLoader? = null,
     prefetchCollaborators: Boolean = true,
     quoteMemoCandidates: List<MemoEntity> = emptyList(),
-    quoteResolverSettings: Settings = Settings()
 ) {
     val memosViewModel = LocalMemos.current
     val rootNavController = LocalRootNavController.current
@@ -115,15 +113,12 @@ fun MemosCard(
     val quotedMemo = remember(
         quoteDescriptor,
         quoteSearchSpace,
-        quoteResolverSettings.currentUser,
-        quoteResolverSettings.usersList,
     ) {
         val descriptor = quoteDescriptor ?: return@remember null
         memosViewModel.getMemoForDetail(descriptor.source)
             ?: resolveMemoFromQuoteDescriptor(
                 descriptor = descriptor,
                 memos = quoteSearchSpace,
-                settings = quoteResolverSettings
             )
     }
     val quotePreview = remember(
@@ -343,24 +338,14 @@ fun MemosCard(
     }
 }
 
-private fun resolveAvatarUrl(host: String, avatarUrl: String): String? {
-    if (avatarUrl.isBlank()) {
-        return null
-    }
-    if (avatarUrl.toHttpUrlOrNull() != null || "://" in avatarUrl) {
-        return avatarUrl
-    }
-    val baseUrl = host.toHttpUrlOrNull() ?: return avatarUrl
-    return runCatching {
-        baseUrl.toUrl().toURI().resolve(avatarUrl).toString()
-    }.getOrDefault(avatarUrl)
-}
 
 @Composable
 fun MemosCardActionButton(
     memo: MemoEntity,
     onRequestEdit: ((MemoEntity) -> Unit)? = null,
-    onRequestQuote: ((MemoEntity) -> Unit)? = null
+    onRequestQuote: ((MemoEntity) -> Unit)? = null,
+    showPinAction: Boolean = true,
+    onTogglePin: ((MemoEntity) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val clipboardManager = context.getSystemService(ClipboardManager::class.java)
@@ -369,18 +354,24 @@ fun MemosCardActionButton(
     val scope = rememberCoroutineScope()
     val memoLabel = stringResource(R.string.memo)
     val actions = buildList {
-        add(
-            MemoMenuAction(
-                key = if (memo.pinned) "unpin" else "pin",
-                label = if (memo.pinned) R.string.unpin.string else R.string.pin.string,
-                icon = if (memo.pinned) Icons.Outlined.PinDrop else Icons.Outlined.PushPin,
-                onSelected = {
-                    scope.launch {
-                        memosViewModel.updateMemoPinned(memo.identifier, !memo.pinned)
+        if (showPinAction) {
+            add(
+                MemoMenuAction(
+                    key = if (memo.pinned) "unpin" else "pin",
+                    label = if (memo.pinned) R.string.unpin.string else R.string.pin.string,
+                    icon = if (memo.pinned) Icons.Outlined.PinDrop else Icons.Outlined.PushPin,
+                    onSelected = {
+                        if (onTogglePin != null) {
+                            onTogglePin(memo)
+                        } else {
+                            scope.launch {
+                                memosViewModel.updateMemoPinned(memo.identifier, !memo.pinned)
+                            }
+                        }
                     }
-                }
+                )
             )
-        )
+        }
         add(
             MemoMenuAction(
                 key = "edit",

@@ -25,14 +25,18 @@ import site.lcyk.keer.data.api.CreateGroupMessageRequest
 import site.lcyk.keer.data.api.CreateGroupRequest
 import site.lcyk.keer.data.api.KeerV2Group
 import site.lcyk.keer.data.api.KeerV2GroupMessage
+import site.lcyk.keer.data.api.KeerV2MemoColumnConfig
 import site.lcyk.keer.data.api.KeerV2CreateMemoRequest
 import site.lcyk.keer.data.api.KeerV2Memo
 import site.lcyk.keer.data.api.KeerV2PayloadEnvelope
 import site.lcyk.keer.data.api.KeerV2Resource
 import site.lcyk.keer.data.api.KeerV2State
 import site.lcyk.keer.data.api.KeerV2User
+import site.lcyk.keer.data.api.KeerV2UserSettingGeneralSetting
 import site.lcyk.keer.data.api.MarkGroupReadRequest
 import site.lcyk.keer.data.api.MemosVisibility
+import site.lcyk.keer.data.api.UpdateUserSettingBody
+import site.lcyk.keer.data.api.UpdateUserSettingRequest
 import site.lcyk.keer.data.api.UpdateGroupMessageRequest
 import site.lcyk.keer.data.api.UpdateMemoRequest
 import site.lcyk.keer.data.api.UpdateGroupRequest
@@ -40,11 +44,15 @@ import site.lcyk.keer.data.constant.KeerException
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.GroupMember
 import site.lcyk.keer.data.model.Memo
+import site.lcyk.keer.data.model.MemoColumnConfig
+import site.lcyk.keer.data.model.MemoEditGesture
 import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.MemoGroupType
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.Resource
+import site.lcyk.keer.data.model.StorageCleanupSummary
 import site.lcyk.keer.data.model.User
+import site.lcyk.keer.data.model.UserGeneralSettings
 import site.lcyk.keer.data.security.AccountKeyManager
 import site.lcyk.keer.data.security.AttachmentEncryptionManager
 import site.lcyk.keer.data.security.AttachmentEncryptionMetadata
@@ -59,6 +67,7 @@ import site.lcyk.keer.util.MEMO_QUOTE_STATUS_UNAVAILABLE
 import site.lcyk.keer.util.buildMemoQuotePreviewText
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.parseMemoQuoteDescriptor
+import site.lcyk.keer.util.resolveAvatarUrl
 import site.lcyk.keer.util.resolveQuoteSourceKind
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
@@ -67,7 +76,6 @@ import okhttp3.Request
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okio.BufferedSink
 import java.io.File
 import java.io.RandomAccessFile
@@ -86,8 +94,8 @@ private const val maxSyncedUserIDs = 180
 private const val maxUserBatchRequestSize = 200
 private const val userFallbackRequestChunkSize = 12
 private const val syncedUserIDPersistDebounceMillis = 15_000L
-private const val encryptedAttachmentFilename = "payload.bin"
-private const val encryptedThumbnailFilename = "thumbnail.bin"
+private const val encryptedAttachmentFilename = "blob.bin"
+private const val encryptedThumbnailFilename = "blob.thumb.bin"
 private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 private val uploadChunkMediaType = "application/offset+octet-stream".toMediaType()
 private val uploadJson = Json {
@@ -230,7 +238,8 @@ class KeerV2Repository(
             identifier = getId(user.name),
             name = user.username,
             startDate = user.createTime ?: Instant.now(),
-            avatarUrl = resolveAvatarUrl(account.info.host, user.avatarUrl.orEmpty())
+            avatarUrl = resolveAvatarUrl(account.info.host, user.avatarUrl.orEmpty()),
+            role = user.role.toRoleName(),
         )
     }
 
@@ -244,7 +253,8 @@ class KeerV2Repository(
                 identifier = user.name,
                 name = user.username,
                 startDate = user.createTime ?: Instant.now(),
-                avatarUrl = resolveAvatarUrl(account.info.host, user.avatarUrl.orEmpty())
+                avatarUrl = resolveAvatarUrl(account.info.host, user.avatarUrl.orEmpty()),
+                role = user.role.toRoleName(),
             )
         } ?: User(
             identifier = creatorId,
@@ -724,6 +734,47 @@ class KeerV2Repository(
             currentPassword = currentPassword,
             newPassword = newPassword,
         )
+    }
+
+    override suspend fun getCurrentUserGeneralSettings(): ApiResponse<UserGeneralSettings> {
+        return memosApi.getUserSetting(account.info.id.toString()).mapSuccess {
+            generalSetting.toUserGeneralSettings()
+        }
+    }
+
+    override suspend fun updateCurrentUserGeneralSettings(
+        settings: UserGeneralSettings
+    ): ApiResponse<UserGeneralSettings> {
+        return memosApi.updateUserSetting(
+            account.info.id.toString(),
+            UpdateUserSettingRequest(
+                generalSetting = UpdateUserSettingBody(
+                    memoVisibility = MemosVisibility.fromMemoVisibility(settings.memoVisibility),
+                    memoEditGesture = settings.memoEditGesture.name,
+                    memoColumns = settings.memoColumns.map { column ->
+                        KeerV2MemoColumnConfig(
+                            id = column.id,
+                            name = column.name,
+                            requiredTags = column.requiredTags,
+                            visibleInDrawer = column.visibleInDrawer,
+                            pinnedMemoRemoteIds = column.pinnedMemoRemoteIds,
+                        )
+                    }
+                )
+            )
+        ).mapSuccess {
+            generalSetting.toUserGeneralSettings()
+        }
+    }
+
+    override suspend fun cleanupOrphanFiles(): ApiResponse<StorageCleanupSummary> {
+        return memosApi.cleanupOrphanFiles().mapSuccess {
+            StorageCleanupSummary(
+                scannedKeys = cleanup.scannedKeys,
+                deletedKeys = cleanup.deletedKeys,
+                failedKeys = cleanup.failedKeys,
+            )
+        }
     }
 
     override suspend fun listGroups(): ApiResponse<List<MemoGroup>> {
@@ -1784,6 +1835,39 @@ class KeerV2Repository(
         }
     }
 
+    private fun KeerV2UserSettingGeneralSetting?.toUserGeneralSettings(): UserGeneralSettings {
+        if (this == null) {
+            return UserGeneralSettings()
+        }
+        return UserGeneralSettings(
+            memoVisibility = memoVisibility?.toMemoVisibility() ?: MemoVisibility.PRIVATE,
+            memoEditGesture = memoEditGesture.toMemoEditGesture(),
+            memoColumns = memoColumns.map { column ->
+                MemoColumnConfig(
+                    id = column.id,
+                    name = column.name,
+                    requiredTags = column.requiredTags,
+                    visibleInDrawer = column.visibleInDrawer,
+                    pinnedMemoRemoteIds = column.pinnedMemoRemoteIds,
+                )
+            }
+        )
+    }
+
+    private fun site.lcyk.keer.data.api.MemosRole.toRoleName(): String {
+        return when (this) {
+            site.lcyk.keer.data.api.MemosRole.ADMIN -> "ADMIN"
+            site.lcyk.keer.data.api.MemosRole.HOST -> "HOST"
+            site.lcyk.keer.data.api.MemosRole.USER -> "USER"
+            else -> "USER"
+        }
+    }
+
+    private fun String?.toMemoEditGesture(): MemoEditGesture {
+        return runCatching { MemoEditGesture.valueOf(this?.trim().orEmpty()) }
+            .getOrDefault(MemoEditGesture.NONE)
+    }
+
     private suspend fun buildEncryptedMemoPayload(
         content: String,
         tags: List<String>,
@@ -2150,19 +2234,6 @@ class KeerV2Repository(
             }
             else -> null
         }
-    }
-
-    private fun resolveAvatarUrl(host: String, avatarUrl: String): String? {
-        if (avatarUrl.isBlank()) {
-            return null
-        }
-        if (avatarUrl.toHttpUrlOrNull() != null || "://" in avatarUrl) {
-            return avatarUrl
-        }
-        val baseUrl = host.toHttpUrlOrNull() ?: return avatarUrl
-        return runCatching {
-            baseUrl.toUrl().toURI().resolve(avatarUrl).toString()
-        }.getOrDefault(avatarUrl)
     }
 
     private suspend fun collectGroupTagsFromMessages(groupId: String): ApiResponse<List<String>> {

@@ -27,12 +27,12 @@ import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.Resource
+import site.lcyk.keer.data.model.SyncDomain
 import site.lcyk.keer.data.model.User
 import site.lcyk.keer.data.model.toMemo
 import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.data.service.OfflineGroupStore
-import site.lcyk.keer.data.service.OfflineSyncTaskScheduler
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
@@ -51,7 +51,6 @@ class ExploreViewModel @Inject constructor(
     private val accountService: AccountService,
     private val memoService: MemoService,
     private val offlineGroupStore: OfflineGroupStore,
-    private val offlineSyncTaskScheduler: OfflineSyncTaskScheduler,
 ) : ViewModel() {
     private val _mutationErrorMessage = MutableStateFlow<String?>(null)
     val mutationErrorMessage: StateFlow<String?> = _mutationErrorMessage.asStateFlow()
@@ -94,8 +93,11 @@ class ExploreViewModel @Inject constructor(
         viewModelScope.launch {
             accountService.currentAccount.collectLatest { account ->
                 if (account is Account.KeerV2) {
-                    memoService.requestSync(trigger = SyncTrigger.AUTO, force = false)
-                    offlineSyncTaskScheduler.refreshAllGroupCaches()
+                    memoService.requestSync(
+                        trigger = SyncTrigger.AUTO,
+                        force = false,
+                        domains = setOf(SyncDomain.MEMOS, SyncDomain.GROUPS)
+                    )
                 }
             }
         }
@@ -170,7 +172,11 @@ class ExploreViewModel @Inject constructor(
     }
 
     suspend fun refreshExploreMemos() {
-        val refreshResponse = offlineSyncTaskScheduler.refreshAllGroupCaches()
+        val refreshResponse = memoService.sync(
+            force = true,
+            trigger = SyncTrigger.MANUAL,
+            domains = setOf(SyncDomain.MEMOS, SyncDomain.GROUPS)
+        )
         if (refreshResponse !is ApiResponse.Success) {
             _mutationErrorMessage.value = refreshResponse.getErrorMessage()
         }
@@ -179,9 +185,18 @@ class ExploreViewModel @Inject constructor(
     private fun enqueueExploreRefresh(groupId: String?) {
         viewModelScope.launch {
             if (groupId.isNullOrBlank()) {
-                memoService.requestSync(trigger = SyncTrigger.MUTATION, force = true)
+                memoService.requestSync(
+                    trigger = SyncTrigger.MUTATION,
+                    force = true,
+                    domains = setOf(SyncDomain.MEMOS)
+                )
             } else {
-                offlineSyncTaskScheduler.dispatchGroupMessages(groupId)
+                memoService.requestSync(
+                    trigger = SyncTrigger.MUTATION,
+                    force = true,
+                    domains = setOf(SyncDomain.GROUPS),
+                    groupId = groupId,
+                )
             }
         }
     }

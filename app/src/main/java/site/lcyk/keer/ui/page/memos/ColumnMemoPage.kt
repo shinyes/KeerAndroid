@@ -16,18 +16,18 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
 import site.lcyk.keer.R
+import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.model.MemoVisibility
-import site.lcyk.keer.data.model.Settings
-import site.lcyk.keer.ext.findCurrentUserColumn
-import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ui.component.MemosCardActionButton
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.processManualSyncResult
@@ -35,6 +35,7 @@ import site.lcyk.keer.ui.page.common.PageScaffold
 import site.lcyk.keer.ui.page.memoinput.QuickMemoComposer
 import site.lcyk.keer.util.normalizeTagName
 import site.lcyk.keer.viewmodel.LocalMemos
+import site.lcyk.keer.viewmodel.LocalUserState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,19 +44,23 @@ fun ColumnMemoPage(
     drawerState: DrawerState? = null,
     onMenuButtonOpenRequested: (() -> Unit)? = null,
 ) {
-    val context = LocalContext.current
     val listState = rememberLazyListState()
     val memosViewModel = LocalMemos.current
-    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
-    val column = remember(settings.currentUser, settings.usersList, columnId) {
-        settings.findCurrentUserColumn(columnId)
+    val userStateViewModel = LocalUserState.current
+    val generalSettings by userStateViewModel.generalSettings.collectAsState()
+    val column = remember(generalSettings, columnId) {
+        generalSettings.memoColumns.firstOrNull { column -> column.id == columnId }
     }
+    val scope = rememberCoroutineScope()
     val personalMemos = memosViewModel.memos.toList()
     val filteredMemos = remember(personalMemos, column) {
         val requiredTags = column?.requiredTags.orEmpty()
+        val pinnedMemoIds = column?.pinnedMemoRemoteIds.orEmpty().toSet()
         personalMemos.filter { memo ->
             memo.visibility == MemoVisibility.PRIVATE &&
                 memoMatchesColumn(memo, requiredTags)
+        }.map { memo ->
+            memo.withColumnPinned(pinnedMemoIds.contains(memo.remoteId))
         }
     }
     val expandedFab by remember {
@@ -104,6 +109,46 @@ fun ColumnMemoPage(
                     lazyListState = listState,
                     memos = filteredMemos,
                     onRefresh = { requestManualSync() },
+                    actionButton = { memo ->
+                        MemosCardActionButton(
+                            memo = memo,
+                            showPinAction = !memo.remoteId.isNullOrBlank(),
+                            onTogglePin = { selectedMemo ->
+                                val remoteId = selectedMemo.remoteId?.trim().orEmpty()
+                                if (remoteId.isEmpty()) {
+                                    syncAlert = SyncAlertState.Failed(R.string.column_pin_requires_sync.string)
+                                    return@MemosCardActionButton
+                                }
+                                scope.launch {
+                                    val nextPinnedIds = column.pinnedMemoRemoteIds.toMutableList().apply {
+                                        if (selectedMemo.pinned) {
+                                            remove(remoteId)
+                                        } else if (!contains(remoteId)) {
+                                            add(remoteId)
+                                        }
+                                    }
+                                    when (
+                                        val response = userStateViewModel.updateMemoColumns(
+                                            generalSettings.memoColumns.map { configuredColumn ->
+                                                if (configuredColumn.id == column.id) {
+                                                    configuredColumn.copy(pinnedMemoRemoteIds = nextPinnedIds)
+                                                } else {
+                                                    configuredColumn
+                                                }
+                                            }
+                                        )
+                                    ) {
+                                        is com.skydoves.sandwich.ApiResponse.Success -> Unit
+                                        else -> {
+                                            syncAlert = SyncAlertState.Failed(
+                                                response.getErrorMessage()
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                    }
                 )
             }
         }
@@ -119,6 +164,16 @@ fun ColumnMemoPage(
         alert = syncAlert,
         onDismiss = { syncAlert = null }
     )
+}
+
+private fun MemoEntity.withColumnPinned(columnPinned: Boolean): MemoEntity {
+    if (pinned == columnPinned) {
+        return this
+    }
+    return copy(pinned = columnPinned).also { copied ->
+        copied.resources = resources
+        copied.tags = tags
+    }
 }
 
 private fun memoMatchesColumn(

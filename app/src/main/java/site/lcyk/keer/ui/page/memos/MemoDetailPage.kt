@@ -45,9 +45,7 @@ import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.model.Account
-import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
-import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.CollaboratorAvatarStack
 import site.lcyk.keer.ui.component.CollaboratorListDialog
@@ -79,14 +77,12 @@ fun MemoDetailPage(
     navController: NavHostController,
     memoIdentifier: String
 ) {
-    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val detailViewModel: MemoDetailViewModel = hiltViewModel()
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsState()
-    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
     val scope = rememberCoroutineScope()
     val memoSnapshot = remember(memosViewModel.memos) { memosViewModel.memos.toList() }
     val localMemo = remember(memoSnapshot, memoIdentifier) {
@@ -107,15 +103,12 @@ fun MemoDetailPage(
         fallbackMemo,
         memoSnapshot,
         memoIdentifier,
-        settings.currentUser,
-        settings.usersList
     ) {
         localMemo
             ?: fallbackMemo
             ?: resolveMemoByIdentifier(
                 memoIdentifier = memoIdentifier,
                 memos = memoSnapshot,
-                settings = settings
             )
     }
     val readOnlyMemoDetail = remember(memoIdentifier) {
@@ -164,8 +157,6 @@ fun MemoDetailPage(
     val quotedMemo = remember(
         quoteDescriptor,
         quoteSearchSpace,
-        settings.currentUser,
-        settings.usersList,
     ) {
         val descriptor = quoteDescriptor ?: return@remember null
         memosViewModel.getMemoForDetail(descriptor.source)
@@ -173,7 +164,6 @@ fun MemoDetailPage(
             ?: resolveMemoFromQuoteDescriptor(
                 descriptor = descriptor,
                 memos = quoteSearchSpace,
-                settings = settings
             )
     }
     val quotePreview = remember(

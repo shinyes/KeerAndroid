@@ -47,15 +47,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.MemoColumnConfig
-import site.lcyk.keer.data.model.Settings
-import site.lcyk.keer.ext.currentUserColumns
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
-import site.lcyk.keer.ext.settingsDataStore
-import site.lcyk.keer.ext.updateCurrentUserColumns
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.KeerRemovableTagChip
 import site.lcyk.keer.ui.page.common.PageScaffold
@@ -64,6 +59,7 @@ import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.isQuoteTag
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.viewmodel.LocalMemos
+import site.lcyk.keer.viewmodel.LocalUserState
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,10 +71,9 @@ fun ColumnConfigPage(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val memosViewModel = LocalMemos.current
-    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
-    val columns = remember(settings.currentUser, settings.usersList) {
-        settings.currentUserColumns()
-    }
+    val userStateViewModel = LocalUserState.current
+    val generalSettings by userStateViewModel.generalSettings.collectAsState()
+    val columns = generalSettings.memoColumns
     val rawTags = memosViewModel.tags.toList()
     val availableTags = remember(rawTags) {
         rawTags
@@ -155,10 +150,10 @@ fun ColumnConfigPage(
                         onClick = { openEditor(column) },
                         onLongPress = { actionColumnId = column.id },
                         onVisibleChange = { visible ->
-                            scope.launch(Dispatchers.IO) {
-                                context.settingsDataStore.updateCurrentUserColumns { items ->
-                                    items.withColumnVisibility(column.id, visible)
-                                }
+                            scope.launch {
+                                userStateViewModel.updateMemoColumns(
+                                    columns.withColumnVisibility(column.id, visible)
+                                )
                             }
                         }
                     )
@@ -273,16 +268,16 @@ fun ColumnConfigPage(
                                 editorError = context.getString(R.string.column_tags_required)
                             }
                             else -> {
-                                scope.launch(Dispatchers.IO) {
-                                    context.settingsDataStore.updateCurrentUserColumns { items ->
-                                        val savedColumn = MemoColumnConfig(
-                                            id = editingColumnId ?: UUID.randomUUID().toString(),
-                                            name = normalizedName,
-                                            requiredTags = normalizedTags,
-                                            visibleInDrawer = draftVisibleInDrawer
-                                        )
-                                        items.upsertColumn(savedColumn)
-                                    }
+                                scope.launch {
+                                    val savedColumn = MemoColumnConfig(
+                                        id = editingColumnId ?: UUID.randomUUID().toString(),
+                                        name = normalizedName,
+                                        requiredTags = normalizedTags,
+                                        visibleInDrawer = draftVisibleInDrawer
+                                    )
+                                    userStateViewModel.updateMemoColumns(
+                                        columns.upsertColumn(savedColumn)
+                                    )
                                 }
                                 showColumnEditor = false
                                 showTagSelector = false
@@ -388,10 +383,10 @@ fun ColumnConfigPage(
                 confirmButton = {
                     TextButton(
                         onClick = {
-                            scope.launch(Dispatchers.IO) {
-                                context.settingsDataStore.updateCurrentUserColumns { items ->
-                                    items.removeColumn(deleteColumn.id)
-                                }
+                            scope.launch {
+                                userStateViewModel.updateMemoColumns(
+                                    columns.removeColumn(deleteColumn.id)
+                                )
                             }
                             deleteColumnId = null
                         }

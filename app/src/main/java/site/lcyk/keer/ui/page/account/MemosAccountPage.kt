@@ -31,36 +31,33 @@ import coil3.annotation.ExperimentalCoilApi
 import coil3.compose.AsyncImage
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import site.lcyk.keer.R
-import site.lcyk.keer.data.api.MemosProfile
 import site.lcyk.keer.data.model.MemosAccount
-import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.ext.settingsDataStore
-import site.lcyk.keer.ui.component.MemosIcon
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
+import site.lcyk.keer.util.resolveAvatarUrl
+import site.lcyk.keer.viewmodel.LocalUserState
 
 @OptIn(ExperimentalCoilApi::class)
 @Composable
 fun MemosAccountPage(
     innerPadding: PaddingValues,
     account: MemosAccount,
-    profile: MemosProfile?,
     okHttpClient: OkHttpClient,
     showSwitchAccountButton: Boolean,
     onSwitchAccount: () -> Unit,
     onSignOut: () -> Unit
 ) {
     val context = LocalContext.current
-    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
+    val userStateViewModel = LocalUserState.current
     val accountHost = account.host.toHttpUrlOrNull()?.host.orEmpty()
     val accountName = account.name.ifBlank { accountHost }
     val accountKey = "memos:${account.host}:${account.id}"
-    val localAvatarUri = settings.usersList
-        .firstOrNull { user -> user.accountKey == accountKey }
-        ?.settings
-        ?.avatarUri
-        .orEmpty()
+    val localAvatarUriFlow = remember(accountKey, userStateViewModel) {
+        userStateViewModel.observeAccountAvatarUri(accountKey)
+    }
+    val localAvatarUri by localAvatarUriFlow
+        .collectAsState(initial = "")
     val accountAvatarUrl = if (localAvatarUri.isNotBlank()) {
         localAvatarUri
     } else {
@@ -118,26 +115,6 @@ fun MemosAccountPage(
                             )
                         }
                     }
-                    if (profile?.keerApiVersion?.isNotEmpty() == true) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(top = 8.dp),
-                        ) {
-                            Icon(
-                                imageVector = MemosIcon,
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .padding(end = 8.dp)
-                                    .clip(CircleShape),
-                            )
-                            Text(
-                                "keer api v${profile.keerApiVersion}",
-                                modifier = Modifier.padding(top = 5.dp),
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                        }
-                    }
                 }
             }
         }
@@ -174,15 +151,3 @@ fun MemosAccountPage(
     }
 }
 
-private fun resolveAvatarUrl(host: String, avatarUrl: String): String? {
-    if (avatarUrl.isBlank()) {
-        return null
-    }
-    if (avatarUrl.toHttpUrlOrNull() != null || "://" in avatarUrl) {
-        return avatarUrl
-    }
-    val baseUrl = host.toHttpUrlOrNull() ?: return avatarUrl
-    return runCatching {
-        baseUrl.toUrl().toURI().resolve(avatarUrl).toString()
-    }.getOrDefault(avatarUrl)
-}

@@ -13,7 +13,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -71,7 +70,6 @@ fun AccountPage(
             MemosAccountPage(
                 innerPadding = innerPadding,
                 account = memosAccount,
-                profile = viewModel.instanceProfile,
                 okHttpClient = userStateViewModel.okHttpClient,
                 showSwitchAccountButton = showSwitchAccountButton,
                 onSwitchAccount = {
@@ -101,10 +99,6 @@ fun AccountPage(
         } else {
             LazyColumn(contentPadding = innerPadding) {}
         }
-    }
-
-    LaunchedEffect(selectedAccountKey) {
-        viewModel.loadInstanceProfile()
     }
 }
 

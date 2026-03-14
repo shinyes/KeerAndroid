@@ -43,6 +43,12 @@ interface KeerV2Api {
     @GET("api/v1/users/{id}/settings/GENERAL")
     suspend fun getUserSetting(@Path("id") userId: String): ApiResponse<KeerV2UserSetting>
 
+    @PUT("api/v1/users/{id}/settings/GENERAL")
+    suspend fun updateUserSetting(
+        @Path("id") userId: String,
+        @Body body: UpdateUserSettingRequest
+    ): ApiResponse<KeerV2UserSetting>
+
     @GET("api/v1/users/{id}/settings/ENCRYPTION")
     suspend fun getUserEncryptionSetting(@Path("id") userId: String): ApiResponse<KeerV2UserEncryptionSettingResponse>
 
@@ -168,8 +174,8 @@ interface KeerV2Api {
         @Body body: CreateGroupKeyVersionRequest
     ): ApiResponse<GroupKeyVersionResponse>
 
-    @GET("api/v1/instance/profile")
-    suspend fun getProfile(): ApiResponse<MemosProfile>
+    @POST("api/v1/admin/storage/cleanup-orphans")
+    suspend fun cleanupOrphanFiles(): ApiResponse<KeerV2StorageCleanupResponse>
 
     @GET("api/v1/users/{id}")
     suspend fun getUser(@Path("id") userId: String): ApiResponse<KeerV2User>
@@ -527,12 +533,35 @@ data class KeerV2Resource(
 data class KeerV2UserSettingGeneralSetting(
     val locale: String? = null,
     val memoVisibility: MemosVisibility? = null,
+    val memoEditGesture: String? = null,
+    val memoColumns: List<KeerV2MemoColumnConfig> = emptyList(),
     val theme: String? = null
 )
 
 @Serializable
 data class KeerV2UserSetting(
     val generalSetting: KeerV2UserSettingGeneralSetting?
+)
+
+@Serializable
+data class KeerV2MemoColumnConfig(
+    val id: String,
+    val name: String,
+    val requiredTags: List<String> = emptyList(),
+    val visibleInDrawer: Boolean = true,
+    val pinnedMemoRemoteIds: List<String> = emptyList(),
+)
+
+@Serializable
+data class UpdateUserSettingRequest(
+    val generalSetting: UpdateUserSettingBody
+)
+
+@Serializable
+data class UpdateUserSettingBody(
+    val memoVisibility: MemosVisibility,
+    val memoEditGesture: String,
+    val memoColumns: List<KeerV2MemoColumnConfig> = emptyList(),
 )
 
 @Serializable
@@ -653,4 +682,16 @@ enum class KeerV2State {
 @Serializable
 data class KeerV2Stats(
     val tagCount: Map<String, Int>,
+)
+
+@Serializable
+data class KeerV2StorageCleanupResponse(
+    val cleanup: KeerV2StorageCleanup
+)
+
+@Serializable
+data class KeerV2StorageCleanup(
+    val scannedKeys: Int = 0,
+    val deletedKeys: Int = 0,
+    val failedKeys: Int = 0,
 )

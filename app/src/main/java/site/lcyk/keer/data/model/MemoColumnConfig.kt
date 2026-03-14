@@ -8,4 +8,5 @@ data class MemoColumnConfig(
     val name: String = "",
     val requiredTags: List<String> = emptyList(),
     val visibleInDrawer: Boolean = true,
+    val pinnedMemoRemoteIds: List<String> = emptyList(),
 )

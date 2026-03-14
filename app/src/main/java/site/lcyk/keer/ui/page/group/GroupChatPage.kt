@@ -53,7 +53,6 @@ import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoEditGesture
 import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
-import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.MemoActionMenuButton
 import site.lcyk.keer.ui.component.MemoMenuAction
@@ -92,27 +91,24 @@ fun GroupChatPage(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
+    val generalSettings by userStateViewModel.generalSettings.collectAsStateWithLifecycle()
     val joinedGroups by userStateViewModel.joinedGroups.collectAsStateWithLifecycle()
     val groupIdAliases by userStateViewModel.groupIdAliases.collectAsStateWithLifecycle()
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
     val syncStatus by memosViewModel.syncStatus.collectAsStateWithLifecycle()
     val avatarImageLoader = rememberAuthorizedImageLoader()
 
-    val settings by context.settingsDataStore.data.collectAsState(initial = site.lcyk.keer.data.model.Settings())
-    val currentUserSettings = settings.usersList
-        .firstOrNull { it.accountKey == settings.currentUser }
-        ?.settings
     val resolvedGroupId = groupIdAliases
         .firstOrNull { alias -> alias.localId == groupId }
         ?.remoteId
         ?: groupId
-    val activeAccountKey = settings.currentUser
+    val activeAccountKey = currentAccount?.accountKey().orEmpty()
     val currentUserId = when (val account = currentAccount) {
         is Account.KeerV2 -> account.info.id.toString()
         is Account.Local -> "local"
         null -> ""
     }
-    val editGesture = currentUserSettings?.editGesture ?: MemoEditGesture.NONE
+    val editGesture = generalSettings.memoEditGesture
     val group = joinedGroups.firstOrNull { it.id == resolvedGroupId }
 
     val memos by viewModel.memos.collectAsStateWithLifecycle()

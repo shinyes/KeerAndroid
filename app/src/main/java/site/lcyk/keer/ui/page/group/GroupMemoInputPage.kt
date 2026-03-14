@@ -153,7 +153,6 @@ fun GroupMemoInputPage(
             ?: resolveMemoFromQuoteDescriptor(
                 descriptor = descriptor,
                 memos = quoteMemoCandidates,
-                settings = site.lcyk.keer.data.model.Settings(),
             )
     }
     val quotePreview = remember(

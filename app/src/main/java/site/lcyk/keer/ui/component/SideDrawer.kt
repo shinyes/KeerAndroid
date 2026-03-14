@@ -24,7 +24,6 @@ import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
@@ -63,11 +62,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
-import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.data.model.MemoGroupType
-import site.lcyk.keer.ext.currentUserColumns
 import site.lcyk.keer.ext.getErrorMessage
-import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
 import site.lcyk.keer.ui.page.common.navigateToColumnPage
@@ -108,9 +104,9 @@ fun SideDrawer(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val generalSettings by userStateViewModel.generalSettings.collectAsState()
     val joinedGroups by userStateViewModel.joinedGroups.collectAsState()
     val groupIdAliases by userStateViewModel.groupIdAliases.collectAsState()
-    val settings by context.settingsDataStore.data.collectAsState(initial = Settings())
     val hasExplore = currentAccount !is Account.Local
     val navBackStackEntry by memosNavController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -166,8 +162,8 @@ fun SideDrawer(
             ?.getString("columnId")
             ?.let(Uri::decode)
     }
-    val visibleColumns = remember(settings.currentUser, settings.usersList) {
-        settings.currentUserColumns()
+    val visibleColumns = remember(generalSettings) {
+        generalSettings.memoColumns
             .filter { it.visibleInDrawer }
     }
 
@@ -399,21 +395,6 @@ fun SideDrawer(
                     }
                 }
             }
-        }
-        item {
-            NavigationDrawerItem(
-                label = { Text(R.string.resources.string) },
-                icon = { Icon(Icons.Outlined.PhotoLibrary, contentDescription = null) },
-                selected = isSelected(RouteName.RESOURCE),
-                onClick = {
-                    scope.launch {
-                        memosNavController.navigateToTopLevel(RouteName.RESOURCE)
-                        onDrawerItemCloseRequested?.invoke()
-                        drawerState?.close()
-                    }
-                },
-                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
-            )
         }
         item {
             HorizontalDivider(Modifier.padding(vertical = 10.dp))

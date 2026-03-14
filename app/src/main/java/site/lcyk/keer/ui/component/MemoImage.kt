@@ -340,7 +340,7 @@ private fun queryImageViewerOptions(
             if (packageName.isEmpty()) {
                 null
             } else {
-                val label = info.loadLabel(packageManager)?.toString()?.trim().orEmpty()
+                val label = info.loadLabel(packageManager).toString().trim()
                 ImageViewerOption(
                     packageName = packageName,
                     label = label.ifBlank { packageName }

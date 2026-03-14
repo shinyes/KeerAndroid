@@ -7,5 +7,9 @@ data class User(
     val name: String,
     val startDate: Instant = Instant.now(),
     val defaultVisibility: MemoVisibility = MemoVisibility.PRIVATE,
-    val avatarUrl: String? = null
-)
+    val avatarUrl: String? = null,
+    val role: String = "USER"
+) {
+    val isAdmin: Boolean
+        get() = role.equals("ADMIN", ignoreCase = true) || role.equals("HOST", ignoreCase = true)
+}

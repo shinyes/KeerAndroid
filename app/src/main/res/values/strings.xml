@@ -33,6 +33,8 @@
     <string name="column_name_required">Column name is required.</string>
     <string name="column_tags_required">Select at least one tag.</string>
     <string name="column_not_found">Column not found.</string>
+    <string name="column_pin_requires_sync">This memo must finish syncing before it can be pinned in a column.</string>
+    <string name="column_pin_update_failed">Failed to update the column pin state.</string>
     <string name="tags">Tags</string>
     <string name="memo">Memo</string>
     <string name="memo_detail">Memo detail</string>
@@ -172,6 +174,7 @@
     <string name="friends_remote_only">Friends are only available for synced accounts.</string>
     <string name="current_account_no_friends">Current account does not support friends.</string>
     <string name="current_account_no_password_change">Current account does not support password changes.</string>
+    <string name="current_account_no_admin_ops">Current account does not support admin operations.</string>
     <string name="current_account_no_direct_chats">Current account does not support direct chats.</string>
     <string name="current_account_no_remote_memo_operations">Current account does not support remote memo operations.</string>
     <string name="no_friends_yet">No friends yet.</string>
@@ -221,6 +224,7 @@
     <string name="resource_not_found">Resource not found</string>
     <string name="tag_name_empty">Tag name cannot be empty</string>
     <string name="current_account_no_avatar_sync">Current account does not support avatar sync.</string>
+    <string name="current_account_no_settings_sync">Current account does not support syncing general settings.</string>
     <string name="load_account_encryption_key_failed">Failed to load account encryption key.</string>
     <string name="load_account_encryption_key_failed_http">Failed to load account encryption key. HTTP %1$d</string>
     <string name="recover_account_encryption_key_failed">Failed to recover account encryption key.</string>
@@ -240,6 +244,11 @@
     <string name="load_user_public_keys_failed">Failed to load user public keys.</string>
     <string name="load_user_public_keys_failed_http">Failed to load user public keys. HTTP %1$d</string>
     <string name="debug_logs">Debug Logs</string>
+    <string name="admin">Admin</string>
+    <string name="cleanup_orphan_files">Clear orphan files</string>
+    <string name="cleanup_orphan_files_confirm">This will scan both local storage and S3, then delete files that are no longer referenced by attachments or avatars. Continue?</string>
+    <string name="cleanup_orphan_files_result">Scan complete. Scanned %1$d files, deleted %2$d, failed %3$d.</string>
+    <string name="cleanup_orphan_files_failed">Failed to clear orphan files.</string>
     <string name="enable_app_debug_logs">Enable app logs</string>
     <string name="enable_http_debug_logs">Enable HTTP logs</string>
     <string name="clear_logs">Clear logs</string>

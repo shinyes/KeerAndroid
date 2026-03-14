@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.CachedMemoItem
@@ -23,27 +22,30 @@ import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.PendingGroupMemo
 import site.lcyk.keer.data.model.PendingGroupOperation
 import site.lcyk.keer.data.model.PendingGroupOperationType
+import site.lcyk.keer.data.model.SyncDomain
 import site.lcyk.keer.data.model.User
 import site.lcyk.keer.data.repository.ResourceEncryptionScope
 import site.lcyk.keer.data.model.toCachedMemoItem
 import site.lcyk.keer.data.model.toMemo
+import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.service.AccountService
+import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.data.service.OfflineGroupStore
-import site.lcyk.keer.data.service.OfflineSyncTask
-import site.lcyk.keer.data.service.OfflineSyncTaskScheduler
+import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
-import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
+import site.lcyk.keer.util.resolveAvatarUrl
 
 @HiltViewModel
 class GroupChatViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val accountService: AccountService,
+    private val accountLocalSettingsStore: AccountLocalSettingsStore,
     private val offlineGroupStore: OfflineGroupStore,
-    private val offlineSyncTaskScheduler: OfflineSyncTaskScheduler
+    private val memoService: MemoService,
 ) : ViewModel() {
     private val lastGroupSyncAtMillis = mutableMapOf<String, Long>()
     private val lastGroupTagFetchAtMillis = mutableMapOf<String, Long>()
@@ -78,16 +80,14 @@ class GroupChatViewModel @Inject constructor(
         _errorMessage.value = null
         try {
             lastGroupSyncAtMillis[groupId] = System.currentTimeMillis()
-            when (val syncResponse = offlineSyncTaskScheduler.dispatch(
-                setOf(OfflineSyncTask.GROUP_OPERATIONS, OfflineSyncTask.GROUP_TAGS)
+            when (val syncResponse = memoService.sync(
+                force = true,
+                trigger = SyncTrigger.MANUAL,
+                domains = setOf(SyncDomain.GROUPS),
+                groupId = groupId,
             )) {
                 is ApiResponse.Success -> {
-                    when (val groupMessageSync = offlineSyncTaskScheduler.dispatchGroupMessages(groupId)) {
-                        is ApiResponse.Success -> Unit
-                        else -> {
-                            _errorMessage.value = groupMessageSync.getErrorMessage()
-                        }
-                    }
+                    _errorMessage.value = null
                 }
                 else -> {
                     _errorMessage.value = syncResponse.getErrorMessage()
@@ -122,11 +122,12 @@ class GroupChatViewModel @Inject constructor(
         }
         lastGroupTagFetchAtMillis[groupId] = System.currentTimeMillis()
 
-        when (
-            val syncResponse = offlineSyncTaskScheduler.dispatch(
-                setOf(OfflineSyncTask.GROUP_OPERATIONS, OfflineSyncTask.GROUP_TAGS)
-            )
-        ) {
+        when (val syncResponse = memoService.sync(
+            force = true,
+            trigger = SyncTrigger.MANUAL,
+            domains = setOf(SyncDomain.GROUPS),
+            groupId = groupId,
+        )) {
             is ApiResponse.Success -> Unit
             else -> {
                 _errorMessage.value = syncResponse.getErrorMessage()
@@ -193,7 +194,12 @@ class GroupChatViewModel @Inject constructor(
             return@withContext false
         }
         lastGroupSyncAtMillis[groupId] = System.currentTimeMillis()
-        when (val response = offlineSyncTaskScheduler.dispatchGroupMessages(groupId)) {
+        when (val response = memoService.sync(
+            force = true,
+            trigger = SyncTrigger.MUTATION,
+            domains = setOf(SyncDomain.GROUPS),
+            groupId = groupId,
+        )) {
             is ApiResponse.Success -> {
                 _errorMessage.value = null
                 true
@@ -633,10 +639,7 @@ class GroupChatViewModel @Inject constructor(
     }
 
     private suspend fun resolveCreator(): User? {
-        val settings = context.settingsDataStore.data.first()
-        val localAvatarUri = settings.usersList
-            .firstOrNull { it.accountKey == settings.currentUser }
-            ?.settings
+        val localAvatarUri = accountLocalSettingsStore.currentUserSettings()
             ?.avatarUri
             .orEmpty()
         return when (val account = accountService.currentAccount.first()) {
@@ -679,7 +682,7 @@ class GroupChatViewModel @Inject constructor(
     }
 
     private suspend fun readCurrentAccountKey(): String? {
-        return context.settingsDataStore.data.first().currentUser.takeIf { it.isNotBlank() }
+        return accountLocalSettingsStore.observeCurrentAccountKey().first()
     }
 
     private fun parseRemoteNumericId(remoteId: String): Long? {
@@ -694,19 +697,6 @@ class GroupChatViewModel @Inject constructor(
 
     private fun localMemoRemoteId(localId: String): String {
         return "local:$localId"
-    }
-
-    private fun resolveAvatarUrl(host: String, avatarUrl: String): String? {
-        if (avatarUrl.isBlank()) {
-            return null
-        }
-        if (avatarUrl.toHttpUrlOrNull() != null || "://" in avatarUrl) {
-            return avatarUrl
-        }
-        val baseUrl = host.toHttpUrlOrNull() ?: return avatarUrl
-        return runCatching {
-            baseUrl.toUrl().toURI().resolve(avatarUrl).toString()
-        }.getOrDefault(avatarUrl)
     }
 
     companion object {

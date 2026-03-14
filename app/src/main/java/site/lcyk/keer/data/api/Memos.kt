@@ -56,12 +56,6 @@ enum class MemosRowStatus {
 }
 
 @Serializable
-data class MemosProfile(
-    @SerialName("keer_api_version")
-    val keerApiVersion: String
-)
-
-@Serializable
 enum class MemosView {
     @SerialName("MEMO_VIEW_UNSPECIFIED")
     MEMO_VIEW_UNSPECIFIED,

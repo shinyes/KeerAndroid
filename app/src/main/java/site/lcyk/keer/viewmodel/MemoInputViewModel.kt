@@ -19,10 +19,11 @@ import kotlinx.coroutines.withContext
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.MemoVisibility
+import site.lcyk.keer.data.model.SyncDomain
+import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
-import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.widget.WidgetUpdater
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -47,12 +48,11 @@ data class UploadTaskState(
 @HiltViewModel
 class MemoInputViewModel @Inject constructor(
     @ApplicationContext application: Context,
-    private val memoService: MemoService
+    private val memoService: MemoService,
+    private val accountLocalSettingsStore: AccountLocalSettingsStore,
 ) : AndroidViewModel(application as Application) {
     private val context = application
-    val draft = context.settingsDataStore.data.map { settings ->
-        settings.usersList.firstOrNull { it.accountKey == settings.currentUser }?.settings?.draft
-    }
+    val draft = accountLocalSettingsStore.observeCurrentUserSettings().map { settings -> settings?.draft }
     var uploadResources = mutableStateListOf<ResourceEntity>()
     var uploadTasks = mutableStateListOf<UploadTaskState>()
 
@@ -74,7 +74,11 @@ class MemoInputViewModel @Inject constructor(
         )
         response.suspendOnSuccess {
             WidgetUpdater.updateWidgets(getApplication())
-            memoService.requestSync(trigger = SyncTrigger.MUTATION, force = false)
+            memoService.requestSync(
+                trigger = SyncTrigger.MUTATION,
+                force = false,
+                domains = setOf(SyncDomain.MEMOS)
+            )
         }
         response
     }
@@ -95,22 +99,19 @@ class MemoInputViewModel @Inject constructor(
         )
         response.suspendOnSuccess {
             WidgetUpdater.updateWidgets(getApplication())
-            memoService.requestSync(trigger = SyncTrigger.MUTATION, force = false)
+            memoService.requestSync(
+                trigger = SyncTrigger.MUTATION,
+                force = false,
+                domains = setOf(SyncDomain.MEMOS)
+            )
         }
         response
     }
 
     fun updateDraft(content: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            context.settingsDataStore.updateData { settings ->
-                val index = settings.usersList.indexOfFirst { it.accountKey == settings.currentUser }
-                if (index == -1) {
-                    return@updateData settings
-                }
-                val users = settings.usersList.toMutableList()
-                val user = users[index]
-                users[index] = user.copy(settings = user.settings.copy(draft = content))
-                settings.copy(usersList = users)
+            accountLocalSettingsStore.updateCurrentUserSettings { settings ->
+                settings.copy(draft = content)
             }
         }
     }

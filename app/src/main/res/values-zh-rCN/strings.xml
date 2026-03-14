@@ -33,6 +33,8 @@
     <string name="column_name_required">专栏名称不能为空。</string>
     <string name="column_tags_required">请至少选择一个标签。</string>
     <string name="column_not_found">未找到该专栏。</string>
+    <string name="column_pin_requires_sync">该 MEMO 需要先完成同步后才能在专栏中置顶。</string>
+    <string name="column_pin_update_failed">更新专栏置顶状态失败。</string>
     <string name="tags">标签</string>
     <string name="memo">灵感</string>
     <string name="memo_detail">详情</string>
@@ -171,6 +173,7 @@
     <string name="friends_remote_only">仅同步账户支持好友功能。</string>
     <string name="current_account_no_friends">当前账号不支持好友功能。</string>
     <string name="current_account_no_password_change">当前账号不支持修改密码。</string>
+    <string name="current_account_no_admin_ops">当前账号不支持管理员操作。</string>
     <string name="current_account_no_direct_chats">当前账号不支持私聊。</string>
     <string name="current_account_no_remote_memo_operations">当前账号不支持远端 memo 操作。</string>
     <string name="no_friends_yet">还没有好友。</string>
@@ -220,6 +223,7 @@
     <string name="resource_not_found">未找到资源</string>
     <string name="tag_name_empty">标签名不能为空</string>
     <string name="current_account_no_avatar_sync">当前账号不支持头像同步。</string>
+    <string name="current_account_no_settings_sync">当前账号不支持同步通用设置。</string>
     <string name="load_account_encryption_key_failed">加载账户主密钥失败。</string>
     <string name="load_account_encryption_key_failed_http">加载账户主密钥失败。HTTP %1$d</string>
     <string name="recover_account_encryption_key_failed">恢复账户主密钥失败。</string>
@@ -239,6 +243,11 @@
     <string name="load_user_public_keys_failed">加载用户公钥失败。</string>
     <string name="load_user_public_keys_failed_http">加载用户公钥失败。HTTP %1$d</string>
     <string name="debug_logs">调试日志</string>
+    <string name="admin">管理员</string>
+    <string name="cleanup_orphan_files">清除孤儿文件</string>
+    <string name="cleanup_orphan_files_confirm">这会同时扫描本地存储与 S3，并删除已经不再被附件或头像引用的文件。确定继续吗？</string>
+    <string name="cleanup_orphan_files_result">扫描完成，共扫描 %1$d 个文件，删除 %2$d 个，失败 %3$d 个。</string>
+    <string name="cleanup_orphan_files_failed">清除孤儿文件失败。</string>
     <string name="enable_app_debug_logs">启用应用日志</string>
     <string name="enable_http_debug_logs">启用 HTTP 日志</string>
     <string name="clear_logs">清空日志</string>

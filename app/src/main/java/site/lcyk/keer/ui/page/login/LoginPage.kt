@@ -57,7 +57,6 @@ import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.suspendOnErrorMessage
 import site.lcyk.keer.ui.page.common.RouteName
-import site.lcyk.keer.viewmodel.LoginCompatibility
 import site.lcyk.keer.viewmodel.LocalUserState
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -112,14 +111,6 @@ fun LoginPage(
 
         val sanitizedHost = normalizedHost()
         host = TextFieldValue(sanitizedHost)
-
-        when (val compatibility = userStateViewModel.checkLoginCompatibility(sanitizedHost)) {
-            LoginCompatibility.Supported -> Unit
-            is LoginCompatibility.Unsupported -> {
-                snackbarState.showSnackbar(compatibility.message)
-                return@launch
-            }
-        }
 
         val resp = if (registerMode) {
             userStateViewModel.registerMemosAccount(

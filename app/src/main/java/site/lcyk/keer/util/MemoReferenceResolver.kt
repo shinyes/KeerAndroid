@@ -1,7 +1,6 @@
 package site.lcyk.keer.util
 
 import site.lcyk.keer.data.local.entity.MemoEntity
-import site.lcyk.keer.data.model.Settings
 
 const val EXPLORE_MEMO_PREFIX = "explore:"
 const val GROUP_MEMO_PREFIX = "group:"
@@ -9,7 +8,6 @@ const val GROUP_MEMO_PREFIX = "group:"
 fun resolveMemoByIdentifier(
     memoIdentifier: String,
     memos: List<MemoEntity>,
-    settings: Settings
 ): MemoEntity? {
     val normalizedIdentifier = memoIdentifier.trim()
     if (normalizedIdentifier.isEmpty()) {
@@ -24,14 +22,12 @@ fun resolveMemoByIdentifier(
     return resolveMemoByRemoteId(
         remoteId = remoteId,
         memos = memos,
-        settings = settings
     )
 }
 
 fun resolveMemoByRemoteId(
     remoteId: String,
     memos: List<MemoEntity>,
-    settings: Settings
 ): MemoEntity? {
     val normalizedRemoteId = remoteId.trim()
     if (normalizedRemoteId.isEmpty()) {
@@ -53,11 +49,10 @@ fun resolveMemoByRemoteId(
 fun resolveMemoFromQuoteDescriptor(
     descriptor: MemoQuoteDescriptor,
     memos: List<MemoEntity>,
-    settings: Settings
 ): MemoEntity? {
     return when (descriptor.sourceKind) {
-        MemoQuoteSourceKind.LOCAL -> resolveMemoByIdentifier(descriptor.source, memos, settings)
-        MemoQuoteSourceKind.REMOTE -> resolveMemoByRemoteId(descriptor.source, memos, settings)
+        MemoQuoteSourceKind.LOCAL -> resolveMemoByIdentifier(descriptor.source, memos)
+        MemoQuoteSourceKind.REMOTE -> resolveMemoByRemoteId(descriptor.source, memos)
     }
 }
 

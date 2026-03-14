@@ -2,6 +2,7 @@ package site.lcyk.keer.data.model
 
 data class SyncStatus(
     val syncing: Boolean = false,
+    val activeDomains: Set<SyncDomain> = emptySet(),
     val unsyncedCount: Int = 0,
     val errorMessage: String? = null,
     val uploadedBytes: Long = 0L,

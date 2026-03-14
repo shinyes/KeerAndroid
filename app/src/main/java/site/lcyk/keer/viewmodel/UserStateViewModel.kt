@@ -8,57 +8,45 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.skydoves.sandwich.ApiResponse
-import com.skydoves.sandwich.getOrNull
-import com.skydoves.sandwich.mapSuccess
-import com.skydoves.sandwich.suspendOnSuccess
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.R
-import site.lcyk.keer.data.api.AuthSessionResponse
-import site.lcyk.keer.data.api.CreateUserBody
-import site.lcyk.keer.data.api.CreateUserRequest
-import site.lcyk.keer.data.api.KeerV2User
-import site.lcyk.keer.data.api.PasswordCredentials
-import site.lcyk.keer.data.api.SignInRequest
-import site.lcyk.keer.data.constant.KeerException
 import site.lcyk.keer.data.model.Account
-import site.lcyk.keer.data.model.CollaboratorProfile
 import site.lcyk.keer.data.model.GroupIdAlias
 import site.lcyk.keer.data.model.MemoGroup
-import site.lcyk.keer.data.model.MemosAccount
+import site.lcyk.keer.data.model.SyncDomain
+import site.lcyk.keer.data.model.StorageCleanupSummary
 import site.lcyk.keer.data.model.User
+import site.lcyk.keer.data.model.UserGeneralSettings
+import site.lcyk.keer.data.repository.JoinedGroupRepository
+import site.lcyk.keer.data.repository.UserDirectoryRepository
+import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.service.AccountService
-import site.lcyk.keer.data.service.OfflineGroupStore
-import site.lcyk.keer.data.service.OfflineSyncTask
-import site.lcyk.keer.data.service.OfflineSyncTaskScheduler
+import site.lcyk.keer.data.service.MemoService
+import site.lcyk.keer.data.service.SyncTrigger
+import site.lcyk.keer.data.repository.UserGeneralSettingsRepository
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.ext.suspendOnNotLogin
 import okhttp3.OkHttpClient
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import javax.inject.Inject
 
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
 class UserStateViewModel @Inject constructor(
     private val accountService: AccountService,
-    private val offlineGroupStore: OfflineGroupStore,
-    private val offlineSyncTaskScheduler: OfflineSyncTaskScheduler
+    private val accountLocalSettingsStore: AccountLocalSettingsStore,
+    private val memoService: MemoService,
+    private val userGeneralSettingsRepository: UserGeneralSettingsRepository,
+    private val userDirectoryRepository: UserDirectoryRepository,
+    private val joinedGroupRepository: JoinedGroupRepository,
 ) : ViewModel() {
 
     var currentUser: User? by mutableStateOf(null)
@@ -67,86 +55,59 @@ class UserStateViewModel @Inject constructor(
     var host: String = ""
         private set
     val okHttpClient: OkHttpClient get() = accountService.httpClient
-    // Guards shared prefetch state and prevents duplicate avatar lookups during concurrent list recompositions.
-    private val collaboratorAvatarMutex = Mutex()
-    private val collaboratorAvatarInFlightIds = mutableSetOf<String>()
-    private var lastCurrentUserLoadAtMillis: Long = 0L
-    private val _collaboratorProfiles = MutableStateFlow<Map<String, CollaboratorProfile>>(emptyMap())
-    val collaboratorProfiles: StateFlow<Map<String, CollaboratorProfile>> = _collaboratorProfiles.asStateFlow()
-    private val _friends = MutableStateFlow<List<User>>(emptyList())
-    val friends: StateFlow<List<User>> = _friends.asStateFlow()
+    val collaboratorProfiles = userDirectoryRepository.collaboratorProfiles
+    val friends = userDirectoryRepository.friends
     val accounts = accountService.accounts.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
     val currentAccount = accountService.currentAccount.stateIn(viewModelScope, SharingStarted.Lazily, null)
-    val joinedGroups: StateFlow<List<MemoGroup>> = currentAccount
-        .flatMapLatest { account ->
-            val accountKey = account?.accountKey().orEmpty()
-            if (accountKey.isBlank()) {
-                emptyFlow()
-            } else {
-                offlineGroupStore.observeGroups(accountKey)
-            }
-        }
+    val generalSettings = userGeneralSettingsRepository.observeCurrentGeneralSettings()
+        .stateIn(viewModelScope, SharingStarted.Lazily, UserGeneralSettings())
+    val currentAvatarUri = accountLocalSettingsStore.observeCurrentAvatarUri()
+        .stateIn(viewModelScope, SharingStarted.Lazily, "")
+    val joinedGroups: StateFlow<List<MemoGroup>> = joinedGroupRepository.observeJoinedGroups()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
-    val groupIdAliases: StateFlow<List<GroupIdAlias>> = currentAccount
-        .flatMapLatest { account ->
-            val accountKey = account?.accountKey().orEmpty()
-            if (accountKey.isBlank()) {
-                emptyFlow()
-            } else {
-                offlineGroupStore.observeGroupAliases(accountKey)
-            }
-        }
+    val groupIdAliases: StateFlow<List<GroupIdAlias>> = joinedGroupRepository.observeGroupIdAliases()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     init {
+        viewModelScope.launch {
+            userDirectoryRepository.currentUser.collectLatest { user ->
+                currentUser = user
+            }
+        }
         viewModelScope.launch {
             accountService.currentAccount.collectLatest {
                 host = when(it) {
                     is Account.KeerV2 -> it.info.host
                     else -> ""
                 }
-                _collaboratorProfiles.value = emptyMap()
-                _friends.value = emptyList()
+                userDirectoryRepository.reset()
+                if (it != null) {
+                    userGeneralSettingsRepository.refreshCurrentGeneralSettings()
+                }
             }
         }
     }
 
     suspend fun loadCurrentUser(): ApiResponse<User> = withContext(viewModelScope.coroutineContext) {
-        val loadedAt = System.currentTimeMillis()
-        accountService.getRepository().getCurrentUser().suspendOnSuccess {
-            currentUser = data
-            lastCurrentUserLoadAtMillis = loadedAt
-            offlineSyncTaskScheduler.dispatch(OfflineSyncTask.AVATAR)
-        }.suspendOnNotLogin {
-            currentUser = null
-            lastCurrentUserLoadAtMillis = loadedAt
+        val response = userDirectoryRepository.loadCurrentUser()
+        if (response is ApiResponse.Success) {
+            memoService.requestSync(
+                trigger = SyncTrigger.AUTO,
+                force = false,
+                domains = setOf(SyncDomain.PROFILE)
+            )
         }
+        response
     }
 
     suspend fun loadCurrentUserIfStale(
-        maxAgeMillis: Long = currentUserStaleThresholdMillis
+        maxAgeMillis: Long = 30_000L
     ) = withContext(viewModelScope.coroutineContext) {
-        val now = System.currentTimeMillis()
-        val hasFreshCache = currentUser != null &&
-                now - lastCurrentUserLoadAtMillis in 0 until maxAgeMillis
-        if (!hasFreshCache) {
-            loadCurrentUser()
-        }
+        userDirectoryRepository.loadCurrentUserIfStale(maxAgeMillis)
     }
 
     suspend fun hasAnyAccount(): Boolean = withContext(viewModelScope.coroutineContext) {
         accountService.accounts.first().isNotEmpty()
-    }
-
-    suspend fun checkLoginCompatibility(host: String): LoginCompatibility = withContext(viewModelScope.coroutineContext) {
-        try {
-            when (val compatibility = accountService.checkLoginCompatibility(host)) {
-                is AccountService.LoginCompatibility.Supported -> LoginCompatibility.Supported
-                is AccountService.LoginCompatibility.Unsupported -> LoginCompatibility.Unsupported(compatibility.message)
-            }
-        } catch (e: Throwable) {
-            LoginCompatibility.Unsupported(e.localizedMessage ?: e.message ?: "")
-        }
     }
 
     suspend fun loginMemosWithPassword(
@@ -155,11 +116,10 @@ class UserStateViewModel @Inject constructor(
         password: String
     ): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
         try {
-            when (val compatibility = accountService.checkLoginCompatibility(host)) {
-                is AccountService.LoginCompatibility.Supported -> loginKeerV2WithPassword(host, username, password)
-                is AccountService.LoginCompatibility.Unsupported -> {
-                    ApiResponse.exception(KeerException(compatibility.message))
-                }
+            when (val response = accountService.signInKeerV2WithPassword(host, username, password)) {
+                is ApiResponse.Success -> completeAuthenticatedSession()
+                is ApiResponse.Failure.Error -> response
+                is ApiResponse.Failure.Exception -> response
             }
         } catch (e: Throwable) {
             ApiResponse.exception(e)
@@ -172,65 +132,11 @@ class UserStateViewModel @Inject constructor(
         password: String,
     ): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
         try {
-            when (val compatibility = accountService.checkLoginCompatibility(host)) {
-                is AccountService.LoginCompatibility.Supported -> registerKeerV2Account(host, username, password)
-                is AccountService.LoginCompatibility.Unsupported -> {
-                    ApiResponse.exception(KeerException(compatibility.message))
-                }
+            when (val response = accountService.registerKeerV2WithPassword(host, username, password)) {
+                is ApiResponse.Success -> completeAuthenticatedSession()
+                is ApiResponse.Failure.Error -> response
+                is ApiResponse.Failure.Exception -> response
             }
-        } catch (e: Throwable) {
-            ApiResponse.exception(e)
-        }
-    }
-
-    private suspend fun loginKeerV2WithPassword(host: String, username: String, password: String): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
-        try {
-            val resp = accountService.createKeerV2Client(host).second.signIn(
-                SignInRequest(
-                    passwordCredentials = PasswordCredentials(
-                        username = username,
-                        password = password,
-                    )
-                )
-            )
-            if (resp !is ApiResponse.Success) {
-                return@withContext resp.mapSuccess {}
-            }
-            val account = getAccount(host, resp.data)
-            val keyBootstrap = accountService.ensureAccountKeysReady(
-                account = account,
-                password = password,
-                accessToken = resp.data.accessToken,
-            )
-            if (keyBootstrap !is ApiResponse.Success) {
-                return@withContext keyBootstrap
-            }
-            accountService.addAccount(account)
-            loadCurrentUser().mapSuccess {}
-        } catch (e: Throwable) {
-            ApiResponse.exception(e)
-        }
-    }
-
-    private suspend fun registerKeerV2Account(
-        host: String,
-        username: String,
-        password: String,
-    ): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
-        try {
-            val trimmedUsername = username.trim()
-            val createResponse = accountService.createKeerV2Client(host).second.createUser(
-                CreateUserRequest(
-                    user = CreateUserBody(
-                        username = trimmedUsername,
-                        password = password,
-                    )
-                )
-            )
-            if (createResponse !is ApiResponse.Success) {
-                return@withContext createResponse.mapSuccess {}
-            }
-            loginKeerV2WithPassword(host, trimmedUsername, password)
         } catch (e: Throwable) {
             ApiResponse.exception(e)
         }
@@ -245,60 +151,33 @@ class UserStateViewModel @Inject constructor(
 
     suspend fun switchAccount(accountKey: String) = withContext(viewModelScope.coroutineContext) {
         accountService.switchAccount(accountKey)
+        userGeneralSettingsRepository.refreshCurrentGeneralSettings()
         loadCurrentUser()
     }
 
     suspend fun uploadCurrentUserAvatar(uri: Uri): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
         val response = accountService.uploadCurrentUserAvatar(uri)
         if (response is ApiResponse.Success) {
-            offlineSyncTaskScheduler.dispatch(OfflineSyncTask.AVATAR)
+            memoService.requestSync(
+                trigger = SyncTrigger.MUTATION,
+                force = false,
+                domains = setOf(SyncDomain.PROFILE)
+            )
         }
         loadCurrentUser()
         response
     }
 
     suspend fun refreshFriends(): ApiResponse<List<User>> = withContext(viewModelScope.coroutineContext) {
-        val remoteRepository = accountService.getRemoteRepository()
-            ?: return@withContext ApiResponse.Success(emptyList())
-        when (val response = remoteRepository.listFriends()) {
-            is ApiResponse.Success -> {
-                _friends.value = response.data
-                updateCollaboratorProfilesFromFriends(response.data)
-                response
-            }
-            else -> response.mapSuccess { emptyList<User>() }
-        }
+        userDirectoryRepository.refreshFriends()
     }
 
     suspend fun addFriend(userIdentifier: String): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
-        val remoteRepository = accountService.getRemoteRepository()
-            ?: return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_friends.string))
-        when (val response = remoteRepository.addFriend(userIdentifier)) {
-            is ApiResponse.Success -> {
-                val next = (_friends.value + response.data)
-                    .distinctBy(User::identifier)
-                    .sortedBy { it.name.lowercase() }
-                _friends.value = next
-                updateCollaboratorProfilesFromFriends(next)
-                ApiResponse.Success(Unit)
-            }
-            else -> response.mapSuccess { Unit }
-        }
+        userDirectoryRepository.addFriend(userIdentifier)
     }
 
     suspend fun removeFriend(userIdentifier: String): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
-        val remoteRepository = accountService.getRemoteRepository()
-            ?: return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_friends.string))
-        when (val response = remoteRepository.removeFriend(userIdentifier)) {
-            is ApiResponse.Success -> {
-                val normalized = normalizeCollaboratorUserID(userIdentifier)
-                if (normalized != null) {
-                    _friends.value = _friends.value.filterNot { friend -> friend.identifier == normalized }
-                }
-                ApiResponse.Success(Unit)
-            }
-            else -> response.mapSuccess { Unit }
-        }
+        userDirectoryRepository.removeFriend(userIdentifier)
     }
 
     suspend fun changePassword(
@@ -310,14 +189,37 @@ class UserStateViewModel @Inject constructor(
         remoteRepository.changePassword(currentPassword, newPassword)
     }
 
+    suspend fun refreshGeneralSettings(): ApiResponse<UserGeneralSettings> = withContext(viewModelScope.coroutineContext) {
+        userGeneralSettingsRepository.refreshCurrentGeneralSettings()
+    }
+
+    suspend fun updateMemoEditGesture(
+        gesture: site.lcyk.keer.data.model.MemoEditGesture
+    ): ApiResponse<UserGeneralSettings> = withContext(viewModelScope.coroutineContext) {
+        userGeneralSettingsRepository.updateMemoEditGesture(gesture)
+    }
+
+    suspend fun updateMemoColumns(
+        columns: List<site.lcyk.keer.data.model.MemoColumnConfig>
+    ): ApiResponse<UserGeneralSettings> = withContext(viewModelScope.coroutineContext) {
+        userGeneralSettingsRepository.updateMemoColumns(columns)
+    }
+
+    suspend fun cleanupOrphanFiles(): ApiResponse<StorageCleanupSummary> = withContext(viewModelScope.coroutineContext) {
+        val remoteRepository = accountService.getRemoteRepository()
+            ?: return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_admin_ops.string))
+        remoteRepository.cleanupOrphanFiles()
+    }
+
+    fun observeAccountAvatarUri(accountKey: String) =
+        accountLocalSettingsStore.observeUserAvatarUri(accountKey)
+
     suspend fun openDirectChat(userIdentifier: String): ApiResponse<MemoGroup> = withContext(viewModelScope.coroutineContext) {
         val remoteRepository = accountService.getRemoteRepository()
             ?: return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_direct_chats.string))
         when (val response = remoteRepository.createDirectGroup(userIdentifier)) {
             is ApiResponse.Success -> {
-                currentAccount.first()?.accountKey()?.takeIf { accountKey -> accountKey.isNotBlank() }?.let { accountKey ->
-                    offlineGroupStore.upsertGroup(accountKey, response.data)
-                }
+                joinedGroupRepository.upsertGroup(response.data)
                 response
             }
             else -> response
@@ -325,165 +227,18 @@ class UserStateViewModel @Inject constructor(
     }
 
     suspend fun prefetchCollaboratorAvatars(userIds: List<String>) = withContext(viewModelScope.coroutineContext) {
-        val account = currentAccount.first() as? Account.KeerV2 ?: return@withContext
-        val normalizedIds = userIds
-            .asSequence()
-            .mapNotNull(::normalizeCollaboratorUserID)
-            .distinct()
-            .toList()
-        if (normalizedIds.isEmpty()) {
-            return@withContext
-        }
+        userDirectoryRepository.prefetchCollaboratorAvatars(userIds)
+    }
 
-        val missingIds = collaboratorAvatarMutex.withLock {
-            normalizedIds.filterNot { userId ->
-                _collaboratorProfiles.value.containsKey(userId) || collaboratorAvatarInFlightIds.contains(userId)
-            }.also { pendingIds ->
-                collaboratorAvatarInFlightIds.addAll(pendingIds)
-            }
-        }
-        if (missingIds.isEmpty()) {
-            return@withContext
-        }
-
-        try {
-            val api = accountService.createKeerV2Client(account.info.host, account.accountKey()).second
-            val currentUserID = account.info.id.toString()
-            val remoteIDs = missingIds.filterNot { userId -> userId == currentUserID }
-            val remoteUsersByID = hashMapOf<String, KeerV2User>()
-            if (remoteIDs.isNotEmpty()) {
-                val unresolved = linkedSetOf<String>()
-                remoteIDs.chunked(userBatchQueryChunkSize).forEach { chunk ->
-                    val batch = api.getUsersBatch(chunk.joinToString(",")).getOrNull()
-                    if (batch == null) {
-                        unresolved += chunk
-                    } else {
-                        batch.users.forEach { user ->
-                            val userID = normalizeCollaboratorUserID(user.name)
-                            if (userID != null) {
-                                remoteUsersByID[userID] = user
-                            }
-                        }
-                        chunk.forEach { userID ->
-                            if (!remoteUsersByID.containsKey(userID)) {
-                                unresolved += userID
-                            }
-                        }
-                    }
-                }
-
-                // Batch endpoint may miss partial users; fallback to single-user lookup only for unresolved IDs.
-                if (unresolved.isNotEmpty()) {
-                    unresolved.chunked(userFallbackLookupChunkSize).forEach { chunk ->
-                        val fallbackUsers = kotlinx.coroutines.coroutineScope {
-                            chunk.map { userId ->
-                                async { userId to api.getUser(userId).getOrNull() }
-                            }.awaitAll()
-                        }
-                        fallbackUsers.forEach { (userId, user) ->
-                            if (user != null) {
-                                remoteUsersByID[userId] = user
-                            }
-                        }
-                    }
-                }
-            }
-
-            val fetched = missingIds.associateWith { userId ->
-                if (userId == currentUserID) {
-                    val current = currentUser
-                    CollaboratorProfile(
-                        id = userId,
-                        name = current?.name?.takeIf { it.isNotBlank() }
-                            ?: account.info.name.ifBlank { userId },
-                        avatarUrl = resolveAvatarUrl(
-                            account.info.host,
-                            current?.avatarUrl.orEmpty().ifBlank { account.info.avatarUrl }
-                        )
-                    )
-                } else {
-                    val user = remoteUsersByID[userId]
-                    CollaboratorProfile(
-                        id = userId,
-                        name = user?.username?.takeIf { it.isNotBlank() }
-                            ?: userId,
-                        avatarUrl = resolveAvatarUrl(account.info.host, user?.avatarUrl.orEmpty())
-                    )
-                }
-            }
-
-            collaboratorAvatarMutex.withLock {
-                val merged = _collaboratorProfiles.value.toMutableMap()
-                missingIds.forEach { userId ->
-                    val profile = fetched[userId]
-                    if (profile != null) {
-                        merged[userId] = profile
-                    }
-                }
-                _collaboratorProfiles.value = merged
-            }
-        } finally {
-            collaboratorAvatarMutex.withLock {
-                collaboratorAvatarInFlightIds.removeAll(missingIds.toSet())
-            }
+    private suspend fun completeAuthenticatedSession(): ApiResponse<Unit> {
+        userGeneralSettingsRepository.refreshCurrentGeneralSettings()
+        return when (val response = loadCurrentUser()) {
+            is ApiResponse.Success -> ApiResponse.Success(Unit)
+            is ApiResponse.Failure.Error -> response
+            is ApiResponse.Failure.Exception -> response
         }
     }
 
-    private fun getAccount(host: String, session: AuthSessionResponse): Account.KeerV2 = Account.KeerV2(
-        info = MemosAccount(
-            host = host,
-            accessToken = session.accessToken,
-            refreshToken = session.refreshToken,
-            id = session.user.name.substringAfterLast('/').toLong(),
-            name = session.user.username,
-            avatarUrl = session.user.avatarUrl ?: "",
-            startDateEpochSecond = session.user.createTime?.epochSecond ?: 0L,
-        )
-    )
-
-    private fun resolveAvatarUrl(host: String, avatarUrl: String): String? {
-        if (avatarUrl.isBlank()) {
-            return null
-        }
-        if (avatarUrl.toHttpUrlOrNull() != null || "://" in avatarUrl) {
-            return avatarUrl
-        }
-        val baseUrl = host.toHttpUrlOrNull() ?: return avatarUrl
-        return runCatching {
-            baseUrl.toUrl().toURI().resolve(avatarUrl).toString()
-        }.getOrDefault(avatarUrl)
-    }
-
-    private fun normalizeCollaboratorUserID(raw: String): String? {
-        val normalized = raw.trim()
-            .substringAfterLast('/')
-            .substringBefore('|')
-            .trim()
-        return normalized.ifEmpty { null }
-    }
-
-    private fun updateCollaboratorProfilesFromFriends(friends: List<User>) {
-        val merged = _collaboratorProfiles.value.toMutableMap()
-        friends.forEach { friend ->
-            merged[friend.identifier] = CollaboratorProfile(
-                id = friend.identifier,
-                name = friend.name,
-                avatarUrl = friend.avatarUrl
-            )
-        }
-        _collaboratorProfiles.value = merged
-    }
-
-    private companion object {
-        private const val userBatchQueryChunkSize = 200
-        private const val userFallbackLookupChunkSize = 8
-        private const val currentUserStaleThresholdMillis = 30_000L
-    }
-}
-
-sealed class LoginCompatibility {
-    object Supported : LoginCompatibility()
-    data class Unsupported(val message: String) : LoginCompatibility()
 }
 
 val LocalUserState =

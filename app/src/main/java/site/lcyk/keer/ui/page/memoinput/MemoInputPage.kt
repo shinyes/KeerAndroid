@@ -49,9 +49,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
-import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
-import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.suspendOnErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.MemoQuoteReferenceCard
@@ -94,9 +92,8 @@ fun MemoInputPage(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val friends by userStateViewModel.friends.collectAsState()
-    val settings by navController.context.settingsDataStore.data.collectAsState(initial = Settings())
     val memoSnapshot = remember(memosViewModel.memos) { memosViewModel.memos.toList() }
-    val memo = remember(memoIdentifier, memoSnapshot, settings.currentUser, settings.usersList) {
+    val memo = remember(memoIdentifier, memoSnapshot) {
         if (memoIdentifier.isNullOrBlank()) {
             null
         } else {
@@ -104,7 +101,6 @@ fun MemoInputPage(
                 ?: resolveMemoByIdentifier(
                     memoIdentifier = memoIdentifier,
                     memos = memoSnapshot,
-                    settings = settings
                 )
         }
     }
@@ -123,13 +119,12 @@ fun MemoInputPage(
         }
     }
     val activeQuoteDescriptor = if (memo != null) existingQuoteDescriptor else requestedQuoteDescriptor
-    val quotedMemo = remember(activeQuoteDescriptor, memoSnapshot, settings.currentUser, settings.usersList) {
+    val quotedMemo = remember(activeQuoteDescriptor, memoSnapshot) {
         val descriptor = activeQuoteDescriptor ?: return@remember null
         memosViewModel.getMemoForDetail(descriptor.source)
             ?: resolveMemoFromQuoteDescriptor(
                 descriptor = descriptor,
                 memos = memoSnapshot,
-                settings = settings
             )
     }
     val quotePreview = remember(

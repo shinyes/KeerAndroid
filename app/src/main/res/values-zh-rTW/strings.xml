@@ -33,6 +33,8 @@
     <string name="column_name_required">專欄名稱不能為空。</string>
     <string name="column_tags_required">請至少選擇一個標籤。</string>
     <string name="column_not_found">找不到這個專欄。</string>
+    <string name="column_pin_requires_sync">該 MEMO 需要先完成同步後才能在專欄中置頂。</string>
+    <string name="column_pin_update_failed">更新專欄置頂狀態失敗。</string>
     <string name="tags">標籤</string>
     <string name="memo">靈感</string>
     <string name="memo_detail">詳情</string>
@@ -171,6 +173,7 @@
     <string name="friends_remote_only">僅同步帳戶支援好友功能。</string>
     <string name="current_account_no_friends">目前帳戶不支援好友功能。</string>
     <string name="current_account_no_password_change">目前帳戶不支援修改密碼。</string>
+    <string name="current_account_no_admin_ops">目前帳戶不支援管理員操作。</string>
     <string name="current_account_no_direct_chats">目前帳戶不支援私聊。</string>
     <string name="current_account_no_remote_memo_operations">目前帳戶不支援遠端 memo 操作。</string>
     <string name="no_friends_yet">還沒有好友。</string>
@@ -220,6 +223,7 @@
     <string name="resource_not_found">找不到資源</string>
     <string name="tag_name_empty">標籤名稱不能為空</string>
     <string name="current_account_no_avatar_sync">目前帳戶不支援頭像同步。</string>
+    <string name="current_account_no_settings_sync">目前帳戶不支援同步通用設定。</string>
     <string name="load_account_encryption_key_failed">載入帳戶主密鑰失敗。</string>
     <string name="load_account_encryption_key_failed_http">載入帳戶主密鑰失敗。HTTP %1$d</string>
     <string name="recover_account_encryption_key_failed">恢復帳戶主密鑰失敗。</string>
@@ -239,6 +243,11 @@
     <string name="load_user_public_keys_failed">載入使用者公鑰失敗。</string>
     <string name="load_user_public_keys_failed_http">載入使用者公鑰失敗。HTTP %1$d</string>
     <string name="debug_logs">除錯日誌</string>
+    <string name="admin">管理員</string>
+    <string name="cleanup_orphan_files">清除孤兒檔案</string>
+    <string name="cleanup_orphan_files_confirm">這會同時掃描本機儲存與 S3，並刪除已不再被附件或頭像引用的檔案。確定繼續嗎？</string>
+    <string name="cleanup_orphan_files_result">掃描完成，共掃描 %1$d 個檔案，刪除 %2$d 個，失敗 %3$d 個。</string>
+    <string name="cleanup_orphan_files_failed">清除孤兒檔案失敗。</string>
     <string name="enable_app_debug_logs">啟用應用日誌</string>
     <string name="enable_http_debug_logs">啟用 HTTP 日誌</string>
     <string name="clear_logs">清空日誌</string>

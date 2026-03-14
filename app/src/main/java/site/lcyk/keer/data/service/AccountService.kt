@@ -7,19 +7,23 @@ import android.webkit.MimeTypeMap
 import androidx.core.net.toUri
 import com.skydoves.sandwich.ApiResponse
 import com.skydoves.sandwich.getOrThrow
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
+import dagger.hilt.android.qualifiers.ApplicationContext
 import site.lcyk.keer.R
+import site.lcyk.keer.data.api.AuthSessionResponse
+import site.lcyk.keer.data.api.CreateUserBody
+import site.lcyk.keer.data.api.CreateUserRequest
 import site.lcyk.keer.data.api.KeerV2Api
+import site.lcyk.keer.data.api.PasswordCredentials
+import site.lcyk.keer.data.api.SignInRequest
 import site.lcyk.keer.data.api.UpdateUserAvatarUpload
 import site.lcyk.keer.data.api.UpdateUserBody
 import site.lcyk.keer.data.api.UpdateUserRequest
@@ -28,6 +32,7 @@ import site.lcyk.keer.data.local.KeerDatabase
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.LocalAccount
+import site.lcyk.keer.data.model.MemosAccount
 import site.lcyk.keer.data.model.User
 import site.lcyk.keer.data.model.UserData
 import site.lcyk.keer.data.model.UserSettings
@@ -36,8 +41,6 @@ import site.lcyk.keer.data.repository.LocalDatabaseRepository
 import site.lcyk.keer.data.repository.RemoteRepository
 import site.lcyk.keer.data.security.AccountKeyManager
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.ext.settingsDataStore
-import net.swiftzer.semver.SemVer
 import okhttp3.OkHttpClient
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -60,18 +63,8 @@ class AccountService @Inject constructor(
     private val accountKeyManager: AccountKeyManager,
     private val authSessionManager: AuthSessionManager,
     private val repositoryFactory: RepositoryFactory,
+    private val accountLocalSettingsStore: AccountLocalSettingsStore,
 ) {
-    sealed class LoginCompatibility {
-        object Supported : LoginCompatibility()
-        data class Unsupported(val message: String) : LoginCompatibility()
-    }
-
-    sealed class SyncCompatibility {
-        object Allowed : SyncCompatibility()
-        data class Blocked(val message: String?) : SyncCompatibility()
-        data class Unavailable(val message: String?) : SyncCompatibility()
-    }
-
     private val exportDateFormatter: DateTimeFormatter = DateTimeFormatter
         .ofPattern("yyyyMMdd-HHmmss", Locale.US)
         .withZone(ZoneId.systemDefault())
@@ -138,9 +131,7 @@ class AccountService @Inject constructor(
         awaitInitialization()
         mutex.withLock {
             val account = accounts.first().firstOrNull { it.accountKey() == accountKey }
-            context.settingsDataStore.updateData { settings ->
-                settings.copy(currentUser = accountKey)
-            }
+            accountLocalSettingsStore.selectCurrentAccount(accountKey)
             updateCurrentAccount(account)
         }
     }
@@ -149,19 +140,7 @@ class AccountService @Inject constructor(
         awaitInitialization()
         mutex.withLock {
             authSessionManager.persistTokens(account)
-            context.settingsDataStore.updateData { settings ->
-                val users = settings.usersList.toMutableList()
-                val index = users.indexOfFirst { it.accountKey == account.accountKey() }
-                val currentSettings = users.getOrNull(index)?.settings ?: UserSettings()
-                if (index != -1) {
-                    users.removeAt(index)
-                }
-                users.add(account.toPersistedUserData(currentSettings))
-                settings.copy(
-                    usersList = users,
-                    currentUser = account.accountKey(),
-                )
-            }
+            accountLocalSettingsStore.upsertAccount(account, makeCurrent = true)
             updateCurrentAccount(account)
         }
     }
@@ -169,22 +148,7 @@ class AccountService @Inject constructor(
     suspend fun removeAccount(accountKey: String) {
         awaitInitialization()
         mutex.withLock {
-            context.settingsDataStore.updateData { settings ->
-                val users = settings.usersList.toMutableList()
-                val index = users.indexOfFirst { it.accountKey == accountKey }
-                if (index != -1) {
-                    users.removeAt(index)
-                }
-                val newCurrentUser = if (settings.currentUser == accountKey) {
-                    users.firstOrNull()?.accountKey ?: ""
-                } else {
-                    settings.currentUser
-                }
-                settings.copy(
-                    usersList = users,
-                    currentUser = newCurrentUser,
-                )
-            }
+            accountLocalSettingsStore.removeAccount(accountKey)
             updateCurrentAccount(currentAccount.first())
             purgeAccountData(accountKey)
             authSessionManager.removeTokens(accountKey)
@@ -276,17 +240,11 @@ class AccountService @Inject constructor(
 
     private suspend fun updateAccountFromSyncedUser(accountKey: String, user: User) {
         mutex.withLock {
-            context.settingsDataStore.updateData { settings ->
-                val index = settings.usersList.indexOfFirst { it.accountKey == accountKey }
-                if (index == -1) {
-                    return@updateData settings
-                }
-                val existingUser = settings.usersList[index]
-                val current = authSessionManager.parseAccountWithStoredTokens(existingUser) ?: return@updateData settings
+            val existingUser = accountLocalSettingsStore.userData(accountKey) ?: return
+            val current = authSessionManager.parseAccountWithStoredTokens(existingUser) ?: return
+            accountLocalSettingsStore.updateUserData(accountKey) {
                 val updated = current.withUser(user)
-                val users = settings.usersList.toMutableList()
-                users[index] = updated.toPersistedUserData(existingUser.settings)
-                settings.copy(usersList = users)
+                updated.toPersistedUserData(existingUser.settings)
             }
         }
     }
@@ -310,47 +268,55 @@ class AccountService @Inject constructor(
         accountKeyManager.ensureAccountKeysReady(account, api, password)
     }
 
-    suspend fun checkLoginCompatibility(host: String): LoginCompatibility {
-        val keerApiVersion = detectKeerAPIVersion(host) ?: return LoginCompatibility.Unsupported(
-            R.string.memos_supported_versions.string
+    suspend fun signInKeerV2WithPassword(
+        host: String,
+        username: String,
+        password: String,
+    ): ApiResponse<Account.KeerV2> = withContext(Dispatchers.IO) {
+        val response = createKeerV2Client(host).second.signIn(
+            SignInRequest(
+                passwordCredentials = PasswordCredentials(
+                    username = username,
+                    password = password,
+                )
+            )
         )
-        return if (isCompatibleKeerAPIVersion(keerApiVersion)) {
-            LoginCompatibility.Supported
-        } else {
-            LoginCompatibility.Unsupported(R.string.memos_supported_versions.string)
+        when (response) {
+            is ApiResponse.Success -> Unit
+            is ApiResponse.Failure.Error -> return@withContext response
+            is ApiResponse.Failure.Exception -> return@withContext response
         }
+        bootstrapAuthenticatedKeerV2Account(
+            host = host,
+            password = password,
+            session = response.data,
+        )
     }
 
-    suspend fun checkCurrentAccountSyncCompatibility(isAutomatic: Boolean): SyncCompatibility {
-        awaitInitialization()
-        val account = currentAccount.first() ?: return SyncCompatibility.Allowed
-        if (account is Account.Local) {
-            return SyncCompatibility.Allowed
+    suspend fun registerKeerV2WithPassword(
+        host: String,
+        username: String,
+        password: String,
+    ): ApiResponse<Account.KeerV2> = withContext(Dispatchers.IO) {
+        val trimmedUsername = username.trim()
+        val createResponse = createKeerV2Client(host).second.createUser(
+            CreateUserRequest(
+                user = CreateUserBody(
+                    username = trimmedUsername,
+                    password = password,
+                )
+            )
+        )
+        when (createResponse) {
+            is ApiResponse.Success -> Unit
+            is ApiResponse.Failure.Error -> return@withContext createResponse
+            is ApiResponse.Failure.Exception -> return@withContext createResponse
         }
-        if (account !is Account.KeerV2) {
-            return if (isAutomatic) {
-                SyncCompatibility.Blocked(null)
-            } else {
-                SyncCompatibility.Blocked(R.string.memos_supported_versions.string)
-            }
-        }
-
-        val serverVersion = fetchKeerAPIVersionForAccount(account)
-        if (serverVersion == null) {
-            return if (isAutomatic) {
-                SyncCompatibility.Unavailable(null)
-            } else {
-                SyncCompatibility.Unavailable(R.string.sync_server_unreachable.string)
-            }
-        }
-        if (!isCompatibleKeerAPIVersion(serverVersion)) {
-            return if (isAutomatic) {
-                SyncCompatibility.Blocked(null)
-            } else {
-                SyncCompatibility.Blocked(R.string.memos_supported_versions.string)
-            }
-        }
-        return SyncCompatibility.Allowed
+        signInKeerV2WithPassword(
+            host = host,
+            username = trimmedUsername,
+            password = password,
+        )
     }
 
     suspend fun getRepository(): AbstractMemoRepository {
@@ -373,9 +339,7 @@ class AccountService @Inject constructor(
             return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_avatar_sync.string))
         }
 
-        val previousAvatarUri = context.settingsDataStore.data.first().usersList
-            .firstOrNull { user -> user.accountKey == account.accountKey() }
-            ?.settings
+        val previousAvatarUri = accountLocalSettingsStore.userSettings(account.accountKey())
             ?.avatarUri
             .orEmpty()
 
@@ -396,21 +360,7 @@ class AccountService @Inject constructor(
             ?: return@withContext ApiResponse.exception(IllegalStateException("Cannot save avatar locally"))
 
         mutex.withLock {
-            context.settingsDataStore.updateData { settings ->
-                val users = settings.usersList.toMutableList()
-                val index = users.indexOfFirst { it.accountKey == account.accountKey() }
-                if (index == -1) {
-                    return@updateData settings
-                }
-                val existing = users[index]
-                users[index] = existing.copy(
-                    settings = existing.settings.copy(
-                        avatarUri = localAvatarUri.toString(),
-                        avatarSyncPending = true
-                    )
-                )
-                settings.copy(usersList = users)
-            }
+            accountLocalSettingsStore.markAvatarSyncPending(account.accountKey(), localAvatarUri.toString())
         }
 
         if (previousAvatarUri.isNotBlank() && previousAvatarUri != localAvatarUri.toString()) {
@@ -422,10 +372,7 @@ class AccountService @Inject constructor(
 
     suspend fun syncPendingAvatarIfNeeded(): ApiResponse<Unit> = withContext(Dispatchers.IO) {
         val account = currentAccount.first() as? Account.KeerV2 ?: return@withContext ApiResponse.Success(Unit)
-        val settingsSnapshot = context.settingsDataStore.data.first()
-        val userSettings = settingsSnapshot.usersList
-            .firstOrNull { it.accountKey == account.accountKey() }
-            ?.settings
+        val userSettings = accountLocalSettingsStore.userSettings(account.accountKey())
             ?: return@withContext ApiResponse.Success(Unit)
         if (!userSettings.avatarSyncPending || userSettings.avatarUri.isBlank()) {
             return@withContext ApiResponse.Success(Unit)
@@ -511,149 +458,40 @@ class AccountService @Inject constructor(
         lastAvatarSyncAttemptAtMillis = 0L
 
         val updatedUser = response.data
+        val existing = mutex.withLock {
+            accountLocalSettingsStore.userData(account.accountKey())
+        } ?: return ApiResponse.exception(IllegalStateException("Current account data missing"))
+        val parsed = authSessionManager.parseAccountWithStoredTokens(existing) as? Account.KeerV2
+            ?: return ApiResponse.exception(IllegalStateException("Current account data invalid"))
         mutex.withLock {
-            context.settingsDataStore.updateData { settings ->
-                val users = settings.usersList.toMutableList()
-                val index = users.indexOfFirst { it.accountKey == account.accountKey() }
-                if (index == -1) {
-                    return@updateData settings
-                }
-                val existing = users[index]
-                val parsed = authSessionManager.parseAccountWithStoredTokens(existing) as? Account.KeerV2
-                    ?: return@updateData settings
-                val updated = parsed.info.copy(avatarUrl = updatedUser.avatarUrl.orEmpty())
-                users[index] = Account.KeerV2(updated).toPersistedUserData(
-                    existing.settings.copy(avatarSyncPending = false)
-                )
-                settings.copy(usersList = users)
-            }
+            val updated = Account.KeerV2(parsed.info.copy(avatarUrl = updatedUser.avatarUrl.orEmpty()))
+            accountLocalSettingsStore.clearAvatarSyncPending(account.accountKey(), updated)
         }
         return ApiResponse.Success(Unit)
     }
 
-    private suspend fun detectKeerAPIVersion(host: String): String? {
-        val keerV2Profile = createKeerV2Client(host, null).second.getProfile().getOrThrow()
-        return keerV2Profile.keerApiVersion.trim().ifEmpty { null }
-    }
-
-    private suspend fun fetchKeerAPIVersionForAccount(account: Account.KeerV2): String? {
-        val profileResponse = withTimeoutOrNull(SYNC_COMPATIBILITY_TIMEOUT_MILLIS) {
-            createKeerV2Client(account.info.host, account.accountKey())
-                .second
-                .getProfile()
-        } ?: return null
-
-        return when (profileResponse) {
-            is ApiResponse.Success -> {
-                profileResponse.data.keerApiVersion.trim().ifEmpty { null }
-            }
-            else -> {
-                null
-            }
-        }
-    }
-
     private suspend fun readMemoSyncAnchor(accountKey: String): Instant? {
-        val settings = context.settingsDataStore.data.first()
-        val raw = settings.usersList
-            .firstOrNull { user -> user.accountKey == accountKey }
-            ?.settings
-            ?.memoSyncAnchor
-            .orEmpty()
-            .trim()
-        if (raw.isEmpty()) {
-            return null
-        }
-        return try {
-            Instant.parse(raw)
-        } catch (_: Exception) {
-            null
-        }
+        return accountLocalSettingsStore.readMemoSyncAnchor(accountKey)
     }
 
     private suspend fun writeMemoSyncAnchor(accountKey: String, anchor: Instant) {
-        val normalizedAnchor = anchor.toString()
-        context.settingsDataStore.updateData { existing ->
-            val index = existing.usersList.indexOfFirst { user -> user.accountKey == accountKey }
-            if (index == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[index]
-            users[index] = target.copy(
-                settings = target.settings.copy(memoSyncAnchor = normalizedAnchor)
-            )
-            existing.copy(usersList = users)
-        }
+        accountLocalSettingsStore.writeMemoSyncAnchor(accountKey, anchor)
     }
 
     private suspend fun readUserSyncAnchor(accountKey: String): Instant? {
-        val settings = context.settingsDataStore.data.first()
-        val raw = settings.usersList
-            .firstOrNull { user -> user.accountKey == accountKey }
-            ?.settings
-            ?.userSyncAnchor
-            .orEmpty()
-            .trim()
-        if (raw.isEmpty()) {
-            return null
-        }
-        return try {
-            Instant.parse(raw)
-        } catch (_: Exception) {
-            null
-        }
+        return accountLocalSettingsStore.readUserSyncAnchor(accountKey)
     }
 
     private suspend fun writeUserSyncAnchor(accountKey: String, anchor: Instant) {
-        val normalizedAnchor = anchor.toString()
-        context.settingsDataStore.updateData { existing ->
-            val index = existing.usersList.indexOfFirst { user -> user.accountKey == accountKey }
-            if (index == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[index]
-            users[index] = target.copy(
-                settings = target.settings.copy(userSyncAnchor = normalizedAnchor)
-            )
-            existing.copy(usersList = users)
-        }
+        accountLocalSettingsStore.writeUserSyncAnchor(accountKey, anchor)
     }
 
     private suspend fun readSyncedUserIDs(accountKey: String): List<String> {
-        val settings = context.settingsDataStore.data.first()
-        return settings.usersList
-            .firstOrNull { user -> user.accountKey == accountKey }
-            ?.settings
-            ?.syncedUserIds
-            .orEmpty()
-            .asSequence()
-            .map { id -> id.trim() }
-            .filter { id -> id.isNotEmpty() }
-            .distinct()
-            .toList()
+        return accountLocalSettingsStore.readSyncedUserIDs(accountKey)
     }
 
     private suspend fun writeSyncedUserIDs(accountKey: String, userIDs: List<String>) {
-        val normalizedUserIDs = userIDs
-            .asSequence()
-            .map { userID -> userID.trim() }
-            .filter { userID -> userID.isNotEmpty() }
-            .distinct()
-            .toList()
-        context.settingsDataStore.updateData { existing ->
-            val index = existing.usersList.indexOfFirst { user -> user.accountKey == accountKey }
-            if (index == -1) {
-                return@updateData existing
-            }
-            val users = existing.usersList.toMutableList()
-            val target = users[index]
-            users[index] = target.copy(
-                settings = target.settings.copy(syncedUserIds = normalizedUserIDs)
-            )
-            existing.copy(usersList = users)
-        }
+        accountLocalSettingsStore.writeSyncedUserIDs(accountKey, userIDs)
     }
 
     private fun Account.toPersistedUserData(settings: UserSettings): UserData {
@@ -672,6 +510,43 @@ class AccountService @Inject constructor(
                 local = info
             )
         }
+    }
+
+    private suspend fun bootstrapAuthenticatedKeerV2Account(
+        host: String,
+        password: String,
+        session: AuthSessionResponse,
+    ): ApiResponse<Account.KeerV2> {
+        val account = buildAuthenticatedAccount(host, session)
+        val keyBootstrap = ensureAccountKeysReady(
+            account = account,
+            password = password,
+            accessToken = session.accessToken,
+        )
+        when (keyBootstrap) {
+            is ApiResponse.Success -> Unit
+            is ApiResponse.Failure.Error -> return keyBootstrap
+            is ApiResponse.Failure.Exception -> return keyBootstrap
+        }
+        addAccount(account)
+        return ApiResponse.Success(account)
+    }
+
+    private fun buildAuthenticatedAccount(
+        host: String,
+        session: AuthSessionResponse,
+    ): Account.KeerV2 {
+        return Account.KeerV2(
+            info = MemosAccount(
+                host = host,
+                accessToken = session.accessToken,
+                refreshToken = session.refreshToken,
+                id = session.user.name.substringAfterLast('/').toLong(),
+                name = session.user.username,
+                avatarUrl = session.user.avatarUrl ?: "",
+                startDateEpochSecond = session.user.createTime?.epochSecond ?: 0L,
+            )
+        )
     }
 
     private fun resolveAvatarFileExtension(uri: Uri): String {
@@ -708,25 +583,7 @@ class AccountService @Inject constructor(
         initialization.await()
     }
 
-    private fun isCompatibleKeerAPIVersion(raw: String): Boolean {
-        val version = parseKeerAPIVersion(raw) ?: return false
-        return version in KEER_API_MIN_VERSION..KEER_API_MAX_VERSION
-    }
-
-    private fun parseKeerAPIVersion(raw: String): SemVer? {
-        val trimmed = raw.trim()
-        if (trimmed.isBlank()) {
-            return null
-        }
-        val normalized = if (TWO_SEGMENT_VERSION_REGEX.matches(trimmed)) "$trimmed.0" else trimmed
-        return SemVer.parseOrNull(normalized)
-    }
-
     companion object {
-        private val KEER_API_MIN_VERSION = SemVer(0, 1, 0)
-        private val KEER_API_MAX_VERSION = SemVer(0, 1, 0)
-        private val TWO_SEGMENT_VERSION_REGEX = Regex("""^\d+\.\d+$""")
-        private const val SYNC_COMPATIBILITY_TIMEOUT_MILLIS = 3500L
         private const val AVATAR_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
         private const val AVATAR_SYNC_RETRY_INTERVAL_MILLIS = 20_000L
     }

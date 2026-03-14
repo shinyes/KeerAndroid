@@ -34,10 +34,10 @@ import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.toMemo
 import site.lcyk.keer.data.model.DailyUsageStat
 import site.lcyk.keer.data.model.MemoVisibility
+import site.lcyk.keer.data.model.SyncDomain
 import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.data.service.MemoService
-import site.lcyk.keer.data.service.OfflineSyncTask
 import site.lcyk.keer.data.service.OfflineGroupStore
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
@@ -159,28 +159,33 @@ class MemosViewModel @Inject constructor(
         trigger: SyncTrigger = SyncTrigger.AUTO
     ) = withContext(viewModelScope.coroutineContext) {
         if (syncAfterLoad) {
-            memoService.requestSync(trigger = trigger, force = false)
+            val domains = when (trigger) {
+                SyncTrigger.APP_START,
+                SyncTrigger.APP_FOREGROUND -> site.lcyk.keer.data.service.SyncCoordinator.FULL_DOMAINS
+                else -> setOf(SyncDomain.MEMOS)
+            }
+            memoService.requestSync(trigger = trigger, force = false, domains = domains)
         }
     }
 
     suspend fun refreshMemos(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
-        performManualSync(tasks = setOf(OfflineSyncTask.MEMOS))
+        performManualSync(domains = setOf(SyncDomain.MEMOS))
     }
 
     suspend fun refreshHomeFeed(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
         performManualSync(
-            tasks = setOf(
-                OfflineSyncTask.MEMOS,
-                OfflineSyncTask.GROUP_CACHE_REFRESH
+            domains = setOf(
+                SyncDomain.MEMOS,
+                SyncDomain.GROUPS
             )
         )
     }
 
     suspend fun refreshExploreFeed(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
         performManualSync(
-            tasks = setOf(
-                OfflineSyncTask.MEMOS,
-                OfflineSyncTask.GROUP_CACHE_REFRESH
+            domains = setOf(
+                SyncDomain.MEMOS,
+                SyncDomain.GROUPS
             )
         )
     }
@@ -294,16 +299,20 @@ class MemosViewModel @Inject constructor(
     }
 
     private suspend fun triggerSyncAfterMutation() {
-        memoService.requestSync(trigger = SyncTrigger.MUTATION, force = false)
+        memoService.requestSync(
+            trigger = SyncTrigger.MUTATION,
+            force = false,
+            domains = setOf(SyncDomain.MEMOS)
+        )
     }
 
     private suspend fun performManualSync(
-        tasks: Set<OfflineSyncTask>
+        domains: Set<SyncDomain>
     ): ManualSyncResult {
         val syncResult = memoService.sync(
             force = true,
             trigger = SyncTrigger.MANUAL,
-            tasks = tasks
+            domains = domains
         )
         if (syncResult is ApiResponse.Success) {
             WidgetUpdater.updateWidgets(appContext)

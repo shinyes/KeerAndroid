@@ -80,8 +80,8 @@ class AttachmentEncryptionManager @Inject constructor(
         thumbnail: PreparedEncryptedThumbnail?,
     ): PreparedEncryptedUpload {
         val preparedDir = preparedUploadDir(accountKey, checkpointKey)
-        val payloadFile = File(preparedDir, "payload.bin")
-        val thumbnailFile = File(preparedDir, "thumbnail.bin")
+        val payloadFile = File(preparedDir, "blob.bin")
+        val thumbnailFile = File(preparedDir, "blob.thumb.bin")
         val metadataFile = File(preparedDir, "metadata.json")
 
         if (payloadFile.exists() && metadataFile.exists()) {
@@ -89,7 +89,7 @@ class AttachmentEncryptionManager @Inject constructor(
             if (cachedMetadata != null && isAccountMasterKeyWrapped(cachedMetadata)) {
                 val cachedThumbnail = if (cachedMetadata.thumbnail != null && thumbnailFile.exists()) {
                     PreparedEncryptedThumbnail(
-                        filename = thumbnail?.filename ?: "thumbnail.bin",
+                        filename = thumbnail?.filename ?: "blob.thumb.bin",
                         type = ENCRYPTED_MIME_TYPE,
                         content = base64Encode(thumbnailFile.readBytes()),
                     )

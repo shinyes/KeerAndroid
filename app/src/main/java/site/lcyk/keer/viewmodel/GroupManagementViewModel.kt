@@ -18,20 +18,21 @@ import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.PendingGroupOperation
 import site.lcyk.keer.data.model.PendingGroupOperationType
+import site.lcyk.keer.data.model.SyncDomain
+import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.service.AccountService
+import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.data.service.OfflineGroupStore
-import site.lcyk.keer.data.service.OfflineSyncTask
-import site.lcyk.keer.data.service.OfflineSyncTaskScheduler
 import site.lcyk.keer.ext.getErrorMessage
-import site.lcyk.keer.ext.settingsDataStore
 import site.lcyk.keer.ext.string
 
 @HiltViewModel
 class GroupManagementViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val accountService: AccountService,
+    private val accountLocalSettingsStore: AccountLocalSettingsStore,
     private val offlineGroupStore: OfflineGroupStore,
-    private val offlineSyncTaskScheduler: OfflineSyncTaskScheduler
+    private val memoService: MemoService,
 ) : ViewModel() {
     private val _groups = MutableStateFlow<List<MemoGroup>>(emptyList())
     val groups: StateFlow<List<MemoGroup>> = _groups.asStateFlow()
@@ -173,11 +174,10 @@ class GroupManagementViewModel @Inject constructor(
     }
 
     private suspend fun syncPendingGroupTasks() {
-        when (
-            val response = offlineSyncTaskScheduler.dispatch(
-                setOf(OfflineSyncTask.GROUP_OPERATIONS, OfflineSyncTask.GROUP_TAGS)
-            )
-        ) {
+        when (val response = memoService.sync(
+            force = true,
+            domains = setOf(SyncDomain.GROUPS)
+        )) {
             is ApiResponse.Success -> Unit
             else -> {
                 _errorMessage.value = response.getErrorMessage()
@@ -187,24 +187,8 @@ class GroupManagementViewModel @Inject constructor(
     }
 
     private suspend fun refreshGroupsFromRemote() {
-        val remoteRepository = accountService.getRemoteRepository() ?: return
-        when (val response = remoteRepository.listGroups()) {
-            is ApiResponse.Success -> {
-                val loaded = response.data
-                _groups.value = loaded
-                persistGroups(loaded)
-                _errorMessage.value = null
-            }
-            else -> {
-                _errorMessage.value = response.getErrorMessage()
-            }
-        }
-    }
-
-    private suspend fun persistGroups(groups: List<MemoGroup>) {
-        readCurrentAccountKey()?.let { accountKey ->
-            offlineGroupStore.replaceGroups(accountKey, groups)
-        }
+        _groups.value = readStoredGroups()
+        _errorMessage.value = null
     }
 
     private suspend fun readStoredGroups(): List<MemoGroup> {
@@ -213,7 +197,7 @@ class GroupManagementViewModel @Inject constructor(
     }
 
     private suspend fun readCurrentAccountKey(): String? {
-        return context.settingsDataStore.data.first().currentUser.takeIf { it.isNotBlank() }
+        return accountLocalSettingsStore.observeCurrentAccountKey().first()
     }
 
     private suspend fun buildLocalGroup(name: String, description: String): MemoGroup {

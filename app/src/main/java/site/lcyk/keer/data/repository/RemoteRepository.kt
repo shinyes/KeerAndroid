@@ -5,7 +5,9 @@ import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.Resource
+import site.lcyk.keer.data.model.StorageCleanupSummary
 import site.lcyk.keer.data.model.User
+import site.lcyk.keer.data.model.UserGeneralSettings
 import okhttp3.MediaType
 import java.io.File
 import java.time.Instant
@@ -55,6 +57,11 @@ abstract class RemoteRepository {
         currentPassword: String,
         newPassword: String
     ): ApiResponse<Unit>
+    abstract suspend fun getCurrentUserGeneralSettings(): ApiResponse<UserGeneralSettings>
+    abstract suspend fun updateCurrentUserGeneralSettings(
+        settings: UserGeneralSettings
+    ): ApiResponse<UserGeneralSettings>
+    abstract suspend fun cleanupOrphanFiles(): ApiResponse<StorageCleanupSummary>
 
     abstract suspend fun listGroups(): ApiResponse<List<MemoGroup>>
     abstract suspend fun createGroup(name: String, description: String): ApiResponse<MemoGroup>
