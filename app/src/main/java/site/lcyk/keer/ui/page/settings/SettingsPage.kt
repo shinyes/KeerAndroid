@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.ViewColumn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -187,7 +188,7 @@ fun SettingsPage(
 
             item {
                 SettingItem(
-                    icon = Icons.Outlined.GridView,
+                    icon = Icons.Outlined.ViewColumn,
                     text = R.string.column_config.string,
                     trailingIcon = {
                         if (currentColumnsCount > 0) {
