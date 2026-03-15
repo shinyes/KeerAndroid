@@ -5,6 +5,7 @@ import androidx.core.net.toUri
 import com.skydoves.sandwich.ApiResponse
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.EncodeDefault
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -548,6 +549,7 @@ data class KeerV2MemoColumnConfig(
     val id: String,
     val name: String,
     val requiredTags: List<String> = emptyList(),
+    @EncodeDefault
     val visibleInDrawer: Boolean = true,
     val pinnedMemoRemoteIds: List<String> = emptyList(),
 )
