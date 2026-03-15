@@ -45,6 +45,10 @@ class LocalDatabaseRepository(
         return memoDao.observeAllResources(accountKey)
     }
 
+    override fun observeResource(identifier: String): Flow<ResourceEntity?> {
+        return memoDao.observeResourceByIdentifier(identifier, accountKey)
+    }
+
     override suspend fun listMemos(): ApiResponse<List<MemoEntity>> {
         return try {
             val memos = memoDao.getAllMemoItems(accountKey).map(::toMemoEntity)

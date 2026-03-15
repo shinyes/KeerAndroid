@@ -233,7 +233,14 @@ class UserStateViewModel @Inject constructor(
     private suspend fun completeAuthenticatedSession(): ApiResponse<Unit> {
         userGeneralSettingsRepository.refreshCurrentGeneralSettings()
         return when (val response = loadCurrentUser()) {
-            is ApiResponse.Success -> ApiResponse.Success(Unit)
+            is ApiResponse.Success -> {
+                memoService.requestSync(
+                    trigger = SyncTrigger.AUTH_BOOTSTRAP,
+                    force = false,
+                    domains = site.lcyk.keer.data.service.SyncCoordinator.FULL_DOMAINS
+                )
+                ApiResponse.Success(Unit)
+            }
             is ApiResponse.Failure.Error -> response
             is ApiResponse.Failure.Exception -> response
         }

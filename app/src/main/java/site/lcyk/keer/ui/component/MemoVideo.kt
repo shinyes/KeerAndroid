@@ -37,7 +37,6 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.net.toUri
 import coil3.annotation.ExperimentalCoilApi
 import coil3.compose.AsyncImage
-import com.skydoves.sandwich.ApiResponse
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -49,8 +48,6 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.ResourceRepresentable
@@ -61,7 +58,6 @@ import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import okhttp3.OkHttpClient
 import timber.log.Timber
-import java.io.File
 
 @OptIn(ExperimentalCoilApi::class)
 @UnstableApi
@@ -74,67 +70,41 @@ fun MemoVideo(
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState(initial = null)
     val memosViewModel = LocalMemos.current
+    val observedResource = rememberObservedMemoResource(resource)
+    val liveResource = observedResource.resource
     var showPlayerDialog by remember(resource.remoteId, resource.uri, resource.localUri) {
         mutableStateOf(false)
     }
     val imageLoader = rememberAuthorizedImageLoader()
-    var cachedPreviewUri by remember(resource.remoteId, resource.thumbnailUri, resource.thumbnailLocalUri) {
-        mutableStateOf<String?>(null)
-    }
     val previewModel = remember(
-        cachedPreviewUri,
-        resource.thumbnailLocalUri,
-        resource.thumbnailUri,
-        resource.localUri,
-        resource.uri
+        liveResource.thumbnailLocalUri,
+        liveResource.thumbnailUri,
+        liveResource.localUri,
+        liveResource.uri
     ) {
-        resolveUsableThumbnailLocalUri(cachedPreviewUri) ?: resolveMemoVideoPreviewUri(resource)
+        resolveMemoVideoPreviewUri(liveResource)
     }
 
-    LaunchedEffect(resource.remoteId, resource.thumbnailUri, resource.thumbnailLocalUri) {
-        val resourceEntity = resource as? ResourceEntity ?: return@LaunchedEffect
-        val localThumbnail = resolveUsableThumbnailLocalUri(resourceEntity.thumbnailLocalUri)
-        if (!localThumbnail.isNullOrBlank()) {
+    LaunchedEffect(
+        observedResource.tracked,
+        (liveResource as? ResourceEntity)?.identifier,
+        liveResource.thumbnailUri,
+        liveResource.thumbnailLocalUri,
+        currentAccount?.accountKey()
+    ) {
+        if (!observedResource.tracked) {
             return@LaunchedEffect
         }
-
-        val remoteThumbnail = resourceEntity.thumbnailUri?.trim().orEmpty()
-        if (remoteThumbnail.isEmpty()) {
-            return@LaunchedEffect
-        }
-        val thumbnailUri = remoteThumbnail.toUri()
-        if (thumbnailUri.scheme != "http" && thumbnailUri.scheme != "https") {
-            return@LaunchedEffect
-        }
-
-        val downloaded = downloadResourceVariantToTemp(
+        val resourceEntity = liveResource as? ResourceEntity ?: return@LaunchedEffect
+        ensureMemoVideoCardPreview(
             context = context,
             okHttpClient = userStateViewModel.okHttpClient,
             resource = resourceEntity,
-            accountKey = currentAccount?.accountKey(),
-            url = remoteThumbnail,
-            filename = resourceEntity.filename,
-            variant = EncryptedBlobVariant.THUMBNAIL,
-            cacheDirName = "thumbnail_cache",
-            prefix = "video_thumb_",
-        ) ?: return@LaunchedEffect
-
-        try {
-            val result = memosViewModel.cacheResourceThumbnail(resourceEntity.identifier, downloaded.toUri())
-            if (result is ApiResponse.Success) {
-                cachedPreviewUri = resolveUsableThumbnailLocalUri(
-                    memosViewModel
-                        .getResourceById(resourceEntity.identifier)
-                        ?.thumbnailLocalUri
-                )
-            } else {
-                Timber.d("Cache video thumbnail failed: %s", result)
+            currentAccountKey = currentAccount?.accountKey(),
+            cacheResourceThumbnail = { identifier, downloadedUri ->
+                memosViewModel.cacheResourceThumbnail(identifier, downloadedUri)
             }
-        } catch (e: Throwable) {
-            Timber.d(e)
-        } finally {
-            downloaded.delete()
-        }
+        )
     }
 
     Box(
@@ -169,7 +139,7 @@ fun MemoVideo(
 
     if (showPlayerDialog) {
         MemoVideoPlayerDialog(
-            resource = resource,
+            resource = liveResource,
             onDismiss = { showPlayerDialog = false }
         )
     }
@@ -319,10 +289,6 @@ private fun resolveMemoVideoPreviewUri(resource: ResourceRepresentable): String 
         return local
     }
     return resource.uri
-}
-
-private fun sanitizeMemoVideoThumbnailFilename(filename: String): String {
-    return filename.replace(Regex("[^A-Za-z0-9._-]"), "_")
 }
 
 @UnstableApi

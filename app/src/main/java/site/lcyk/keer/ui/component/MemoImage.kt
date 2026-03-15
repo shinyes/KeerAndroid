@@ -7,7 +7,6 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -38,14 +37,10 @@ import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.ResourceRepresentable
-import site.lcyk.keer.data.security.AttachmentEncryptionManager
-import site.lcyk.keer.data.security.EncryptedBlobVariant
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
-import okhttp3.OkHttpClient
 import timber.log.Timber
-import java.io.File
 
 @OptIn(ExperimentalCoilApi::class)
 @Composable
@@ -57,51 +52,47 @@ fun MemoImage(
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState(initial = null)
     val memosViewModel = LocalMemos.current
+    val observedResource = rememberObservedMemoResource(resource)
+    val liveResource = observedResource.resource
     val scope = rememberCoroutineScope()
     var opening by remember(resource.remoteId, resource.uri, resource.localUri) { mutableStateOf(false) }
     var viewerSelection by remember(resource.remoteId, resource.uri, resource.localUri) {
         mutableStateOf<ImageViewerSelectionState?>(null)
     }
     val imageLoader = rememberAuthorizedImageLoader()
-    val previewModel = remember(resource.thumbnailLocalUri, resource.thumbnailUri, resource.localUri, resource.uri) {
-        resolveMemoImagePreviewUri(resource)
+    val previewModel = remember(
+        liveResource.thumbnailLocalUri,
+        liveResource.thumbnailUri,
+        liveResource.localUri,
+        liveResource.uri
+    ) {
+        resolveMemoImagePreviewUri(liveResource)
     }
 
-    LaunchedEffect(resource.remoteId, resource.thumbnailUri, resource.thumbnailLocalUri) {
-        val resourceEntity = resource as? ResourceEntity ?: return@LaunchedEffect
-        val localThumbnail = resolveUsableThumbnailLocalUri(resourceEntity.thumbnailLocalUri)
-        if (!localThumbnail.isNullOrBlank()) {
+    LaunchedEffect(
+        observedResource.tracked,
+        (liveResource as? ResourceEntity)?.identifier,
+        liveResource.thumbnailUri,
+        liveResource.thumbnailLocalUri,
+        liveResource.localUri,
+        currentAccount?.accountKey()
+    ) {
+        if (!observedResource.tracked) {
             return@LaunchedEffect
         }
-
-        val remoteThumbnail = resourceEntity.thumbnailUri?.trim().orEmpty()
-        if (remoteThumbnail.isEmpty()) {
-            return@LaunchedEffect
-        }
-        val thumbnailUri = remoteThumbnail.toUri()
-        if (thumbnailUri.scheme != "http" && thumbnailUri.scheme != "https") {
-            return@LaunchedEffect
-        }
-
-        val downloaded = downloadResourceVariantToTemp(
+        val resourceEntity = liveResource as? ResourceEntity ?: return@LaunchedEffect
+        ensureMemoImageCardPreview(
             context = context,
             okHttpClient = userStateViewModel.okHttpClient,
             resource = resourceEntity,
-            accountKey = currentAccount?.accountKey(),
-            url = remoteThumbnail,
-            filename = resourceEntity.filename,
-            variant = EncryptedBlobVariant.THUMBNAIL,
-            cacheDirName = "thumbnail_cache",
-            prefix = "thumb_",
-        ) ?: return@LaunchedEffect
-
-        try {
-            memosViewModel.cacheResourceThumbnail(resourceEntity.identifier, downloaded.toUri())
-        } catch (e: Throwable) {
-            Timber.d(e)
-        } finally {
-            downloaded.delete()
-        }
+            currentAccountKey = currentAccount?.accountKey(),
+            cacheResourceFile = { identifier, downloadedUri ->
+                memosViewModel.cacheResourceFile(identifier, downloadedUri)
+            },
+            cacheResourceThumbnail = { identifier, downloadedUri ->
+                memosViewModel.cacheResourceThumbnail(identifier, downloadedUri)
+            }
+        )
     }
 
     Box(
@@ -110,9 +101,9 @@ fun MemoImage(
             scope.launch {
                 opening = true
                 try {
-                    val resolvedResource = (resource as? ResourceEntity)?.let { entity ->
-                        memosViewModel.getResourceById(entity.identifier) ?: resource
-                    } ?: resource
+                    val resolvedResource = (liveResource as? ResourceEntity)?.let { entity ->
+                        memosViewModel.getResourceById(entity.identifier) ?: liveResource
+                    } ?: liveResource
                     val localFile = resolveAttachmentFile(
                         context = context,
                         resource = resolvedResource,
@@ -229,10 +220,6 @@ private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String 
         return local
     }
     return resource.uri
-}
-
-private fun sanitizeThumbnailFilename(filename: String): String {
-    return filename.replace(Regex("[^A-Za-z0-9._-]"), "_")
 }
 
 private const val IMAGE_VIEWER_PREFS_FILE = "image_viewer_preferences"

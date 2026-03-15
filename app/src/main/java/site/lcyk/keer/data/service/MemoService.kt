@@ -10,6 +10,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
@@ -42,6 +43,16 @@ class MemoService @Inject constructor(
             accountService.getRepository().observeResources()
         }
         .stateIn(serviceScope, SharingStarted.WhileSubscribed(5_000L), emptyList<ResourceEntity>())
+
+    fun observeResource(identifier: String): Flow<ResourceEntity?> {
+        val normalizedIdentifier = identifier.trim()
+        if (normalizedIdentifier.isEmpty()) {
+            return flowOf(null)
+        }
+        return accountService.currentAccount.flatMapLatest {
+            accountService.getRepository().observeResource(normalizedIdentifier)
+        }
+    }
 
     fun requestSync(
         trigger: SyncTrigger = SyncTrigger.AUTO,

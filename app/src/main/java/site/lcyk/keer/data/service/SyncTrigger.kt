@@ -4,6 +4,7 @@ enum class SyncTrigger {
     AUTO,
     APP_START,
     APP_FOREGROUND,
+    AUTH_BOOTSTRAP,
     MUTATION,
     MANUAL,
 }
@@ -14,7 +15,8 @@ fun SyncTrigger.isForegroundTrigger(): Boolean {
 
 fun SyncTrigger.priority(): Int {
     return when (this) {
-        SyncTrigger.MANUAL -> 5
+        SyncTrigger.MANUAL -> 6
+        SyncTrigger.AUTH_BOOTSTRAP -> 5
         SyncTrigger.APP_START -> 4
         SyncTrigger.APP_FOREGROUND -> 3
         SyncTrigger.MUTATION -> 2

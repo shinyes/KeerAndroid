@@ -108,22 +108,15 @@ class MemosViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            combine(
-                memoService.memos,
-                memoService.syncStatus.map { it.syncing }.distinctUntilChanged()
-            ) { latestMemos, syncing ->
-                if (syncing) null else latestMemos
-            }.collectLatest { latestMemos ->
-                if (latestMemos != null) {
-                    applyMemos(latestMemos)
-                }
+            memoService.memos.collectLatest { latestMemos ->
+                applyMemos(latestMemos)
             }
         }
 
         viewModelScope.launch {
-            homeMemos.collectLatest {
+            memoService.memos.collectLatest { latestMemos ->
                 matrix = withContext(Dispatchers.Default) {
-                    calculateMatrix(memos.toList())
+                    calculateMatrix(latestMemos)
                 }
             }
         }
@@ -277,6 +270,9 @@ class MemosViewModel @Inject constructor(
     suspend fun getResourceById(resourceIdentifier: String): ResourceEntity? = withContext(viewModelScope.coroutineContext) {
         memoService.getRepository().getResourceById(resourceIdentifier)
     }
+
+    fun observeResource(resourceIdentifier: String) =
+        memoService.observeResource(resourceIdentifier)
 
     private fun updateMemo(memo: MemoEntity) {
         val index = memos.indexOfFirst { it.identifier == memo.identifier }

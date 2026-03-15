@@ -15,6 +15,9 @@ object SyncTriggerPolicy {
         if (force) {
             return false
         }
+        if (trigger == SyncTrigger.AUTH_BOOTSTRAP) {
+            return false
+        }
         if (nowMillis < backoffUntilMillis) {
             return true
         }

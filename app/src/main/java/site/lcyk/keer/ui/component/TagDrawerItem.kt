@@ -32,9 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import site.lcyk.keer.ui.page.common.navigateToTopLevel
-import site.lcyk.keer.ui.page.common.RouteName
-import java.net.URLEncoder
+import site.lcyk.keer.ui.page.common.navigateToTagPage
 
 @Composable
 fun TagDrawerItem(
@@ -59,7 +57,7 @@ fun TagDrawerItem(
             return
         }
         scope.launch {
-            memosNavController.navigateToTopLevel("${RouteName.TAG}/${URLEncoder.encode(tag, "UTF-8")}")
+            memosNavController.navigateToTagPage(tag)
             onDrawerItemCloseRequested?.invoke()
             drawerState?.close()
         }

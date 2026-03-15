@@ -68,6 +68,7 @@ import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
 import site.lcyk.keer.ui.page.common.navigateToColumnPage
 import site.lcyk.keer.ui.page.common.navigateToMemosPage
+import site.lcyk.keer.ui.page.common.navigateToTagPage
 import site.lcyk.keer.ui.page.common.navigateToTopLevel
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.isCollaboratorTag
@@ -80,7 +81,6 @@ import site.lcyk.keer.viewmodel.LocalUserState
 import java.time.DayOfWeek
 import java.time.format.TextStyle
 import java.time.temporal.WeekFields
-import java.net.URLEncoder
 import java.util.Locale
 
 @Composable
@@ -526,17 +526,15 @@ fun SideDrawer(
                             val response = memosViewModel.renameTag(normalizedSourceTag, normalizedNewTag)
                             tagActionInProgress = false
                             if (response is com.skydoves.sandwich.ApiResponse.Success) {
-                                currentSelectedTag
-                                    ?.takeIf { matchesTagOrDescendant(it, normalizedSourceTag) }
-                                    ?.let { selected ->
-                                        val renamedSelected = renameTagWithPrefix(
-                                            tag = selected,
-                                            oldPrefix = normalizedSourceTag,
-                                            newPrefix = normalizedNewTag
-                                        )
-                                        memosNavController.navigateToTopLevel(
-                                            "${RouteName.TAG}/${URLEncoder.encode(renamedSelected, "UTF-8")}"
-                                        )
+                                    currentSelectedTag
+                                        ?.takeIf { matchesTagOrDescendant(it, normalizedSourceTag) }
+                                        ?.let { selected ->
+                                            val renamedSelected = renameTagWithPrefix(
+                                                tag = selected,
+                                                oldPrefix = normalizedSourceTag,
+                                                newPrefix = normalizedNewTag
+                                            )
+                                            memosNavController.navigateToTagPage(renamedSelected)
                                     }
                                 renameTargetTag = null
                                 renameValue = ""
