@@ -15,14 +15,18 @@ import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
 import androidx.window.core.layout.WindowSizeClass
 import kotlinx.coroutines.launch
 import site.lcyk.keer.ui.component.SideDrawer
+import site.lcyk.keer.viewmodel.LocalMemos
+import site.lcyk.keer.viewmodel.UiInteractionType
 
 @Composable
 fun MemosPage(
@@ -30,6 +34,7 @@ fun MemosPage(
 ) {
     val windowSizeClass = currentWindowAdaptiveInfo().windowSizeClass
     val isExpanded = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND)
+    val memosViewModel = LocalMemos.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val memosNavController = rememberNavController()
@@ -45,6 +50,23 @@ fun MemosPage(
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch {
             drawerState.close()
+        }
+    }
+
+    LaunchedEffect(drawerState, isExpanded) {
+        if (isExpanded) {
+            memosViewModel.setInteractionActive(UiInteractionType.DRAWER_TRANSITION, false)
+            return@LaunchedEffect
+        }
+        snapshotFlow { drawerState.currentValue != drawerState.targetValue }
+            .collect { inTransition ->
+                memosViewModel.setInteractionActive(UiInteractionType.DRAWER_TRANSITION, inTransition)
+            }
+    }
+
+    DisposableEffect(isExpanded) {
+        onDispose {
+            memosViewModel.setInteractionActive(UiInteractionType.DRAWER_TRANSITION, false)
         }
     }
 

@@ -62,13 +62,8 @@ import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.isQuoteTag
 import site.lcyk.keer.util.normalizeTagList
-import site.lcyk.keer.util.resolveMemoByIdentifier
-import site.lcyk.keer.util.resolveMemoByRemoteId
-import site.lcyk.keer.util.resolveMemoFromQuoteDescriptor
-import site.lcyk.keer.util.resolveMemoQuoteDescriptor
 import site.lcyk.keer.util.resolveAvatarUrl
-import site.lcyk.keer.util.storedMemoQuotePreviewOrNull
-import site.lcyk.keer.util.toMemoQuotePreview
+import site.lcyk.keer.util.ResolvedMemoQuote
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 
@@ -87,7 +82,7 @@ fun MemosCard(
     collaboratorProfiles: Map<String, CollaboratorProfile> = emptyMap(),
     avatarImageLoader: ImageLoader? = null,
     prefetchCollaborators: Boolean = true,
-    quoteMemoCandidates: List<MemoEntity> = emptyList(),
+    resolvedQuote: ResolvedMemoQuote? = null,
 ) {
     val memosViewModel = LocalMemos.current
     val rootNavController = LocalRootNavController.current
@@ -102,38 +97,11 @@ fun MemosCard(
         )
     }
     val collaboratorIds = remember(memo.tags) { extractCollaboratorIds(memo.tags) }
-    val memoSnapshot = memosViewModel.memos
-    val quoteDescriptor = remember(memo.quoteSourceKind, memo.quoteSource, memo.tags) {
-        memo.resolveMemoQuoteDescriptor()
-    }
-    val quoteSearchSpace = remember(quoteDescriptor, quoteMemoCandidates, memoSnapshot) {
-        if (quoteDescriptor == null) {
-            emptyList()
-        } else {
-            (quoteMemoCandidates + memoSnapshot)
-                .distinctBy { candidate -> "${candidate.identifier}|${candidate.remoteId.orEmpty()}" }
-        }
-    }
-    val quotedMemo = remember(
-        quoteDescriptor,
-        quoteSearchSpace,
-    ) {
-        val descriptor = quoteDescriptor ?: return@remember null
-        memosViewModel.getMemoForDetail(descriptor.source)
-            ?: resolveMemoFromQuoteDescriptor(
-                descriptor = descriptor,
-                memos = quoteSearchSpace,
-            )
-    }
+    val quotedMemo = resolvedQuote?.sourceMemo
     val quotePreview = remember(
-        quotedMemo?.content,
-        quotedMemo?.resources,
-        memo.quoteStatus,
-        memo.quoteContentPreview,
-        memo.quoteDate,
-        memo.quoteHasAttachments,
+        resolvedQuote,
     ) {
-        quotedMemo?.toMemoQuotePreview() ?: memo.storedMemoQuotePreviewOrNull()
+        resolvedQuote?.preview
     }
     val hasAuthorIdentity = !authorAvatarUrl.isNullOrBlank() || !authorName.isNullOrBlank()
     val resolvedAuthorAvatarUrl = remember(authorAvatarUrl, userStateViewModel.host) {
@@ -318,7 +286,7 @@ fun MemosCard(
                 onTagClick = onTagClick
             )
 
-            if (quoteDescriptor != null) {
+            if (resolvedQuote != null) {
                 MemoQuoteReferenceCard(
                     quotedMemo = quotePreview,
                     modifier = Modifier

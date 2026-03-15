@@ -14,8 +14,10 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -23,6 +25,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -39,6 +42,7 @@ import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.data.service.OfflineGroupStore
 import site.lcyk.keer.data.service.SyncTrigger
+import site.lcyk.keer.data.repository.JoinedGroupRepository
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.util.normalizeCollaboratorId
@@ -58,6 +62,7 @@ data class HomeMemoItem(
 class MemosViewModel @Inject constructor(
     private val memoService: MemoService,
     private val accountService: AccountService,
+    private val joinedGroupRepository: JoinedGroupRepository,
     private val offlineGroupStore: OfflineGroupStore,
     @param:ApplicationContext private val appContext: Context
 ) : ViewModel() {
@@ -71,6 +76,10 @@ class MemosViewModel @Inject constructor(
         private set
     var matrix: List<DailyUsageStat> by mutableStateOf(DailyUsageStat.initialMatrix)
         private set
+    private val interactionGate = UiInteractionGate()
+    private val snapshotStore = MemosUiSnapshotStore()
+    private val _homeMemos = MutableStateFlow(emptyList<HomeMemoItem>())
+    private val _drawerGroups = MutableStateFlow(emptyList<site.lcyk.keer.data.model.MemoGroup>())
 
     val host: StateFlow<String?> =
         accountService.currentAccount
@@ -81,7 +90,7 @@ class MemosViewModel @Inject constructor(
     val syncStatus: StateFlow<SyncStatus> =
         memoService.syncStatus.stateIn(viewModelScope, SharingStarted.Eagerly, SyncStatus())
 
-    val homeMemos: StateFlow<List<HomeMemoItem>> =
+    private val liveHomeMemos: StateFlow<List<HomeMemoItem>> =
         accountService.currentAccount
             .flatMapLatest { account ->
                 val accountKey = account?.accountKey().orEmpty()
@@ -104,25 +113,55 @@ class MemosViewModel @Inject constructor(
                 }
             }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val homeMemos: StateFlow<List<HomeMemoItem>> = _homeMemos.asStateFlow()
+    val drawerGroups: StateFlow<List<site.lcyk.keer.data.model.MemoGroup>> = _drawerGroups.asStateFlow()
 
     init {
-        val liveMemos = memoService.memos
-        viewModelScope.launch {
-            liveMemos.collectLatest { latestMemos ->
-                applyMemos(latestMemos)
-            }
-        }
-
-        viewModelScope.launch {
-            memoService.tags.collectLatest { latestTags ->
-                applyTags(latestTags)
-            }
-        }
-
-        viewModelScope.launch {
-            liveMemos.collectLatest { latestMemos ->
-                matrix = withContext(Dispatchers.Default) {
+        val liveMatrix = memoService.memos
+            .mapLatest { latestMemos ->
+                withContext(Dispatchers.Default) {
                     calculateMatrix(latestMemos)
+                }
+            }
+
+        viewModelScope.launch {
+            combine(
+                memoService.memos,
+                memoService.tags,
+                liveMatrix,
+                liveHomeMemos,
+                joinedGroupRepository.observeJoinedGroups(),
+            ) { latestMemos, latestTags, latestMatrix, latestHomeMemos, latestDrawerGroups ->
+                MemoFeedUiState(
+                    memos = latestMemos,
+                    tags = latestTags,
+                    matrix = latestMatrix,
+                    homeMemos = latestHomeMemos,
+                    drawerGroups = latestDrawerGroups,
+                )
+            }.collectLatest { latestState ->
+                snapshotStore.updateLiveState(latestState)
+            }
+        }
+
+        viewModelScope.launch {
+            interactionGate.activeInteractions.collectLatest { activeInteractions ->
+                snapshotStore.setFrozen(activeInteractions.isNotEmpty())
+            }
+        }
+
+        viewModelScope.launch {
+            snapshotStore.visibleState.collectLatest { visibleState ->
+                applyMemos(visibleState.memos)
+                applyTags(visibleState.tags)
+                if (matrix != visibleState.matrix) {
+                    matrix = visibleState.matrix
+                }
+                if (_homeMemos.value != visibleState.homeMemos) {
+                    _homeMemos.value = visibleState.homeMemos
+                }
+                if (_drawerGroups.value != visibleState.drawerGroups) {
+                    _drawerGroups.value = visibleState.drawerGroups
                 }
             }
         }
@@ -282,6 +321,10 @@ class MemosViewModel @Inject constructor(
 
     fun observeResource(resourceIdentifier: String) =
         memoService.observeResource(resourceIdentifier)
+
+    fun setInteractionActive(type: UiInteractionType, active: Boolean) {
+        interactionGate.setActive(type, active)
+    }
 
     private fun updateMemo(memo: MemoEntity) {
         if (memos.none { it.identifier == memo.identifier }) {

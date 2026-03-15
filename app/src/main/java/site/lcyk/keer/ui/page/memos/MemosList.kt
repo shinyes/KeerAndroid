@@ -15,6 +15,7 @@ import androidx.compose.material.icons.outlined.RecordVoiceOver
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -24,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -49,9 +51,11 @@ import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
+import site.lcyk.keer.util.buildResolvedMemoQuoteMap
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
+import site.lcyk.keer.viewmodel.UiInteractionType
 import timber.log.Timber
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -84,6 +88,9 @@ fun MemosList(
     val avatarImageLoader = rememberAuthorizedImageLoader()
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     val sourceMemos = memos ?: viewModel.memos
+    val resolvedQuoteMap = remember(sourceMemos) {
+        buildResolvedMemoQuoteMap(sourceMemos, transientMemoLookup = viewModel::getMemoForDetail)
+    }
     val filteredMemos by remember(sourceMemos, tag, searchString) {
         derivedStateOf {
             val normalizedTag = tag?.takeIf { it.isNotBlank() }
@@ -131,6 +138,27 @@ fun MemosList(
         }
     }
 
+    LaunchedEffect(lazyListState) {
+        snapshotFlow { lazyListState.isScrollInProgress }
+            .collect { isScrolling ->
+                viewModel.setInteractionActive(UiInteractionType.LIST_SCROLL, isScrolling)
+            }
+    }
+
+    LaunchedEffect(refreshState) {
+        snapshotFlow { refreshState.distanceFraction > 0f }
+            .collect { pullActive ->
+                viewModel.setInteractionActive(UiInteractionType.PULL_REFRESH, pullActive)
+            }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.setInteractionActive(UiInteractionType.LIST_SCROLL, false)
+            viewModel.setInteractionActive(UiInteractionType.PULL_REFRESH, false)
+        }
+    }
+
     var listTopId: String? by rememberSaveable {
         mutableStateOf(null)
     }
@@ -167,6 +195,7 @@ fun MemosList(
         onRequestEdit = onRequestEdit,
         editGestureResolver = editGestureResolver,
         actionButton = actionButton,
+        resolvedQuoteMap = resolvedQuoteMap,
     )
 
     LaunchedEffect(viewModel.errorMessage) {
@@ -219,6 +248,7 @@ private fun MemoFeedList(
     onRequestEdit: ((site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)?,
     editGestureResolver: ((site.lcyk.keer.data.local.entity.MemoEntity, MemoEditGesture) -> MemoEditGesture)?,
     actionButton: (@Composable (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)?,
+    resolvedQuoteMap: Map<String, site.lcyk.keer.util.ResolvedMemoQuote>,
 ) {
     RefreshableListContainer(
         isRefreshing = syncing,
@@ -255,7 +285,7 @@ private fun MemoFeedList(
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
                     prefetchCollaborators = false,
-                    quoteMemoCandidates = memos,
+                    resolvedQuote = resolvedQuoteMap[memo.identifier],
                 )
             }
         }

@@ -69,6 +69,7 @@ import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToSearchPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
+import site.lcyk.keer.util.buildResolvedMemoQuoteMap
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.viewmodel.GroupChatViewModel
@@ -170,6 +171,12 @@ fun GroupChatPage(
             )
         }
     }
+    val resolvedQuoteMap = remember(quoteMemoCandidates) {
+        buildResolvedMemoQuoteMap(
+            quoteMemoCandidates,
+            transientMemoLookup = memosViewModel::getMemoForDetail,
+        )
+    }
 
     LaunchedEffect(collaboratorIdsToPrefetch) {
         if (collaboratorIdsToPrefetch.isNotEmpty()) {
@@ -266,7 +273,7 @@ fun GroupChatPage(
             contentPadding = innerPadding,
             collaboratorProfiles = collaboratorProfiles,
             avatarImageLoader = avatarImageLoader,
-            quoteMemoCandidates = quoteMemoCandidates,
+            resolvedQuoteMap = resolvedQuoteMap,
             onRefresh = {
                 if (syncStatus.syncing) {
                     return@GroupChatList
@@ -400,7 +407,7 @@ private fun GroupChatList(
     contentPadding: PaddingValues,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
-    quoteMemoCandidates: List<MemoEntity>,
+    resolvedQuoteMap: Map<String, site.lcyk.keer.util.ResolvedMemoQuote>,
     onRefresh: () -> Unit,
     canManageMemo: (Memo) -> Boolean,
     onOpenMemoDetail: (MemoEntity) -> Unit,
@@ -477,7 +484,7 @@ private fun GroupChatList(
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
                     prefetchCollaborators = false,
-                    quoteMemoCandidates = quoteMemoCandidates,
+                    resolvedQuote = resolvedQuoteMap[adaptedMemo.identifier],
                 )
             }
         }

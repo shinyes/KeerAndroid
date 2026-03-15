@@ -55,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -105,7 +106,7 @@ fun SideDrawer(
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val generalSettings by userStateViewModel.generalSettings.collectAsState()
-    val joinedGroups by userStateViewModel.joinedGroups.collectAsState()
+    val joinedGroups by memosViewModel.drawerGroups.collectAsStateWithLifecycle()
     val groupIdAliases by userStateViewModel.groupIdAliases.collectAsState()
     val hasExplore = currentAccount !is Account.Local
     val navBackStackEntry by memosNavController.currentBackStackEntryAsState()
@@ -710,7 +711,6 @@ fun SideDrawer(
     }
 
     LaunchedEffect(Unit) {
-        memosViewModel.loadTags()
         delay(0)
         showHeatMap = true
     }

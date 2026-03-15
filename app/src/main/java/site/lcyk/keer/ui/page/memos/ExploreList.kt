@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -25,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -53,6 +55,7 @@ import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
+import site.lcyk.keer.util.buildResolvedMemoQuoteMap
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.toMemoEntityForCard
@@ -60,6 +63,7 @@ import site.lcyk.keer.viewmodel.ExploreMemoItem
 import site.lcyk.keer.viewmodel.ExploreViewModel
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
+import site.lcyk.keer.viewmodel.UiInteractionType
 
 @Composable
 fun ExploreList(
@@ -89,6 +93,12 @@ fun ExploreList(
     val quoteMemoCandidates = remember(snapshotItems, accountKey) {
         snapshotItems.map { item -> item.memo.toExploreMemoEntity(accountKey) }
     }
+    val resolvedQuoteMap = remember(quoteMemoCandidates) {
+        buildResolvedMemoQuoteMap(
+            quoteMemoCandidates,
+            transientMemoLookup = memosViewModel::getMemoForDetail,
+        )
+    }
     val collaboratorIdsToPrefetch = remember(snapshotItems) {
         snapshotItems
             .asSequence()
@@ -108,6 +118,27 @@ fun ExploreList(
         }
     }
 
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .collect { isScrolling ->
+                memosViewModel.setInteractionActive(UiInteractionType.LIST_SCROLL, isScrolling)
+            }
+    }
+
+    LaunchedEffect(refreshState) {
+        snapshotFlow { refreshState.distanceFraction > 0f }
+            .collect { pullActive ->
+                memosViewModel.setInteractionActive(UiInteractionType.PULL_REFRESH, pullActive)
+            }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            memosViewModel.setInteractionActive(UiInteractionType.LIST_SCROLL, false)
+            memosViewModel.setInteractionActive(UiInteractionType.PULL_REFRESH, false)
+        }
+    }
+
     ExploreMemoFeed(
         memos = memos,
         listState = listState,
@@ -117,7 +148,7 @@ fun ExploreList(
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
         accountKey = accountKey,
-        quoteMemoCandidates = quoteMemoCandidates,
+        resolvedQuoteMap = resolvedQuoteMap,
         currentUserId = currentUserId,
         onRefresh = {
             if (syncing) {
@@ -253,7 +284,7 @@ private fun ExploreMemoFeed(
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
     accountKey: String,
-    quoteMemoCandidates: List<MemoEntity>,
+    resolvedQuoteMap: Map<String, site.lcyk.keer.util.ResolvedMemoQuote>,
     currentUserId: String,
     onRefresh: () -> Unit,
     onOpenMemoDetail: (MemoEntity) -> Unit,
@@ -321,7 +352,7 @@ private fun ExploreMemoFeed(
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
                     prefetchCollaborators = false,
-                    quoteMemoCandidates = quoteMemoCandidates,
+                    resolvedQuote = resolvedQuoteMap[adaptedMemo.identifier],
                 )
             }
         }
