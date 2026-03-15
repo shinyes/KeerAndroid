@@ -8,10 +8,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.viewmodel.LocalMemos
@@ -24,6 +26,8 @@ import java.time.temporal.ChronoUnit
 fun Stats() {
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
+    val visibleMemos by memosViewModel.visibleMemos.collectAsStateWithLifecycle()
+    val visibleTags by memosViewModel.visibleTags.collectAsStateWithLifecycle()
     val days = remember(userStateViewModel.currentUser, LocalDate.now()) {
         userStateViewModel.currentUser?.let { currentUser ->
                 ChronoUnit.DAYS.between(currentUser.startDate.atZone(OffsetDateTime.now().offset).toLocalDate(), LocalDate.now())
@@ -39,7 +43,7 @@ fun Stats() {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                memosViewModel.memos.count().toString(),
+                visibleMemos.count().toString(),
                 style = MaterialTheme.typography.headlineSmall
             )
             Text(
@@ -50,7 +54,7 @@ fun Stats() {
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                memosViewModel.tags.count().toString(),
+                visibleTags.count().toString(),
                 style = MaterialTheme.typography.headlineSmall
             )
             Text(

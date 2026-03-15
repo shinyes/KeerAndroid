@@ -6,10 +6,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import site.lcyk.keer.viewmodel.LocalMemos
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
@@ -21,6 +23,7 @@ import kotlin.math.ceil
 @Composable
 fun Heatmap() {
     val memosViewModel = LocalMemos.current
+    val matrix by memosViewModel.visibleMatrix.collectAsStateWithLifecycle()
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         LazyHorizontalGrid(
@@ -29,7 +32,7 @@ fun Heatmap() {
             verticalArrangement = Arrangement.spacedBy(2.dp),
             userScrollEnabled = false
         ) {
-            memosViewModel.matrix.takeLast(countHeatmap(constraints)).forEach {
+            matrix.takeLast(countHeatmap(constraints)).forEach {
                 item(key = it.date) {
                     HeatmapStat(day = it)
                 }

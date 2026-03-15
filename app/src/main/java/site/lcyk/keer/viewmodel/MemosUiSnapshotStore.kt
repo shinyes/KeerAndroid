@@ -1,41 +1,35 @@
 package site.lcyk.keer.viewmodel
 
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.model.DailyUsageStat
+import site.lcyk.keer.data.model.GroupIdAlias
+import site.lcyk.keer.data.model.Memo
+import site.lcyk.keer.data.model.MemoColumnConfig
 import site.lcyk.keer.data.model.MemoGroup
+import site.lcyk.keer.util.ResolvedMemoQuote
 
-data class MemoFeedUiState(
+data class FeedUiState(
     val memos: List<MemoEntity> = emptyList(),
     val tags: List<String> = emptyList(),
     val matrix: List<DailyUsageStat> = DailyUsageStat.initialMatrix,
     val homeMemos: List<HomeMemoItem> = emptyList(),
-    val drawerGroups: List<MemoGroup> = emptyList(),
+    val resolvedQuoteByMemoId: Map<String, ResolvedMemoQuote> = emptyMap(),
 )
 
-class MemosUiSnapshotStore {
-    private var latestLiveState = MemoFeedUiState()
-    private var frozen = false
+data class DrawerUiState(
+    val tags: List<String> = emptyList(),
+    val matrix: List<DailyUsageStat> = DailyUsageStat.initialMatrix,
+    val drawerGroups: List<MemoGroup> = emptyList(),
+    val visibleColumns: List<MemoColumnConfig> = emptyList(),
+    val groupIdAliases: List<GroupIdAlias> = emptyList(),
+)
 
-    private val _visibleState = MutableStateFlow(MemoFeedUiState())
-    val visibleState: StateFlow<MemoFeedUiState> = _visibleState.asStateFlow()
+data class ExploreUiState(
+    val items: List<ExploreMemoItem> = emptyList(),
+    val resolvedQuoteByMemoId: Map<String, ResolvedMemoQuote> = emptyMap(),
+)
 
-    fun updateLiveState(state: MemoFeedUiState) {
-        latestLiveState = state
-        if (!frozen) {
-            _visibleState.value = state
-        }
-    }
-
-    fun setFrozen(active: Boolean) {
-        if (frozen == active) {
-            return
-        }
-        frozen = active
-        if (!frozen) {
-            _visibleState.value = latestLiveState
-        }
-    }
-}
+data class GroupChatUiState(
+    val memos: List<Memo> = emptyList(),
+    val resolvedQuoteByMemoId: Map<String, ResolvedMemoQuote> = emptyMap(),
+)

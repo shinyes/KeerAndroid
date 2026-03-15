@@ -2,8 +2,6 @@ package site.lcyk.keer.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.paging.PagingData
-import androidx.paging.cachedIn
 import com.skydoves.sandwich.ApiResponse
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -13,14 +11,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
@@ -36,13 +36,15 @@ import site.lcyk.keer.data.service.OfflineGroupStore
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.util.buildResolvedMemoQuoteMap
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
+import site.lcyk.keer.util.toMemoEntityForCard
 
 data class ExploreMemoItem(
     val memo: Memo,
-    val groupId: String? = null
+    val groupId: String? = null,
 )
 
 @HiltViewModel
@@ -51,7 +53,9 @@ class ExploreViewModel @Inject constructor(
     private val accountService: AccountService,
     private val memoService: MemoService,
     private val offlineGroupStore: OfflineGroupStore,
+    private val uiInteractionGate: UiInteractionGate,
 ) : ViewModel() {
+    private val snapshotStore = InteractionSnapshotStore(viewModelScope, ExploreUiState())
     private val _mutationErrorMessage = MutableStateFlow<String?>(null)
     val mutationErrorMessage: StateFlow<String?> = _mutationErrorMessage.asStateFlow()
 
@@ -66,28 +70,36 @@ class ExploreViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val exploreMemos = accountService.currentAccount
+    private val liveItems = accountService.currentAccount
         .flatMapLatest { account ->
             val accountKey = account?.accountKey().orEmpty()
             if (accountKey.isBlank()) {
-                return@flatMapLatest flowOf(PagingData.empty())
+                return@flatMapLatest flowOf(emptyList())
             }
             combine(
                 memoService.memos,
                 offlineGroupStore.observeAllCachedGroupMemos(accountKey),
                 offlineGroupStore.observePinnedGroupMemoKeys(accountKey),
             ) { localMemos, cachedGroupMemos, pinnedGroupMemoKeys ->
-                PagingData.from(
-                    buildExploreMemoItems(
-                        account = account,
-                        localMemos = localMemos,
-                        cachedGroupMemos = cachedGroupMemos,
-                        pinnedGroupMemoKeys = pinnedGroupMemoKeys,
-                    )
+                buildExploreMemoItems(
+                    account = account,
+                    localMemos = localMemos,
+                    cachedGroupMemos = cachedGroupMemos,
+                    pinnedGroupMemoKeys = pinnedGroupMemoKeys,
                 )
             }.flowOn(Dispatchers.Default)
         }
-        .cachedIn(viewModelScope)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val visibleItems: StateFlow<List<ExploreMemoItem>> =
+        snapshotStore.visibleState
+            .map { it.items }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val visibleResolvedQuotes: StateFlow<Map<String, site.lcyk.keer.util.ResolvedMemoQuote>> =
+        snapshotStore.visibleState
+            .map { it.resolvedQuoteByMemoId }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     init {
         viewModelScope.launch {
@@ -96,9 +108,35 @@ class ExploreViewModel @Inject constructor(
                     memoService.requestSync(
                         trigger = SyncTrigger.AUTO,
                         force = false,
-                        domains = setOf(SyncDomain.MEMOS, SyncDomain.GROUPS)
+                        domains = setOf(SyncDomain.MEMOS, SyncDomain.GROUPS),
                     )
                 }
+            }
+        }
+
+        viewModelScope.launch {
+            combine(
+                liveItems,
+                accountService.currentAccount.map { account -> account?.accountKey().orEmpty() },
+            ) { items, accountKey ->
+                val quoteCandidates = withContext(Dispatchers.Default) {
+                    items.map { item -> item.memo.toExploreMemoEntity(accountKey) }
+                }
+                val resolvedQuotes = withContext(Dispatchers.Default) {
+                    buildResolvedMemoQuoteMap(quoteCandidates)
+                }
+                ExploreUiState(
+                    items = items,
+                    resolvedQuoteByMemoId = resolvedQuotes,
+                )
+            }.collectLatest { uiState ->
+                snapshotStore.updateLiveState(uiState)
+            }
+        }
+
+        viewModelScope.launch {
+            uiInteractionGate.observeScopeFrozen(MemoUiScope.EXPLORE).collectLatest { frozen ->
+                snapshotStore.setFrozen(frozen)
             }
         }
     }
@@ -106,7 +144,7 @@ class ExploreViewModel @Inject constructor(
     suspend fun updateExploreMemo(
         item: ExploreMemoItem,
         content: String,
-        tags: List<String>
+        tags: List<String>,
     ): Boolean {
         val remoteRepository = accountService.getRemoteRepository() ?: run {
             _mutationErrorMessage.value = R.string.current_account_no_remote_memo_operations.string
@@ -121,14 +159,14 @@ class ExploreViewModel @Inject constructor(
             remoteRepository.updateMemo(
                 remoteId = item.memo.remoteId,
                 content = normalizedContent,
-                tags = normalizedTags
+                tags = normalizedTags,
             )
         } else {
             remoteRepository.updateGroupMessage(
                 groupId = item.groupId,
                 messageRemoteId = item.memo.remoteId,
                 content = normalizedContent,
-                tags = normalizedTags
+                tags = normalizedTags,
             )
         }
         return when (response) {
@@ -175,7 +213,7 @@ class ExploreViewModel @Inject constructor(
         val refreshResponse = memoService.sync(
             force = true,
             trigger = SyncTrigger.MANUAL,
-            domains = setOf(SyncDomain.MEMOS, SyncDomain.GROUPS)
+            domains = setOf(SyncDomain.MEMOS, SyncDomain.GROUPS),
         )
         if (refreshResponse !is ApiResponse.Success) {
             _mutationErrorMessage.value = refreshResponse.getErrorMessage()
@@ -188,7 +226,7 @@ class ExploreViewModel @Inject constructor(
                 memoService.requestSync(
                     trigger = SyncTrigger.MUTATION,
                     force = true,
-                    domains = setOf(SyncDomain.MEMOS)
+                    domains = setOf(SyncDomain.MEMOS),
                 )
             } else {
                 memoService.requestSync(
@@ -213,7 +251,7 @@ class ExploreViewModel @Inject constructor(
             val pinned = groupMemoKey(groupId, memo.remoteId) in pinnedGroupMemoKeys
             ExploreMemoItem(
                 memo = if (memo.pinned == pinned) memo else memo.copy(pinned = pinned),
-                groupId = groupId
+                groupId = groupId,
             )
         }
         return (collaborative + groupItems)
@@ -223,7 +261,7 @@ class ExploreViewModel @Inject constructor(
 
     private fun buildCollaborativeMemoItems(
         account: Account?,
-        localMemos: List<MemoEntity>
+        localMemos: List<MemoEntity>,
     ): List<ExploreMemoItem> {
         val currentUserId = (account as? Account.KeerV2)?.info?.id?.toString()?.let(::normalizeCollaboratorId)
             ?: return emptyList()
@@ -251,7 +289,7 @@ class ExploreViewModel @Inject constructor(
             longitude = longitude,
             creator = null,
             archived = archived,
-            updatedAt = lastSyncedAt ?: lastModified
+            updatedAt = lastSyncedAt ?: lastModified,
         )
     }
 
@@ -265,11 +303,18 @@ class ExploreViewModel @Inject constructor(
             uri = uri,
             localUri = localUri,
             thumbnailUri = thumbnailUri,
-            thumbnailLocalUri = thumbnailLocalUri
+            thumbnailLocalUri = thumbnailLocalUri,
         )
     }
 
     private fun groupMemoKey(groupId: String, memoRemoteId: String): String {
         return "$groupId|$memoRemoteId"
     }
+}
+
+private fun Memo.toExploreMemoEntity(accountKey: String): MemoEntity {
+    return toMemoEntityForCard(
+        identifier = "explore:$remoteId",
+        accountKey = accountKey,
+    )
 }

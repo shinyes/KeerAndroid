@@ -27,13 +27,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.paging.compose.LazyPagingItems
-import androidx.paging.compose.collectAsLazyPagingItems
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
@@ -52,10 +50,9 @@ import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
-import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
+import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
-import site.lcyk.keer.util.buildResolvedMemoQuoteMap
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.toMemoEntityForCard
@@ -63,14 +60,16 @@ import site.lcyk.keer.viewmodel.ExploreMemoItem
 import site.lcyk.keer.viewmodel.ExploreViewModel
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
+import site.lcyk.keer.viewmodel.MemoUiScope
 import site.lcyk.keer.viewmodel.UiInteractionType
 
 @Composable
 fun ExploreList(
     viewModel: ExploreViewModel = hiltViewModel(),
-    contentPadding: PaddingValues
+    contentPadding: PaddingValues,
 ) {
-    val memos = viewModel.exploreMemos.collectAsLazyPagingItems()
+    val items by viewModel.visibleItems.collectAsStateWithLifecycle()
+    val resolvedQuoteMap by viewModel.visibleResolvedQuotes.collectAsStateWithLifecycle()
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
@@ -89,18 +88,8 @@ fun ExploreList(
     var editingContent by remember { mutableStateOf("") }
     var deletingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
     val accountKey = currentAccount?.accountKey() ?: "explore"
-    val snapshotItems = memos.itemSnapshotList.items
-    val quoteMemoCandidates = remember(snapshotItems, accountKey) {
-        snapshotItems.map { item -> item.memo.toExploreMemoEntity(accountKey) }
-    }
-    val resolvedQuoteMap = remember(quoteMemoCandidates) {
-        buildResolvedMemoQuoteMap(
-            quoteMemoCandidates,
-            transientMemoLookup = memosViewModel::getMemoForDetail,
-        )
-    }
-    val collaboratorIdsToPrefetch = remember(snapshotItems) {
-        snapshotItems
+    val collaboratorIdsToPrefetch = remember(items) {
+        items
             .asSequence()
             .flatMap { item -> extractCollaboratorIds(item.memo.tags).asSequence() }
             .distinct()
@@ -121,26 +110,26 @@ fun ExploreList(
     LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }
             .collect { isScrolling ->
-                memosViewModel.setInteractionActive(UiInteractionType.LIST_SCROLL, isScrolling)
+                memosViewModel.setInteractionActive(MemoUiScope.EXPLORE, UiInteractionType.LIST_SCROLL, isScrolling)
             }
     }
 
     LaunchedEffect(refreshState) {
         snapshotFlow { refreshState.distanceFraction > 0f }
             .collect { pullActive ->
-                memosViewModel.setInteractionActive(UiInteractionType.PULL_REFRESH, pullActive)
+                memosViewModel.setInteractionActive(MemoUiScope.EXPLORE, UiInteractionType.PULL_REFRESH, pullActive)
             }
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            memosViewModel.setInteractionActive(UiInteractionType.LIST_SCROLL, false)
-            memosViewModel.setInteractionActive(UiInteractionType.PULL_REFRESH, false)
+            memosViewModel.setInteractionActive(MemoUiScope.EXPLORE, UiInteractionType.LIST_SCROLL, false)
+            memosViewModel.setInteractionActive(MemoUiScope.EXPLORE, UiInteractionType.PULL_REFRESH, false)
         }
     }
 
     ExploreMemoFeed(
-        memos = memos,
+        memos = items,
         listState = listState,
         refreshState = refreshState,
         contentPadding = contentPadding,
@@ -172,7 +161,7 @@ fun ExploreList(
             if (!groupId.isNullOrBlank()) {
                 rootNavController.navigateToGroupInputPage(
                     groupId = groupId,
-                    memoId = item.memo.remoteId
+                    memoId = item.memo.remoteId,
                 )
             } else {
                 editingMemo = item
@@ -187,7 +176,6 @@ fun ExploreList(
             memosViewModel.cacheMemoForDetail(sourceMemo)
             rootNavController.navigateToMemoInputPage(quoteMemoIdentifier = sourceMemo.identifier)
         },
-        onOpenTopic = { _, _ -> }
     )
 
     if (editingMemo != null) {
@@ -198,7 +186,7 @@ fun ExploreList(
                 OutlinedTextField(
                     value = editingContent,
                     onValueChange = { editingContent = it },
-                    label = { Text(text = stringResource(R.string.memo)) }
+                    label = { Text(text = stringResource(R.string.memo)) },
                 )
             },
             confirmButton = {
@@ -209,7 +197,7 @@ fun ExploreList(
                             val updated = viewModel.updateExploreMemo(
                                 item = target,
                                 content = editingContent,
-                                tags = target.memo.tags
+                                tags = target.memo.tags,
                             )
                             if (updated) {
                                 editingMemo = null
@@ -224,7 +212,7 @@ fun ExploreList(
                 TextButton(onClick = { editingMemo = null }) {
                     Text(text = stringResource(R.string.cancel))
                 }
-            }
+            },
         )
     }
 
@@ -251,7 +239,7 @@ fun ExploreList(
                 TextButton(onClick = { deletingMemo = null }) {
                     Text(text = stringResource(R.string.cancel))
                 }
-            }
+            },
         )
     }
 
@@ -264,19 +252,19 @@ fun ExploreList(
                 TextButton(onClick = { viewModel.clearMutationError() }) {
                     Text(text = stringResource(R.string.close))
                 }
-            }
+            },
         )
     }
 
     SyncAlertDialog(
         alert = syncAlert,
-        onDismiss = { syncAlert = null }
+        onDismiss = { syncAlert = null },
     )
 }
 
 @Composable
 private fun ExploreMemoFeed(
-    memos: LazyPagingItems<ExploreMemoItem>,
+    memos: List<ExploreMemoItem>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState,
     contentPadding: PaddingValues,
@@ -292,7 +280,6 @@ private fun ExploreMemoFeed(
     onRequestEdit: (ExploreMemoItem) -> Unit,
     onRequestDelete: (ExploreMemoItem) -> Unit,
     onRequestQuote: (ExploreMemoItem) -> Unit,
-    onOpenTopic: (String, String) -> Unit
 ) {
     RefreshableListContainer(
         isRefreshing = syncing,
@@ -302,28 +289,20 @@ private fun ExploreMemoFeed(
         indicator = {
             PullSyncLineIndicator(
                 refreshState = refreshState,
-                syncing = syncing
+                syncing = syncing,
             )
         },
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
     ) {
         LazyColumn(
             state = listState,
             contentPadding = contentPadding,
         ) {
             items(
-                count = memos.itemCount,
-                key = { index ->
-                    memos[index]?.let { item ->
-                        "${item.groupId.orEmpty()}|${item.memo.remoteId}"
-                    } ?: "explore-placeholder-$index"
-                },
-                contentType = { "memo" }
-            ) { index ->
-                val memoItem = memos[index]
-                if (memoItem == null) {
-                    return@items
-                }
+                items = memos,
+                key = { item -> "${item.groupId.orEmpty()}|${item.memo.remoteId}" },
+                contentType = { "memo" },
+            ) { memoItem ->
                 val adaptedMemo = remember(memoItem.memo, accountKey) {
                     memoItem.memo.toExploreMemoEntity(accountKey)
                 }
@@ -345,7 +324,7 @@ private fun ExploreMemoFeed(
                             canManage = canManageMemo,
                             onQuote = { onRequestQuote(memoItem) },
                             onEdit = { onRequestEdit(memoItem) },
-                            onDelete = { onRequestDelete(memoItem) }
+                            onDelete = { onRequestDelete(memoItem) },
                         )
                     },
                     onTagClick = onTagClick,
@@ -362,7 +341,7 @@ private fun ExploreMemoFeed(
 private fun Memo.toExploreMemoEntity(accountKey: String): MemoEntity {
     return toMemoEntityForCard(
         identifier = "explore:$remoteId",
-        accountKey = accountKey
+        accountKey = accountKey,
     )
 }
 
@@ -372,7 +351,7 @@ private fun ExploreMemoCardActionButton(
     canManage: Boolean,
     onQuote: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
 ) {
     val context = LocalContext.current
     val clipboardManager = context.getSystemService(ClipboardManager::class.java)
@@ -384,7 +363,7 @@ private fun ExploreMemoCardActionButton(
                     key = "edit",
                     label = stringResource(R.string.edit),
                     icon = Icons.Outlined.Edit,
-                    onSelected = onEdit
+                    onSelected = onEdit,
                 )
             )
         }
@@ -393,7 +372,7 @@ private fun ExploreMemoCardActionButton(
                 key = "quote",
                 label = stringResource(R.string.quote),
                 icon = Icons.Outlined.RecordVoiceOver,
-                onSelected = onQuote
+                onSelected = onQuote,
             )
         )
         add(
@@ -403,9 +382,9 @@ private fun ExploreMemoCardActionButton(
                 icon = Icons.Outlined.ContentCopy,
                 onSelected = {
                     clipboardManager?.setPrimaryClip(
-                        ClipData.newPlainText(memoLabel, memo.content)
+                        ClipData.newPlainText(memoLabel, memo.content),
                     )
-                }
+                },
             )
         )
         if (canManage) {
@@ -415,7 +394,7 @@ private fun ExploreMemoCardActionButton(
                     label = stringResource(R.string.delete),
                     icon = Icons.Outlined.Delete,
                     destructive = true,
-                    onSelected = onDelete
+                    onSelected = onDelete,
                 )
             )
         }

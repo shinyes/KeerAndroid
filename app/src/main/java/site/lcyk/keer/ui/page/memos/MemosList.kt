@@ -51,10 +51,10 @@ import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
-import site.lcyk.keer.util.buildResolvedMemoQuoteMap
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
+import site.lcyk.keer.viewmodel.MemoUiScope
 import site.lcyk.keer.viewmodel.UiInteractionType
 import timber.log.Timber
 
@@ -82,15 +82,17 @@ fun MemosList(
     val syncing by viewModel.syncStatus
         .map { it.syncing }
         .collectAsStateWithLifecycle(initialValue = false)
+    val visibleMemos by viewModel.visibleMemos.collectAsStateWithLifecycle()
+    val visibleResolvedQuotes by viewModel.visibleResolvedQuotes.collectAsStateWithLifecycle()
+    val feedFrozen by viewModel.observeScopeFrozen(MemoUiScope.FEED)
+        .collectAsStateWithLifecycle(initialValue = false)
     val editGesture = generalSettings.memoEditGesture
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
     val avatarImageLoader = rememberAuthorizedImageLoader()
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
-    val sourceMemos = memos ?: viewModel.memos
-    val resolvedQuoteMap = remember(sourceMemos) {
-        buildResolvedMemoQuoteMap(sourceMemos, transientMemoLookup = viewModel::getMemoForDetail)
-    }
+    val sourceMemos = memos ?: visibleMemos
+    val resolvedQuoteMap = visibleResolvedQuotes
     val filteredMemos by remember(sourceMemos, tag, searchString) {
         derivedStateOf {
             val normalizedTag = tag?.takeIf { it.isNotBlank() }
@@ -141,21 +143,21 @@ fun MemosList(
     LaunchedEffect(lazyListState) {
         snapshotFlow { lazyListState.isScrollInProgress }
             .collect { isScrolling ->
-                viewModel.setInteractionActive(UiInteractionType.LIST_SCROLL, isScrolling)
+                viewModel.setInteractionActive(MemoUiScope.FEED, UiInteractionType.LIST_SCROLL, isScrolling)
             }
     }
 
     LaunchedEffect(refreshState) {
         snapshotFlow { refreshState.distanceFraction > 0f }
             .collect { pullActive ->
-                viewModel.setInteractionActive(UiInteractionType.PULL_REFRESH, pullActive)
+                viewModel.setInteractionActive(MemoUiScope.FEED, UiInteractionType.PULL_REFRESH, pullActive)
             }
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            viewModel.setInteractionActive(UiInteractionType.LIST_SCROLL, false)
-            viewModel.setInteractionActive(UiInteractionType.PULL_REFRESH, false)
+            viewModel.setInteractionActive(MemoUiScope.FEED, UiInteractionType.LIST_SCROLL, false)
+            viewModel.setInteractionActive(MemoUiScope.FEED, UiInteractionType.PULL_REFRESH, false)
         }
     }
 
@@ -213,6 +215,7 @@ fun MemosList(
             lazyListState.firstVisibleItemIndex == 0 &&
                 lazyListState.firstVisibleItemScrollOffset <= 4
         if (
+            !feedFrozen &&
             anchoredAtTop &&
             listTopId != null &&
             filteredMemos.isNotEmpty() &&

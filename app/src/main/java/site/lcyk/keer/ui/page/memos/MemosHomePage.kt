@@ -57,7 +57,7 @@ fun MemosHomePage(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
-    val homeMemos by memosViewModel.homeMemos.collectAsStateWithLifecycle()
+    val homeMemos by memosViewModel.visibleHomeMemos.collectAsStateWithLifecycle()
     val syncStatus by memosViewModel.syncStatus.collectAsStateWithLifecycle()
     val homeMemoItemsById = remember(homeMemos) {
         homeMemos.associateBy { item -> item.memo.identifier }

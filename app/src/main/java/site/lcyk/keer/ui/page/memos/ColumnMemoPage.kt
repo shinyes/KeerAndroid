@@ -48,11 +48,11 @@ fun ColumnMemoPage(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val generalSettings by userStateViewModel.generalSettings.collectAsState()
+    val personalMemos by memosViewModel.visibleMemos.collectAsState()
     val column = remember(generalSettings, columnId) {
         generalSettings.memoColumns.firstOrNull { column -> column.id == columnId }
     }
     val scope = rememberCoroutineScope()
-    val personalMemos = memosViewModel.memos
     val filteredMemos = remember(personalMemos, column) {
         val requiredTags = column?.requiredTags.orEmpty()
         val pinnedMemoIds = column?.pinnedMemoRemoteIds.orEmpty().toSet()

@@ -9,10 +9,15 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
@@ -34,10 +39,12 @@ import site.lcyk.keer.data.service.OfflineGroupStore
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.util.buildResolvedMemoQuoteMap
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.resolveAvatarUrl
+import site.lcyk.keer.util.toMemoEntityForCard
 
 @HiltViewModel
 class GroupChatViewModel @Inject constructor(
@@ -46,12 +53,21 @@ class GroupChatViewModel @Inject constructor(
     private val accountLocalSettingsStore: AccountLocalSettingsStore,
     private val offlineGroupStore: OfflineGroupStore,
     private val memoService: MemoService,
+    private val uiInteractionGate: UiInteractionGate,
 ) : ViewModel() {
     private val lastGroupSyncAtMillis = mutableMapOf<String, Long>()
     private val lastGroupTagFetchAtMillis = mutableMapOf<String, Long>()
+    private val snapshotStore = InteractionSnapshotStore(viewModelScope, GroupChatUiState())
 
-    private val _memos = MutableStateFlow<List<Memo>>(emptyList())
-    val memos: StateFlow<List<Memo>> = _memos.asStateFlow()
+    val memos: StateFlow<List<Memo>> =
+        snapshotStore.visibleState
+            .map { it.memos }
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
+
+    val visibleResolvedQuotes: StateFlow<Map<String, site.lcyk.keer.util.ResolvedMemoQuote>> =
+        snapshotStore.visibleState
+            .map { it.resolvedQuoteByMemoId }
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyMap())
 
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
@@ -62,14 +78,25 @@ class GroupChatViewModel @Inject constructor(
     private val _groupTags = MutableStateFlow<List<String>>(emptyList())
     val groupTags: StateFlow<List<String>> = _groupTags.asStateFlow()
 
+    init {
+        viewModelScope.launch {
+            uiInteractionGate.observeScopeFrozen(MemoUiScope.GROUP_CHAT).collectLatest { frozen ->
+                snapshotStore.setFrozen(frozen)
+            }
+        }
+    }
+
     suspend fun loadGroupMemos(groupId: String, forceSync: Boolean = false) = withContext(viewModelScope.coroutineContext) {
         val localState = readLocalState(groupId)
         val initialCachedRemote = localState.cachedMemos.map(CachedMemoItem::toMemo)
-        _memos.value = mergeGroupMemos(
-            groupId = groupId,
-            remote = initialCachedRemote,
-            pending = localState.pending,
-            pinnedKeys = localState.pinnedKeys
+        publishGroupUiState(
+            groupId,
+            mergeGroupMemos(
+                groupId = groupId,
+                remote = initialCachedRemote,
+                pending = localState.pending,
+                pinnedKeys = localState.pinnedKeys,
+            )
         )
         if (!shouldRunGroupSync(groupId, forceSync, localState.pending.isNotEmpty())) {
             _loading.value = false
@@ -96,11 +123,14 @@ class GroupChatViewModel @Inject constructor(
 
             val latestLocalState = readLocalState(groupId)
             val latestCachedRemote = latestLocalState.cachedMemos.map(CachedMemoItem::toMemo)
-            _memos.value = mergeGroupMemos(
-                groupId = groupId,
-                remote = latestCachedRemote,
-                pending = latestLocalState.pending,
-                pinnedKeys = latestLocalState.pinnedKeys
+            publishGroupUiState(
+                groupId,
+                mergeGroupMemos(
+                    groupId = groupId,
+                    remote = latestCachedRemote,
+                    pending = latestLocalState.pending,
+                    pinnedKeys = latestLocalState.pinnedKeys,
+                )
             )
         } finally {
             _loading.value = false
@@ -216,7 +246,7 @@ class GroupChatViewModel @Inject constructor(
         if (normalizedRemoteID.isEmpty()) {
             return@withContext null
         }
-        _memos.value.firstOrNull { memo -> memo.remoteId == normalizedRemoteID }?.let { memo ->
+        memos.value.firstOrNull { memo -> memo.remoteId == normalizedRemoteID }?.let { memo ->
             return@withContext memo
         }
         val localState = readLocalState(groupId)
@@ -271,19 +301,22 @@ class GroupChatViewModel @Inject constructor(
             if (!updated) {
                 return@withContext false
             }
-            _memos.value = _memos.value
-                .map { memo ->
-                    if (memo.remoteId == normalizedRemoteID) {
-                        memo.copy(
-                            content = normalizedContent,
-                            tags = normalizedTags,
-                            updatedAt = Instant.now()
-                        )
-                    } else {
-                        memo
+            publishGroupUiState(
+                groupId,
+                memos.value
+                    .map { memo ->
+                        if (memo.remoteId == normalizedRemoteID) {
+                            memo.copy(
+                                content = normalizedContent,
+                                tags = normalizedTags,
+                                updatedAt = Instant.now(),
+                            )
+                        } else {
+                            memo
+                        }
                     }
-                }
-                .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+                    .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+            )
             _errorMessage.value = null
             return@withContext true
         }
@@ -323,23 +356,26 @@ class GroupChatViewModel @Inject constructor(
             is ApiResponse.Success -> {
                 val updatedMemo = response.data
                 upsertCachedGroupMemo(groupId, updatedMemo)
-                _memos.value = _memos.value
-                    .map { memo ->
-                        if (memo.remoteId == normalizedRemoteID) {
-                            val pinned = memo.pinned
-                            updatedMemo.copy(pinned = pinned)
-                        } else {
-                            memo
+                publishGroupUiState(
+                    groupId,
+                    memos.value
+                        .map { memo ->
+                            if (memo.remoteId == normalizedRemoteID) {
+                                val pinned = memo.pinned
+                                updatedMemo.copy(pinned = pinned)
+                            } else {
+                                memo
+                            }
                         }
-                    }
-                    .let { current ->
-                        if (current.none { memo -> memo.remoteId == updatedMemo.remoteId }) {
-                            current + updatedMemo
-                        } else {
-                            current
+                        .let { current ->
+                            if (current.none { memo -> memo.remoteId == updatedMemo.remoteId }) {
+                                current + updatedMemo
+                            } else {
+                                current
+                            }
                         }
-                    }
-                    .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+                        .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+                )
                 _errorMessage.value = null
                 true
             }
@@ -365,9 +401,12 @@ class GroupChatViewModel @Inject constructor(
             if (!removed) {
                 return@withContext false
             }
-            _memos.value = _memos.value
-                .filterNot { memo -> memo.remoteId == normalizedRemoteID }
-                .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+            publishGroupUiState(
+                groupId,
+                memos.value
+                    .filterNot { memo -> memo.remoteId == normalizedRemoteID }
+                    .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+            )
             _errorMessage.value = null
             return@withContext true
         }
@@ -380,9 +419,12 @@ class GroupChatViewModel @Inject constructor(
         return@withContext when (val response = remoteRepository.deleteGroupMessage(groupId, normalizedRemoteID)) {
             is ApiResponse.Success -> {
                 removeCachedGroupMemo(groupId, normalizedRemoteID)
-                _memos.value = _memos.value
-                    .filterNot { memo -> memo.remoteId == normalizedRemoteID }
-                    .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+                publishGroupUiState(
+                    groupId,
+                    memos.value
+                        .filterNot { memo -> memo.remoteId == normalizedRemoteID }
+                        .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+                )
                 _errorMessage.value = null
                 true
             }
@@ -406,11 +448,14 @@ class GroupChatViewModel @Inject constructor(
             offlineGroupStore.setPinnedGroupMemo(accountKey, groupId, memoRemoteId, pinned)
         }
 
-        _memos.value = _memos.value
-            .map { memo ->
-                if (memo.remoteId == memoRemoteId) memo.copy(pinned = pinned) else memo
-            }
-            .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+        publishGroupUiState(
+            groupId,
+            memos.value
+                .map { memo ->
+                    if (memo.remoteId == memoRemoteId) memo.copy(pinned = pinned) else memo
+                }
+                .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+        )
         true
     }
 
@@ -671,7 +716,7 @@ class GroupChatViewModel @Inject constructor(
                 null -> ""
             }
         )
-        return _memos.value
+        return memos.value
             .asSequence()
             .filter { memo ->
                 !memo.remoteId.startsWith("local:") &&
@@ -699,9 +744,41 @@ class GroupChatViewModel @Inject constructor(
         return "local:$localId"
     }
 
+    private suspend fun publishGroupUiState(groupId: String, groupMemos: List<Memo>) {
+        val accountKey = readCurrentAccountKey().orEmpty()
+        val quoteCandidates = withContext(Dispatchers.Default) {
+            groupMemos.map { memo ->
+                memo.toGroupMemoEntity(
+                    accountKey = accountKey,
+                    groupId = groupId,
+                )
+            }
+        }
+        val resolvedQuotes = withContext(Dispatchers.Default) {
+            buildResolvedMemoQuoteMap(quoteCandidates)
+        }
+        snapshotStore.updateLiveState(
+            GroupChatUiState(
+                memos = groupMemos,
+                resolvedQuoteByMemoId = resolvedQuotes,
+            )
+        )
+    }
+
     companion object {
         private const val GROUP_AUTO_SYNC_INTERVAL_MILLIS = 120_000L
         private const val GROUP_PENDING_SYNC_INTERVAL_MILLIS = 20_000L
         private const val GROUP_TAG_FETCH_INTERVAL_MILLIS = 120_000L
     }
+}
+
+private fun Memo.toGroupMemoEntity(
+    accountKey: String,
+    groupId: String,
+): site.lcyk.keer.data.local.entity.MemoEntity {
+    return toMemoEntityForCard(
+        identifier = "group:$groupId:$remoteId",
+        accountKey = accountKey,
+        needsSync = remoteId.startsWith("local:"),
+    )
 }

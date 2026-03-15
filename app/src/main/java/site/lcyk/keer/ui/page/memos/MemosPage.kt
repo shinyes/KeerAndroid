@@ -26,6 +26,7 @@ import androidx.window.core.layout.WindowSizeClass
 import kotlinx.coroutines.launch
 import site.lcyk.keer.ui.component.SideDrawer
 import site.lcyk.keer.viewmodel.LocalMemos
+import site.lcyk.keer.viewmodel.MemoUiScope
 import site.lcyk.keer.viewmodel.UiInteractionType
 
 @Composable
@@ -55,18 +56,18 @@ fun MemosPage(
 
     LaunchedEffect(drawerState, isExpanded) {
         if (isExpanded) {
-            memosViewModel.setInteractionActive(UiInteractionType.DRAWER_TRANSITION, false)
+            memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_TRANSITION, false)
             return@LaunchedEffect
         }
         snapshotFlow { drawerState.currentValue != drawerState.targetValue }
             .collect { inTransition ->
-                memosViewModel.setInteractionActive(UiInteractionType.DRAWER_TRANSITION, inTransition)
+                memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_TRANSITION, inTransition)
             }
     }
 
     DisposableEffect(isExpanded) {
         onDispose {
-            memosViewModel.setInteractionActive(UiInteractionType.DRAWER_TRANSITION, false)
+            memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_TRANSITION, false)
         }
     }
 

@@ -106,9 +106,9 @@ fun SideDrawer(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
-    val generalSettings by userStateViewModel.generalSettings.collectAsState()
-    val joinedGroups by memosViewModel.drawerGroups.collectAsStateWithLifecycle()
-    val groupIdAliases by userStateViewModel.groupIdAliases.collectAsState()
+    val drawerUiState by memosViewModel.visibleDrawerState.collectAsStateWithLifecycle()
+    val joinedGroups = drawerUiState.drawerGroups
+    val groupIdAliases = drawerUiState.groupIdAliases
     val hasExplore = currentAccount !is Account.Local
     val navBackStackEntry by memosNavController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -125,7 +125,7 @@ fun SideDrawer(
     var confirmDeleteAndMemosInput by remember { mutableStateOf("") }
     var tagActionErrorMessage by remember { mutableStateOf<String?>(null) }
     var tagActionInProgress by remember { mutableStateOf(false) }
-    val rawTags = memosViewModel.tags
+    val rawTags = drawerUiState.tags
     val availableTags = remember(rawTags) {
         normalizeTagList(
             rawTags
@@ -164,10 +164,7 @@ fun SideDrawer(
             ?.getString("columnId")
             ?.let(Uri::decode)
     }
-    val visibleColumns = remember(generalSettings) {
-        generalSettings.memoColumns
-            .filter { it.visibleInDrawer }
-    }
+    val visibleColumns = drawerUiState.visibleColumns
 
     fun isSelected(route: String): Boolean {
         return currentDestination?.hierarchy?.any { it.route == route } == true

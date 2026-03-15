@@ -30,6 +30,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshState
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -38,6 +39,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -69,12 +71,13 @@ import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToSearchPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
-import site.lcyk.keer.util.buildResolvedMemoQuoteMap
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.viewmodel.GroupChatViewModel
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
+import site.lcyk.keer.viewmodel.MemoUiScope
+import site.lcyk.keer.viewmodel.UiInteractionType
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,6 +116,7 @@ fun GroupChatPage(
     val group = joinedGroups.firstOrNull { it.id == resolvedGroupId }
 
     val memos by viewModel.memos.collectAsStateWithLifecycle()
+    val resolvedQuoteMap by viewModel.visibleResolvedQuotes.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
@@ -162,25 +166,30 @@ fun GroupChatPage(
             .distinct()
             .toList()
     }
-    val quoteMemoCandidates = remember(memos, activeAccountKey, group?.id) {
-        val resolvedGroupId = group?.id ?: return@remember emptyList()
-        memos.map { memo ->
-            memo.toGroupMemoEntity(
-                accountKey = activeAccountKey,
-                groupId = resolvedGroupId,
-            )
-        }
-    }
-    val resolvedQuoteMap = remember(quoteMemoCandidates) {
-        buildResolvedMemoQuoteMap(
-            quoteMemoCandidates,
-            transientMemoLookup = memosViewModel::getMemoForDetail,
-        )
-    }
-
     LaunchedEffect(collaboratorIdsToPrefetch) {
         if (collaboratorIdsToPrefetch.isNotEmpty()) {
             userStateViewModel.prefetchCollaboratorAvatars(collaboratorIdsToPrefetch)
+        }
+    }
+
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .collect { isScrolling ->
+                memosViewModel.setInteractionActive(MemoUiScope.GROUP_CHAT, UiInteractionType.LIST_SCROLL, isScrolling)
+            }
+    }
+
+    LaunchedEffect(refreshState) {
+        snapshotFlow { refreshState.distanceFraction > 0f }
+            .collect { pullActive ->
+                memosViewModel.setInteractionActive(MemoUiScope.GROUP_CHAT, UiInteractionType.PULL_REFRESH, pullActive)
+            }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            memosViewModel.setInteractionActive(MemoUiScope.GROUP_CHAT, UiInteractionType.LIST_SCROLL, false)
+            memosViewModel.setInteractionActive(MemoUiScope.GROUP_CHAT, UiInteractionType.PULL_REFRESH, false)
         }
     }
 
@@ -265,10 +274,10 @@ fun GroupChatPage(
             editGesture = editGesture,
             listState = listState,
             refreshState = refreshState,
-            syncStatus = if (loading && !syncStatus.syncing) {
-                syncStatus.copy(syncing = true)
+            syncing = if (loading && !syncStatus.syncing) {
+                true
             } else {
-                syncStatus
+                syncStatus.syncing
             },
             contentPadding = innerPadding,
             collaboratorProfiles = collaboratorProfiles,
@@ -403,7 +412,7 @@ private fun GroupChatList(
     editGesture: MemoEditGesture,
     listState: LazyListState,
     refreshState: PullToRefreshState,
-    syncStatus: SyncStatus,
+    syncing: Boolean,
     contentPadding: PaddingValues,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
@@ -419,14 +428,14 @@ private fun GroupChatList(
     onTagClick: (String) -> Unit
 ) {
     RefreshableListContainer(
-        isRefreshing = syncStatus.syncing,
+        isRefreshing = syncing,
         pullRefreshActive = false,
         onRefresh = onRefresh,
         state = refreshState,
         indicator = {
             PullSyncLineIndicator(
                 refreshState = refreshState,
-                syncing = syncStatus.syncing
+                syncing = syncing
             )
         },
         modifier = Modifier.padding(contentPadding),
