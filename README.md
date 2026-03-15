@@ -1,68 +1,145 @@
-# keer
+# Keer Android
 
-[![justforfunnoreally.dev badge](https://img.shields.io/badge/justforfunnoreally-dev-9ff)](https://justforfunnoreally.dev)
+致谢：本项目在产品思路、交互设计与移动端实现经验上受到了 `memos` 和 `MoeMemosAndroid` 的启发与帮助。
 
-<img alt="keer" src="https://memos.moe/memos.png" width="160" height="160" />
+`Keer Android` 是 `Keer` 的 Android 客户端，面向自托管记录、移动端同步、离线浏览和日常输入场景。应用当前围绕远程 `Keer` 账户工作，适合连接你自己的 `Keer` 服务端，在手机上完成记录、查看、编辑、同步、附件上传和群组消息等操作。
 
-**keer** is an app to help you capture thoughts and ideas.
+## 适用场景
 
-You can use keer with either a self-hosted [✍️memos](https://github.com/usememos/memos) server or locally on your device (no server required).
+- 需要一个连接自有 `Keer` 服务端的 Android 客户端
+- 需要在手机上完成记录输入、附件管理和消息查看
+- 希望断网时仍可浏览和编辑，联网后自动同步
+- 希望使用分享入口、小组件和系统级移动端能力
 
-**Note: Current keer version supports Memos 0.21.0, 0.26.0, and 0.26.1. Memos update may introduce breaking API changes. If you are using a version higher than 0.26.1, it is recommended to use [Mortis](https://github.com/mudkipme/mortis) to convert the newer Memos API to the Memos 0.21.0 API and re-login in keer.**
+## 主要能力
 
-## Installation
+- 远程账户登录与注册
+- 离线优先的数据访问与后台同步
+- 记录创建、编辑、归档、置顶、标签整理
+- 图片、文件、缩略图和断点续传上传
+- 群组、群消息、已读状态与成员协作
+- 账户设置、加密设置、密码变更
+- 系统分享接收、快捷入口、小组件
+- 基于 Jetpack Compose 的 Material 3 界面
 
-[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
-     alt="Get it on F-Droid"
-     height="80">](https://f-droid.org/packages/site.lcyk.keer/)
-[<img src="https://play.google.com/intl/en_us/badges/images/generic/en-play-badge.png"
-     alt="Get it on Google Play"
-     height="80">](https://play.google.com/store/apps/details?id=site.lcyk.keer)
+## 运行要求
 
-Or download and install the APK package from the [Releases section](https://github.com/mudkipme/KeerAndroid/releases/latest).
+- Android 8.0 及以上
+- `minSdk = 26`
+- 一个可访问的 `Keer` 服务端地址
 
-## Features
+## 安装
 
-- Write memos like tweeting to yourself
-- Use keer locally on your device (with export) or sync with your own ✍️memos server
-- Offline-first experience with automatic sync when you are back online
-- Material You design with dynamic themes and themed icon
-- Rich memo content: Markdown editor and renderer, images, non-image attachments, and to-do items
-- Organize and find memos with tags, pinning, and search
-- Home screen widget and share sheet integration (text, images, and webpages)
-- View your memo activity with a progress graph
-- Full privacy protection, no data collection
+### 直接安装
 
-keer is a third-party client for [✍️memos](https://github.com/usememos/memos) and both projects aren't affiliated with each other.
+优先使用本仓库 GitHub Releases 中提供的 APK。
 
-## Development
+### 本地构建
 
-keer tends to keep minimal and optimized for best native experience. The Android version is developed with Kotlin and Jetpack Compose.
+需要环境：
 
-Any contributions are greatly appreciated.
+- Android Studio 最新稳定版
+- JDK 17
+- Android SDK 36
 
-## Release
+常用命令：
 
-Android release workflow is in [`.github/workflows/build-signed-release-apk.yml`](.github/workflows/build-signed-release-apk.yml).
+```bash
+./gradlew installDebug
+./gradlew test
+./gradlew lint
+./gradlew assembleRelease
+```
 
-Release tags are unified with the backend:
+如果安装了 `just`，也可以使用这些快捷命令：
 
-- `v3.0.0`
-- `v3.0.0-alpha.1`
-- `v3.0.0-beta.1`
+```bash
+just build
+just dev
+just test
+just lint
+just release
+```
 
-Before pushing a release tag:
+## 开发说明
 
-1. Update `versionName` and `versionCode` in [`app/build.gradle`](app/build.gradle).
-2. Ensure `versionName` exactly matches the tag without the `v` prefix.
-3. Push the matching tag to this repo.
+项目当前主要使用：
 
-The workflow will:
+- Kotlin
+- Jetpack Compose
+- Hilt
+- Room
+- Retrofit + OkHttp
+- DataStore
 
-- build a signed release APK
-- upload `keer-android-vX.Y.Z.apk` to GitHub Release
-- mark alpha/beta tags as prerelease
+仓库结构：
 
-## License
+- `app/`: Android 应用主体代码
+- `app/src/main/`: 业务实现、资源文件、Manifest
+- `.github/workflows/`: CI 与发布流程
+- `gradle/`: Gradle Wrapper 相关文件
 
-The Android version of keer is under [GPLv3](LICENSE).
+## 联调说明
+
+当前应用面向远程 `Keer` 账户，首次进入会要求登录或注册远程账户。
+
+联调前建议确认：
+
+- 服务端地址可被设备访问
+- 服务端已经正确配置 `JWT_SECRET`
+- 登录、刷新会话、附件上传等接口工作正常
+
+如果你正在和同目录下的服务端仓库一起开发，建议先启动服务端，再通过应用添加远程账户进行联调。
+
+## 权限说明
+
+应用当前会使用这些权限：
+
+- `INTERNET`
+- `ACCESS_NETWORK_STATE`
+- `ACCESS_FINE_LOCATION`
+- `ACCESS_COARSE_LOCATION`
+
+其中网络权限用于远程访问与同步，位置权限用于记录相关的地理位置信息能力。
+
+## 发布
+
+发布工作流位于：
+
+- [`.github/workflows/build-signed-release-apk.yml`](./.github/workflows/build-signed-release-apk.yml)
+
+支持的标签格式：
+
+- `vX.Y.Z`
+- `vX.Y.Z-alpha.N`
+- `vX.Y.Z-beta.N`
+
+发布前请检查：
+
+1. 更新 [`app/build.gradle`](./app/build.gradle) 中的 `versionName`
+2. 同步更新 `versionCode`
+3. 确保 Git tag 去掉前缀 `v` 后与 `versionName` 一致
+
+Release 构建依赖以下签名环境变量：
+
+- `ANDROID_SIGNING_STORE_FILE`
+- `ANDROID_SIGNING_STORE_PASSWORD`
+- `ANDROID_SIGNING_KEY_ALIAS`
+- `ANDROID_SIGNING_KEY_PASSWORD`
+
+GitHub Actions 会校验版本号、构建签名 APK，并把产物上传到对应的 Release。
+
+## 贡献
+
+欢迎提交 Issue 和 Pull Request。
+
+如果改动涉及登录态、同步、上传链路或数据库结构，建议在提交前至少完成：
+
+- `./gradlew test`
+- `./gradlew lint`
+
+另外最好补一轮真机或模拟器联调。
+
+## 许可证
+
+本项目采用 [GPLv3](./LICENSE)。
