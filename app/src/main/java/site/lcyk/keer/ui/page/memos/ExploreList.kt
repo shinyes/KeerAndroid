@@ -3,7 +3,7 @@ package site.lcyk.keer.ui.page.memos
 import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -32,6 +32,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
@@ -70,7 +71,9 @@ fun ExploreList(
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
-    val syncStatus by memosViewModel.syncStatus.collectAsStateWithLifecycle()
+    val syncing by memosViewModel.syncStatus
+        .map { it.syncing }
+        .collectAsStateWithLifecycle(initialValue = false)
     val mutationErrorMessage by viewModel.mutationErrorMessage.collectAsStateWithLifecycle()
     val rootNavController = LocalRootNavController.current
     val listState = rememberLazyListState()
@@ -110,14 +113,14 @@ fun ExploreList(
         listState = listState,
         refreshState = refreshState,
         contentPadding = contentPadding,
-        syncStatus = syncStatus,
+        syncing = syncing,
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
         accountKey = accountKey,
         quoteMemoCandidates = quoteMemoCandidates,
         currentUserId = currentUserId,
         onRefresh = {
-            if (syncStatus.syncing) {
+            if (syncing) {
                 return@ExploreMemoFeed
             }
             scope.launch {
@@ -246,7 +249,7 @@ private fun ExploreMemoFeed(
     listState: androidx.compose.foundation.lazy.LazyListState,
     refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState,
     contentPadding: PaddingValues,
-    syncStatus: site.lcyk.keer.data.model.SyncStatus,
+    syncing: Boolean,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
     accountKey: String,
@@ -261,19 +264,22 @@ private fun ExploreMemoFeed(
     onOpenTopic: (String, String) -> Unit
 ) {
     RefreshableListContainer(
-        isRefreshing = syncStatus.syncing,
+        isRefreshing = syncing,
         pullRefreshActive = false,
         onRefresh = onRefresh,
         state = refreshState,
         indicator = {
             PullSyncLineIndicator(
                 refreshState = refreshState,
-                syncing = syncStatus.syncing
+                syncing = syncing
             )
         },
-        modifier = Modifier.padding(contentPadding)
+        modifier = Modifier.fillMaxSize()
     ) {
-        LazyColumn(state = listState) {
+        LazyColumn(
+            state = listState,
+            contentPadding = contentPadding,
+        ) {
             items(
                 count = memos.itemCount,
                 key = { index ->

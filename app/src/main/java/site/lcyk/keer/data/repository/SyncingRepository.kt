@@ -66,6 +66,7 @@ class SyncingRepository(
     )
 
     private val accountKey = account.accountKey()
+    private val recentTagUsageSince: Instant = Instant.now().minusSeconds(30L * 24L * 60L * 60L)
     private var currentUser: User = account.toUser()
     @Volatile
     private var lastCurrentUserRefreshAtMillis: Long = 0L
@@ -94,6 +95,10 @@ class SyncingRepository(
 
     override fun observeResources(): Flow<List<ResourceEntity>> {
         return memoDao.observeAllResources(accountKey)
+    }
+
+    override fun observeTags(): Flow<List<String>> {
+        return memoDao.observeTagsByRecentUsage(accountKey, recentTagUsageSince)
     }
 
     override fun observeResource(identifier: String): Flow<ResourceEntity?> {
@@ -281,7 +286,7 @@ class SyncingRepository(
         return try {
             val tags = memoDao.listTagsByRecentUsage(
                 accountKey = accountKey,
-                since = Instant.now().minusSeconds(30L * 24L * 60L * 60L)
+                since = recentTagUsageSince
             )
             ApiResponse.Success(tags)
         } catch (e: Exception) {

@@ -29,6 +29,7 @@ class LocalDatabaseRepository(
     private val account: Account.Local = Account.Local(),
 ) : AbstractMemoRepository() {
     private val accountKey = account.accountKey()
+    private val recentTagUsageSince: Instant = Instant.now().minusSeconds(30L * 24L * 60L * 60L)
 
     override fun observeMemos(): Flow<List<MemoEntity>> {
         return memoDao.observeAllMemos(accountKey).map { memos ->
@@ -43,6 +44,10 @@ class LocalDatabaseRepository(
 
     override fun observeResources(): Flow<List<ResourceEntity>> {
         return memoDao.observeAllResources(accountKey)
+    }
+
+    override fun observeTags(): Flow<List<String>> {
+        return memoDao.observeTagsByRecentUsage(accountKey, recentTagUsageSince)
     }
 
     override fun observeResource(identifier: String): Flow<ResourceEntity?> {
@@ -222,7 +227,7 @@ class LocalDatabaseRepository(
         return try {
             val tags = memoDao.listTagsByRecentUsage(
                 accountKey = accountKey,
-                since = Instant.now().minusSeconds(30L * 24L * 60L * 60L)
+                since = recentTagUsageSince
             )
             ApiResponse.Success(tags)
         } catch (e: Exception) {

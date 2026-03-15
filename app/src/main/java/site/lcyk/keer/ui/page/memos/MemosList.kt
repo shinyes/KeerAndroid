@@ -4,7 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -29,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
@@ -75,7 +75,9 @@ fun MemosList(
     val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
     val generalSettings by userStateViewModel.generalSettings.collectAsStateWithLifecycle()
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
-    val syncStatus by viewModel.syncStatus.collectAsStateWithLifecycle()
+    val syncing by viewModel.syncStatus
+        .map { it.syncing }
+        .collectAsStateWithLifecycle(initialValue = false)
     val editGesture = generalSettings.memoEditGesture
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
@@ -138,13 +140,13 @@ fun MemosList(
         lazyListState = lazyListState,
         refreshState = refreshState,
         contentPadding = contentPadding,
-        syncStatus = syncStatus,
+        syncing = syncing,
         showSyncStatus = currentAccount !is Account.Local,
         editGesture = editGesture,
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
         onRefresh = {
-            if (syncStatus.syncing) {
+            if (syncing) {
                 return@MemoFeedList
             }
             scope.launch {
@@ -178,7 +180,15 @@ fun MemosList(
     }
 
     LaunchedEffect(filteredMemos.firstOrNull()?.identifier) {
-        if (listTopId != null && filteredMemos.isNotEmpty() && listTopId != filteredMemos.first().identifier) {
+        val anchoredAtTop =
+            lazyListState.firstVisibleItemIndex == 0 &&
+                lazyListState.firstVisibleItemScrollOffset <= 4
+        if (
+            anchoredAtTop &&
+            listTopId != null &&
+            filteredMemos.isNotEmpty() &&
+            listTopId != filteredMemos.first().identifier
+        ) {
             lazyListState.scrollToItem(0)
         }
 
@@ -198,7 +208,7 @@ private fun MemoFeedList(
     lazyListState: LazyListState,
     refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState,
     contentPadding: PaddingValues,
-    syncStatus: site.lcyk.keer.data.model.SyncStatus,
+    syncing: Boolean,
     showSyncStatus: Boolean,
     editGesture: MemoEditGesture,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
@@ -211,21 +221,22 @@ private fun MemoFeedList(
     actionButton: (@Composable (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)?,
 ) {
     RefreshableListContainer(
-        isRefreshing = syncStatus.syncing,
+        isRefreshing = syncing,
         pullRefreshActive = false,
         onRefresh = onRefresh,
         state = refreshState,
         indicator = {
             PullSyncLineIndicator(
                 refreshState = refreshState,
-                syncing = syncStatus.syncing
+                syncing = syncing
             )
         },
-        modifier = Modifier.padding(contentPadding)
+        modifier = Modifier.fillMaxSize()
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            state = lazyListState
+            state = lazyListState,
+            contentPadding = contentPadding
         ) {
             items(
                 items = memos,

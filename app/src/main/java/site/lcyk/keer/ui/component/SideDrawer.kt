@@ -123,7 +123,7 @@ fun SideDrawer(
     var confirmDeleteAndMemosInput by remember { mutableStateOf("") }
     var tagActionErrorMessage by remember { mutableStateOf<String?>(null) }
     var tagActionInProgress by remember { mutableStateOf(false) }
-    val rawTags = memosViewModel.tags.toList()
+    val rawTags = memosViewModel.tags
     val availableTags = remember(rawTags) {
         normalizeTagList(
             rawTags

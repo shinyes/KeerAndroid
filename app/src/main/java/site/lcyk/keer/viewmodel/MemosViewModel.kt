@@ -3,9 +3,8 @@ package site.lcyk.keer.viewmodel
 import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -63,14 +62,14 @@ class MemosViewModel @Inject constructor(
     @param:ApplicationContext private val appContext: Context
 ) : ViewModel() {
 
-    var memos = mutableStateListOf<MemoEntity>()
+    var memos: List<MemoEntity> by mutableStateOf(emptyList())
         private set
     private val transientDetailMemos = linkedMapOf<String, MemoEntity>()
-    var tags = mutableStateListOf<String>()
+    var tags: List<String> by mutableStateOf(emptyList())
         private set
     var errorMessage: String? by mutableStateOf(null)
         private set
-    var matrix by mutableStateOf(DailyUsageStat.initialMatrix)
+    var matrix: List<DailyUsageStat> by mutableStateOf(DailyUsageStat.initialMatrix)
         private set
 
     val host: StateFlow<String?> =
@@ -107,14 +106,21 @@ class MemosViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
+        val liveMemos = memoService.memos
         viewModelScope.launch {
-            memoService.memos.collectLatest { latestMemos ->
+            liveMemos.collectLatest { latestMemos ->
                 applyMemos(latestMemos)
             }
         }
 
         viewModelScope.launch {
-            memoService.memos.collectLatest { latestMemos ->
+            memoService.tags.collectLatest { latestTags ->
+                applyTags(latestTags)
+            }
+        }
+
+        viewModelScope.launch {
+            liveMemos.collectLatest { latestMemos ->
                 matrix = withContext(Dispatchers.Default) {
                     calculateMatrix(latestMemos)
                 }
@@ -142,9 +148,15 @@ class MemosViewModel @Inject constructor(
             errorMessage = null
             return
         }
-        memos.clear()
-        memos.addAll(latestMemos)
+        memos = latestMemos
         errorMessage = null
+    }
+
+    private fun applyTags(latestTags: List<String>) {
+        if (tags == latestTags) {
+            return
+        }
+        tags = latestTags
     }
 
     suspend fun loadMemos(
@@ -185,8 +197,7 @@ class MemosViewModel @Inject constructor(
 
     fun loadTags() = viewModelScope.launch {
         memoService.getRepository().listTags().suspendOnSuccess {
-            tags.clear()
-            tags.addAll(data)
+            applyTags(data)
         }
     }
 
@@ -195,8 +206,7 @@ class MemosViewModel @Inject constructor(
         if (response is ApiResponse.Success) {
             loadMemosSnapshot()
             memoService.getRepository().listTags().suspendOnSuccess {
-                tags.clear()
-                tags.addAll(data)
+                applyTags(data)
             }
             WidgetUpdater.updateWidgets(appContext)
             triggerSyncAfterMutation()
@@ -209,8 +219,7 @@ class MemosViewModel @Inject constructor(
         if (response is ApiResponse.Success) {
             loadMemosSnapshot()
             memoService.getRepository().listTags().suspendOnSuccess {
-                tags.clear()
-                tags.addAll(data)
+                applyTags(data)
             }
             WidgetUpdater.updateWidgets(appContext)
             triggerSyncAfterMutation()
@@ -243,7 +252,7 @@ class MemosViewModel @Inject constructor(
 
     suspend fun archiveMemo(memoIdentifier: String) = withContext(viewModelScope.coroutineContext) {
         memoService.getRepository().archiveMemo(memoIdentifier).suspendOnSuccess {
-            memos.removeIf { it.identifier == memoIdentifier }
+            memos = memos.filterNot { it.identifier == memoIdentifier }
             // Update widgets after archiving a memo
             WidgetUpdater.updateWidgets(appContext)
             triggerSyncAfterMutation()
@@ -252,7 +261,7 @@ class MemosViewModel @Inject constructor(
 
     suspend fun deleteMemo(memoIdentifier: String) = withContext(viewModelScope.coroutineContext) {
         memoService.getRepository().deleteMemo(memoIdentifier).suspendOnSuccess {
-            memos.removeIf { it.identifier == memoIdentifier }
+            memos = memos.filterNot { it.identifier == memoIdentifier }
             // Update widgets after deleting a memo
             WidgetUpdater.updateWidgets(appContext)
             triggerSyncAfterMutation()
@@ -275,9 +284,11 @@ class MemosViewModel @Inject constructor(
         memoService.observeResource(resourceIdentifier)
 
     private fun updateMemo(memo: MemoEntity) {
-        val index = memos.indexOfFirst { it.identifier == memo.identifier }
-        if (index != -1) {
-            memos[index] = memo
+        if (memos.none { it.identifier == memo.identifier }) {
+            return
+        }
+        memos = memos.map { existing ->
+            if (existing.identifier == memo.identifier) memo else existing
         }
     }
 

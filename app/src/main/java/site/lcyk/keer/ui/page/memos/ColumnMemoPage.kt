@@ -52,7 +52,7 @@ fun ColumnMemoPage(
         generalSettings.memoColumns.firstOrNull { column -> column.id == columnId }
     }
     val scope = rememberCoroutineScope()
-    val personalMemos = memosViewModel.memos.toList()
+    val personalMemos = memosViewModel.memos
     val filteredMemos = remember(personalMemos, column) {
         val requiredTags = column?.requiredTags.orEmpty()
         val pinnedMemoIds = column?.pinnedMemoRemoteIds.orEmpty().toSet()

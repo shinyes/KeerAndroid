@@ -156,6 +156,23 @@ interface MemoDao {
     """)
     suspend fun listTagsByRecentUsage(accountKey: String, since: Instant): List<String>
 
+    @Query("""
+        SELECT t.name
+        FROM tags t
+        LEFT JOIN memo_tags mt
+          ON mt.accountKey = t.accountKey
+         AND mt.tagName = t.name
+        LEFT JOIN memos m
+          ON m.identifier = mt.memoId
+         AND m.accountKey = t.accountKey
+         AND m.isDeleted = 0
+         AND m.date >= :since
+        WHERE t.accountKey = :accountKey
+        GROUP BY t.name
+        ORDER BY COUNT(m.identifier) DESC, MAX(m.date) DESC, t.name COLLATE NOCASE ASC
+    """)
+    fun observeTagsByRecentUsage(accountKey: String, since: Instant): Flow<List<String>>
+
     @Transaction
     suspend fun replaceMemoTags(memoId: String, accountKey: String, tags: List<String>) {
         val now = Instant.now()

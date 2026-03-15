@@ -92,7 +92,7 @@ fun MemoInputPage(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val friends by userStateViewModel.friends.collectAsState()
-    val memoSnapshot = remember(memosViewModel.memos) { memosViewModel.memos.toList() }
+    val memoSnapshot = memosViewModel.memos
     val memo = remember(memoIdentifier, memoSnapshot) {
         if (memoIdentifier.isNullOrBlank()) {
             null
@@ -523,7 +523,6 @@ fun MemoInputPage(
     if (showTagSelector) {
         MemoTagSelectorDialog(
             availableTags = memosViewModel.tags
-                .toList()
                 .filterNot(::isCollaboratorTag)
                 .filterNot(::isQuoteTag),
             selectedTags = selectedTags,

@@ -16,7 +16,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,6 +24,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
@@ -56,11 +56,14 @@ fun MemosHomePage(
     val rootNavController = LocalRootNavController.current
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
-    val currentAccount by userStateViewModel.currentAccount.collectAsState()
-    val homeMemos by memosViewModel.homeMemos.collectAsState()
-    val syncStatus by memosViewModel.syncStatus.collectAsState()
+    val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
+    val homeMemos by memosViewModel.homeMemos.collectAsStateWithLifecycle()
+    val syncStatus by memosViewModel.syncStatus.collectAsStateWithLifecycle()
     val homeMemoItemsById = remember(homeMemos) {
         homeMemos.associateBy { item -> item.memo.identifier }
+    }
+    val homeFeedMemos = remember(homeMemos) {
+        homeMemos.map { item -> item.memo }
     }
 
     val expandedFab by remember {
@@ -127,7 +130,7 @@ fun MemosHomePage(
 
             content = { innerPadding ->
                 MemosList(
-                    memos = homeMemos.map { item -> item.memo },
+                    memos = homeFeedMemos,
                     lazyListState = listState,
                     contentPadding = innerPadding,
                     onRefresh = { requestManualSync() },

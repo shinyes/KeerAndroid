@@ -44,6 +44,12 @@ class MemoService @Inject constructor(
         }
         .stateIn(serviceScope, SharingStarted.WhileSubscribed(5_000L), emptyList<ResourceEntity>())
 
+    val tags = accountService.currentAccount
+        .flatMapLatest {
+            accountService.getRepository().observeTags()
+        }
+        .stateIn(serviceScope, SharingStarted.WhileSubscribed(5_000L), emptyList<String>())
+
     fun observeResource(identifier: String): Flow<ResourceEntity?> {
         val normalizedIdentifier = identifier.trim()
         if (normalizedIdentifier.isEmpty()) {

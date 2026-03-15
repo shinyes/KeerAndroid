@@ -74,7 +74,7 @@ fun ColumnConfigPage(
     val userStateViewModel = LocalUserState.current
     val generalSettings by userStateViewModel.generalSettings.collectAsState()
     val columns = generalSettings.memoColumns
-    val rawTags = memosViewModel.tags.toList()
+    val rawTags = memosViewModel.tags
     val availableTags = remember(rawTags) {
         rawTags
             .filterNot(::isCollaboratorTag)

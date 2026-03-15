@@ -102,13 +102,17 @@ fun MemosCard(
         )
     }
     val collaboratorIds = remember(memo.tags) { extractCollaboratorIds(memo.tags) }
-    val memoSnapshot = remember(memosViewModel.memos) { memosViewModel.memos.toList() }
+    val memoSnapshot = memosViewModel.memos
     val quoteDescriptor = remember(memo.quoteSourceKind, memo.quoteSource, memo.tags) {
         memo.resolveMemoQuoteDescriptor()
     }
-    val quoteSearchSpace = remember(quoteMemoCandidates, memoSnapshot) {
-        (quoteMemoCandidates + memoSnapshot)
-            .distinctBy { candidate -> "${candidate.identifier}|${candidate.remoteId.orEmpty()}" }
+    val quoteSearchSpace = remember(quoteDescriptor, quoteMemoCandidates, memoSnapshot) {
+        if (quoteDescriptor == null) {
+            emptyList()
+        } else {
+            (quoteMemoCandidates + memoSnapshot)
+                .distinctBy { candidate -> "${candidate.identifier}|${candidate.remoteId.orEmpty()}" }
+        }
     }
     val quotedMemo = remember(
         quoteDescriptor,

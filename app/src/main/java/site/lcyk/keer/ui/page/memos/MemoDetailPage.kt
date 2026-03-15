@@ -84,7 +84,7 @@ fun MemoDetailPage(
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsState()
     val scope = rememberCoroutineScope()
-    val memoSnapshot = remember(memosViewModel.memos) { memosViewModel.memos.toList() }
+    val memoSnapshot = memosViewModel.memos
     val localMemo = remember(memoSnapshot, memoIdentifier) {
         memosViewModel.getMemoForDetail(memoIdentifier)
     }
