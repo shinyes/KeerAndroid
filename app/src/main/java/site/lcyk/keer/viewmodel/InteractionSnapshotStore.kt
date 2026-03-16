@@ -35,6 +35,12 @@ class InteractionSnapshotStore<T>(
         pendingCommitJob?.cancel()
         pendingCommitJob = null
         if (!active) {
+            if (idleCommitDelayMillis <= 0L) {
+                if (_visibleState.value != latestLiveState) {
+                    _visibleState.value = latestLiveState
+                }
+                return
+            }
             pendingCommitJob = scope.launch {
                 delay(idleCommitDelayMillis)
                 if (!frozen && _visibleState.value != latestLiveState) {

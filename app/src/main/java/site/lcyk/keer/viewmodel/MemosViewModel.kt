@@ -2,6 +2,7 @@ package site.lcyk.keer.viewmodel
 
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +54,7 @@ import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.widget.WidgetUpdater
 import java.time.LocalDate
 import java.time.OffsetDateTime
+import timber.log.Timber
 
 data class HomeMemoItem(
     val memo: MemoEntity,
@@ -72,7 +74,11 @@ class MemosViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val transientDetailMemos = linkedMapOf<String, MemoEntity>()
-    private val feedSnapshotStore = InteractionSnapshotStore(viewModelScope, FeedUiState())
+    private val feedSnapshotStore = InteractionSnapshotStore(
+        scope = viewModelScope,
+        initialState = FeedUiState(),
+        idleCommitDelayMillis = 0L,
+    )
     private val drawerSnapshotStore = InteractionSnapshotStore(viewModelScope, DrawerUiState())
 
     var errorMessage: String? by mutableStateOf(null)
@@ -84,31 +90,37 @@ class MemosViewModel @Inject constructor(
     val visibleMemos: StateFlow<List<MemoEntity>> =
         visibleFeedState
             .map { it.memos }
+            .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val visibleTags: StateFlow<List<String>> =
         visibleFeedState
             .map { it.tags }
+            .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val visibleMatrix: StateFlow<List<DailyUsageStat>> =
         visibleFeedState
             .map { it.matrix }
+            .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.Eagerly, DailyUsageStat.initialMatrix)
 
     val visibleHomeMemos: StateFlow<List<HomeMemoItem>> =
         visibleFeedState
             .map { it.homeMemos }
+            .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val visibleResolvedQuotes: StateFlow<Map<String, site.lcyk.keer.util.ResolvedMemoQuote>> =
         visibleFeedState
             .map { it.resolvedQuoteByMemoId }
+            .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     val drawerGroups: StateFlow<List<MemoGroup>> =
         visibleDrawerState
             .map { it.drawerGroups }
+            .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val homeMemos: StateFlow<List<HomeMemoItem>> = visibleHomeMemos
@@ -166,10 +178,12 @@ class MemosViewModel @Inject constructor(
         val liveResolvedQuotes = memoService.memos
             .mapLatest { latestMemos ->
                 withContext(Dispatchers.Default) {
-                    buildResolvedMemoQuoteMap(
-                        latestMemos,
-                        transientMemoLookup = ::getMemoForDetail,
-                    )
+                    measureFeedSection("resolved_quotes", latestMemos.size) {
+                        buildResolvedMemoQuoteMap(
+                            latestMemos,
+                            transientMemoLookup = ::getMemoForDetail,
+                        )
+                    }
                 }
             }
 
@@ -192,7 +206,12 @@ class MemosViewModel @Inject constructor(
                     resolvedQuoteByMemoId = resolvedQuotes,
                 )
             }.collectLatest { latestState ->
-                feedSnapshotStore.updateLiveState(latestState)
+                measureFeedSection(
+                    section = "feed_state_commit",
+                    memoCount = latestState.memos.size,
+                ) {
+                    feedSnapshotStore.updateLiveState(latestState)
+                }
             }
         }
 
@@ -448,8 +467,29 @@ class MemosViewModel @Inject constructor(
         return "$groupId|$memoRemoteId"
     }
 
+    private inline fun <T> measureFeedSection(
+        section: String,
+        memoCount: Int,
+        block: () -> T,
+    ): T {
+        val startNanos = SystemClock.elapsedRealtimeNanos()
+        val result = block()
+        val elapsedMillis = (SystemClock.elapsedRealtimeNanos() - startNanos) / 1_000_000L
+        if (elapsedMillis >= FEED_PROFILE_LOG_THRESHOLD_MILLIS) {
+            Timber.tag(FEED_PROFILE_TAG).d(
+                "section=%s elapsedMs=%d memos=%d",
+                section,
+                elapsedMillis,
+                memoCount,
+            )
+        }
+        return result
+    }
+
     private companion object {
         private const val MAX_TRANSIENT_DETAIL_MEMO_COUNT = 200
+        private const val FEED_PROFILE_LOG_THRESHOLD_MILLIS = 12L
+        private const val FEED_PROFILE_TAG = "FeedProfile"
     }
 }
 
