@@ -72,7 +72,11 @@ class MemosViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val transientDetailMemos = linkedMapOf<String, MemoEntity>()
-    private val feedSnapshotStore = InteractionSnapshotStore(viewModelScope, FeedUiState())
+    private val feedSnapshotStore = InteractionSnapshotStore(
+        scope = viewModelScope,
+        initialState = FeedUiState(),
+        idleCommitDelayMillis = 0L,
+    )
     private val drawerSnapshotStore = InteractionSnapshotStore(viewModelScope, DrawerUiState())
 
     var errorMessage: String? by mutableStateOf(null)

@@ -17,19 +17,18 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
@@ -84,8 +83,6 @@ fun MemosList(
         .collectAsStateWithLifecycle(initialValue = false)
     val visibleMemos by viewModel.visibleMemos.collectAsStateWithLifecycle()
     val visibleResolvedQuotes by viewModel.visibleResolvedQuotes.collectAsStateWithLifecycle()
-    val feedFrozen by viewModel.observeScopeFrozen(MemoUiScope.FEED)
-        .collectAsStateWithLifecycle(initialValue = false)
     val editGesture = generalSettings.memoEditGesture
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
@@ -142,27 +139,16 @@ fun MemosList(
 
     LaunchedEffect(lazyListState) {
         snapshotFlow { lazyListState.isScrollInProgress }
+            .distinctUntilChanged()
             .collect { isScrolling ->
                 viewModel.setInteractionActive(MemoUiScope.FEED, UiInteractionType.LIST_SCROLL, isScrolling)
-            }
-    }
-
-    LaunchedEffect(refreshState) {
-        snapshotFlow { refreshState.distanceFraction > 0f }
-            .collect { pullActive ->
-                viewModel.setInteractionActive(MemoUiScope.FEED, UiInteractionType.PULL_REFRESH, pullActive)
             }
     }
 
     DisposableEffect(Unit) {
         onDispose {
             viewModel.setInteractionActive(MemoUiScope.FEED, UiInteractionType.LIST_SCROLL, false)
-            viewModel.setInteractionActive(MemoUiScope.FEED, UiInteractionType.PULL_REFRESH, false)
         }
-    }
-
-    var listTopId: String? by rememberSaveable {
-        mutableStateOf(null)
     }
 
     MemoFeedList(
@@ -208,23 +194,6 @@ fun MemosList(
 
     LaunchedEffect(Unit) {
         viewModel.loadMemos()
-    }
-
-    LaunchedEffect(filteredMemos.firstOrNull()?.identifier) {
-        val anchoredAtTop =
-            lazyListState.firstVisibleItemIndex == 0 &&
-                lazyListState.firstVisibleItemScrollOffset <= 4
-        if (
-            !feedFrozen &&
-            anchoredAtTop &&
-            listTopId != null &&
-            filteredMemos.isNotEmpty() &&
-            listTopId != filteredMemos.first().identifier
-        ) {
-            lazyListState.scrollToItem(0)
-        }
-
-        listTopId = filteredMemos.firstOrNull()?.identifier
     }
 
     SyncAlertDialog(
