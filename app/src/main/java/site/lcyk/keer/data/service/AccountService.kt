@@ -113,8 +113,8 @@ class AccountService @Inject constructor(
         accountKeyManager.onActiveAccountChanged(account)
         val session = repositoryFactory.createSession(
             account = account,
-            readMemoSyncAnchor = ::readMemoSyncAnchor,
-            writeMemoSyncAnchor = ::writeMemoSyncAnchor,
+            readMemoSyncCursor = ::readMemoSyncCursor,
+            writeMemoSyncCursor = ::writeMemoSyncCursor,
             readUserSyncAnchor = ::readUserSyncAnchor,
             writeUserSyncAnchor = ::writeUserSyncAnchor,
             readSyncedUserIDs = ::readSyncedUserIDs,
@@ -470,12 +470,12 @@ class AccountService @Inject constructor(
         return ApiResponse.Success(Unit)
     }
 
-    private suspend fun readMemoSyncAnchor(accountKey: String): Instant? {
-        return accountLocalSettingsStore.readMemoSyncAnchor(accountKey)
+    private suspend fun readMemoSyncCursor(accountKey: String): String? {
+        return accountLocalSettingsStore.readMemoSyncCursor(accountKey)
     }
 
-    private suspend fun writeMemoSyncAnchor(accountKey: String, anchor: Instant) {
-        accountLocalSettingsStore.writeMemoSyncAnchor(accountKey, anchor)
+    private suspend fun writeMemoSyncCursor(accountKey: String, cursor: String) {
+        accountLocalSettingsStore.writeMemoSyncCursor(accountKey, cursor)
     }
 
     private suspend fun readUserSyncAnchor(accountKey: String): Instant? {

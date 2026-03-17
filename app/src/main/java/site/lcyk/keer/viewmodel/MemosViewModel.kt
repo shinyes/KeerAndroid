@@ -20,14 +20,15 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.R
@@ -61,6 +62,19 @@ data class HomeMemoItem(
     val groupId: String? = null,
 )
 
+private data class MemoQuoteSignature(
+    val identifier: String,
+    val remoteId: String?,
+    val contentHash: Int,
+    val tagsHash: Int,
+    val quoteSourceKind: String?,
+    val quoteSource: String?,
+    val quoteStatus: String?,
+    val quoteContentPreviewHash: Int,
+    val quoteDateEpochMillis: Long?,
+    val quoteHasAttachments: Boolean,
+)
+
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
 class MemosViewModel @Inject constructor(
@@ -74,22 +88,20 @@ class MemosViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val transientDetailMemos = linkedMapOf<String, MemoEntity>()
-    private val feedSnapshotStore = InteractionSnapshotStore(
+    private val feedProjectionStore = FeedProjectionStore(
         scope = viewModelScope,
-        initialState = FeedUiState(),
-        idleCommitDelayMillis = 700L,
+        idleCommitDelayMillis = 180L,
     )
-    private val drawerSnapshotStore = InteractionSnapshotStore(
+    private val drawerProjectionStore = DrawerProjectionStore(
         scope = viewModelScope,
-        initialState = DrawerUiState(),
-        idleCommitDelayMillis = 420L,
+        idleCommitDelayMillis = 180L,
     )
 
     var errorMessage: String? by mutableStateOf(null)
         private set
 
-    private val visibleFeedState: StateFlow<FeedUiState> = feedSnapshotStore.visibleState
-    val visibleDrawerState: StateFlow<DrawerUiState> = drawerSnapshotStore.visibleState
+    private val visibleFeedState: StateFlow<FeedUiState> = feedProjectionStore.visibleState
+    val visibleDrawerState: StateFlow<DrawerUiState> = drawerProjectionStore.visibleState
 
     val visibleMemos: StateFlow<List<MemoEntity>> =
         visibleFeedState
@@ -172,15 +184,41 @@ class MemosViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
-        val liveMatrix = memoService.memos
-            .mapLatest { latestMemos ->
+        val liveMemoProjection = memoService.memos
+            .map { latestMemos ->
+                Triple(
+                    latestMemos,
+                    latestMemos.map { memo -> memo.identifier to memo.date.toEpochMilli() },
+                    latestMemos.map { memo ->
+                        MemoQuoteSignature(
+                            identifier = memo.identifier,
+                            remoteId = memo.remoteId,
+                            contentHash = memo.content.hashCode(),
+                            tagsHash = memo.tags.hashCode(),
+                            quoteSourceKind = memo.quoteSourceKind,
+                            quoteSource = memo.quoteSource,
+                            quoteStatus = memo.quoteStatus,
+                            quoteContentPreviewHash = memo.quoteContentPreview.hashCode(),
+                            quoteDateEpochMillis = memo.quoteDate?.toEpochMilli(),
+                            quoteHasAttachments = memo.quoteHasAttachments,
+                        )
+                    },
+                )
+            }
+
+        val liveMatrix = liveMemoProjection
+            .map { (latestMemos, matrixSignature, _) -> latestMemos to matrixSignature }
+            .distinctUntilChangedBy { (_, matrixSignature) -> matrixSignature }
+            .mapLatest { (latestMemos, _) ->
                 withContext(Dispatchers.Default) {
                     calculateMatrix(latestMemos)
                 }
             }
 
-        val liveResolvedQuotes = memoService.memos
-            .mapLatest { latestMemos ->
+        val liveResolvedQuotes = liveMemoProjection
+            .map { (latestMemos, _, quoteSignature) -> latestMemos to quoteSignature }
+            .distinctUntilChangedBy { (_, quoteSignature) -> quoteSignature }
+            .mapLatest { (latestMemos, _) ->
                 withContext(Dispatchers.Default) {
                     measureFeedSection("resolved_quotes", latestMemos.size) {
                         buildResolvedMemoQuoteMap(
@@ -211,12 +249,13 @@ class MemosViewModel @Inject constructor(
                 )
             }
                 .flowOn(Dispatchers.Default)
+                .conflate()
                 .collectLatest { latestState ->
                 measureFeedSection(
                     section = "feed_state_commit",
                     memoCount = latestState.memos.size,
                 ) {
-                    feedSnapshotStore.updateLiveState(latestState)
+                    feedProjectionStore.updateLiveState(latestState)
                 }
             }
         }
@@ -238,35 +277,22 @@ class MemosViewModel @Inject constructor(
                 )
             }
                 .flowOn(Dispatchers.Default)
+                .conflate()
                 .collectLatest { latestDrawerState ->
-                    drawerSnapshotStore.updateLiveState(latestDrawerState)
+                    drawerProjectionStore.updateLiveState(latestDrawerState)
                 }
         }
 
         viewModelScope.launch {
             uiInteractionGate.observeScopeFrozen(MemoUiScope.FEED).collectLatest { frozen ->
-                feedSnapshotStore.setFrozen(frozen)
+                feedProjectionStore.setFrozen(frozen)
             }
         }
 
         viewModelScope.launch {
             uiInteractionGate.observeScopeFrozen(MemoUiScope.DRAWER).collectLatest { frozen ->
-                drawerSnapshotStore.setFrozen(frozen)
+                drawerProjectionStore.setFrozen(frozen)
             }
-        }
-
-        viewModelScope.launch {
-            syncStatus
-                .map { status -> status.syncing }
-                .distinctUntilChanged()
-                .collectLatest { syncing ->
-                    if (syncing) {
-                        setSyncInteractionActive(true)
-                    } else {
-                        delay(SYNC_FREEZE_RELEASE_DELAY_MILLIS)
-                        setSyncInteractionActive(false)
-                    }
-                }
         }
 
     }
@@ -410,13 +436,6 @@ class MemosViewModel @Inject constructor(
         )
     }
 
-    private fun setSyncInteractionActive(active: Boolean) {
-        uiInteractionGate.setActive(MemoUiScope.FEED, UiInteractionType.SYNCING, active)
-        uiInteractionGate.setActive(MemoUiScope.DRAWER, UiInteractionType.SYNCING, active)
-        uiInteractionGate.setActive(MemoUiScope.EXPLORE, UiInteractionType.SYNCING, active)
-        uiInteractionGate.setActive(MemoUiScope.GROUP_CHAT, UiInteractionType.SYNCING, active)
-    }
-
     private suspend fun performManualSync(domains: Set<SyncDomain>): ManualSyncResult {
         val syncResult = memoService.sync(
             force = true,
@@ -519,7 +538,6 @@ class MemosViewModel @Inject constructor(
         private const val MAX_TRANSIENT_DETAIL_MEMO_COUNT = 200
         private const val FEED_PROFILE_LOG_THRESHOLD_MILLIS = 12L
         private const val FEED_PROFILE_TAG = "FeedProfile"
-        private const val SYNC_FREEZE_RELEASE_DELAY_MILLIS = 1_000L
     }
 }
 

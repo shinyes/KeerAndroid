@@ -53,8 +53,8 @@ class SyncingRepository(
     private val fileStorage: FileStorage,
     private val remoteRepository: RemoteRepository,
     private val account: Account,
-    private val readMemoSyncAnchor: suspend () -> Instant? = { null },
-    private val writeMemoSyncAnchor: suspend (Instant) -> Unit = {},
+    private val readMemoSyncCursor: suspend () -> String? = { null },
+    private val writeMemoSyncCursor: suspend (String) -> Unit = {},
     private val onUserSynced: suspend (User) -> Unit = {},
 ) : AbstractMemoRepository() {
     private data class UploadedResourcesResult(
@@ -87,6 +87,7 @@ class SyncingRepository(
     private val operationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pendingDetailedSyncError: String? = null
     private val _syncStatus = MutableStateFlow(SyncStatus())
+    private val syncApplyPipeline = SyncApplyPipeline(SYNC_APPLY_CHUNK_SIZE)
     override val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
 
     init {
@@ -673,52 +674,52 @@ class SyncingRepository(
             return currentUserSync
         }
 
-        val since = readMemoSyncAnchor() ?: Instant.EPOCH
-        val now = Instant.now()
+        val initialCursor = readMemoSyncCursor()?.trim().orEmpty().ifEmpty { "0" }
+        var nextSyncCursor = initialCursor
+        val pulledMemosByRemoteID = linkedMapOf<String, Memo>()
+        val pulledDeletedRemoteIDs = linkedSetOf<String>()
+        var hasMore = true
+        var pageCount = 0
 
-        var remoteMemos: List<Memo> = emptyList()
-        var remoteDeletedIds: Set<String> = emptySet()
-        var nextSyncAnchor = now
-        var treatMissingRemoteAsDeleted = false
-
-        when (val memoChanges = remoteRepository.listMemoChanges(since)) {
-            is ApiResponse.Success -> {
-                remoteMemos = memoChanges.data.memos
-                remoteDeletedIds = memoChanges.data.deletedMemoRemoteIds
-                    .asSequence()
-                    .filter { remoteId -> remoteId.isNotBlank() }
-                    .toSet()
-                nextSyncAnchor = memoChanges.data.syncAnchor
-            }
-            is ApiResponse.Failure.Error -> {
-                val shouldFallbackToFullSync = memoChanges.statusCode == StatusCode.NotFound ||
-                    memoChanges.statusCode == StatusCode.BadRequest
-                if (!shouldFallbackToFullSync) {
-                    return memoChanges.mapFailureToUnit()
+        while (hasMore && pageCount < MAX_PULL_SYNC_PAGES_PER_SESSION) {
+            val syncPullResponse = remoteRepository.pullSync(
+                cursor = nextSyncCursor,
+                domains = setOf(SyncPullDomain.MEMOS),
+                limit = PULL_SYNC_MEMO_PAGE_SIZE,
+            )
+            when (syncPullResponse) {
+                is ApiResponse.Success -> {
+                    syncPullResponse.data.patches.memos.upserts.forEach { memo ->
+                        val remoteID = remoteMemoId(memo).trim()
+                        if (remoteID.isNotEmpty()) {
+                            pulledMemosByRemoteID[remoteID] = memo
+                        }
+                    }
+                    syncPullResponse.data.patches.memos.deletes.forEach { rawIdentifier ->
+                        normalizeDeletedMemoRemoteID(rawIdentifier)
+                            .takeIf { remoteID -> remoteID.isNotEmpty() }
+                            ?.let { remoteID -> pulledDeletedRemoteIDs += remoteID }
+                    }
+                    val nextCursor = syncPullResponse.data.nextCursor.trim()
+                    val stalledCursor = nextCursor.isEmpty() || nextCursor == nextSyncCursor
+                    if (nextCursor.isNotEmpty()) {
+                        nextSyncCursor = nextCursor
+                    }
+                    hasMore = syncPullResponse.data.hasMore && !stalledCursor
                 }
-
-                val remoteNormal = remoteRepository.listMemos()
-                if (remoteNormal !is ApiResponse.Success) {
-                    return remoteNormal.mapFailureToUnit()
+                is ApiResponse.Failure.Error -> {
+                    return syncPullResponse.mapFailureToUnit()
                 }
-                val remoteArchived = remoteRepository.listArchivedMemos()
-                if (remoteArchived !is ApiResponse.Success) {
-                    return remoteArchived.mapFailureToUnit()
+                is ApiResponse.Failure.Exception -> {
+                    return syncPullResponse.mapFailureToUnit()
                 }
-
-                remoteMemos = remoteNormal.data + remoteArchived.data
-                remoteDeletedIds = emptySet()
-                nextSyncAnchor = Instant.now()
-                treatMissingRemoteAsDeleted = true
             }
-            is ApiResponse.Failure.Exception -> {
-                return memoChanges.mapFailureToUnit()
-            }
+            pageCount += 1
         }
 
-        if (nextSyncAnchor.isBefore(since)) {
-            nextSyncAnchor = now
-        }
+        val remoteMemos = pulledMemosByRemoteID.values.toList()
+        val remoteDeletedIds = pulledDeletedRemoteIDs.toSet()
+        val treatMissingRemoteAsDeleted = initialCursor == "0"
         val remoteById = remoteMemos.associateBy { remoteMemoId(it) }
 
         var hadErrors = false
@@ -891,7 +892,7 @@ class SyncingRepository(
             )
         } else {
             try {
-                writeMemoSyncAnchor(nextSyncAnchor)
+                writeMemoSyncCursor(nextSyncCursor)
             } catch (e: Throwable) {
                 return ApiResponse.Failure.Exception(e)
             }
@@ -912,24 +913,40 @@ class SyncingRepository(
             return
         }
         val staleResources = mutableListOf<ResourceEntity>()
-        database.withTransaction {
-            deleteMemoIdentifiers.forEach { identifier ->
-                permanentlyDeleteMemoInTransaction(identifier, staleResources)
+        val deleteChunks = syncApplyPipeline.split(deleteMemoIdentifiers.toList())
+        for (chunk in deleteChunks) {
+            database.withTransaction {
+                chunk.forEach { identifier ->
+                    permanentlyDeleteMemoInTransaction(identifier, staleResources)
+                }
+                memoDao.pruneUnusedTags(accountKey)
             }
-            remoteApplies.forEach { pending ->
-                applyRemoteMemoInTransaction(
-                    remoteMemo = pending.remoteMemo,
-                    preferredLocalIdentifier = pending.preferredLocalIdentifier,
-                    staleResources = staleResources,
-                )
+        }
+
+        val applyChunks = syncApplyPipeline.split(remoteApplies)
+        for (chunk in applyChunks) {
+            database.withTransaction {
+                chunk.forEach { pending ->
+                    applyRemoteMemoInTransaction(
+                        remoteMemo = pending.remoteMemo,
+                        preferredLocalIdentifier = pending.preferredLocalIdentifier,
+                        staleResources = staleResources,
+                    )
+                }
+                memoDao.pruneUnusedTags(accountKey)
             }
-            markSyncedEntries.forEach { pending ->
-                markSyncedInTransaction(
-                    local = pending.local,
-                    remoteMemo = pending.remoteMemo,
-                )
+        }
+
+        val markChunks = syncApplyPipeline.split(markSyncedEntries)
+        for (chunk in markChunks) {
+            database.withTransaction {
+                chunk.forEach { pending ->
+                    markSyncedInTransaction(
+                        local = pending.local,
+                        remoteMemo = pending.remoteMemo,
+                    )
+                }
             }
-            memoDao.pruneUnusedTags(accountKey)
         }
         staleResources.forEach(::deleteLocalFile)
     }
@@ -1763,6 +1780,14 @@ class SyncingRepository(
             ?: throw IllegalStateException("RemoteRepository must return memos with non-empty remoteId")
     }
 
+    private fun normalizeDeletedMemoRemoteID(rawIdentifier: String): String {
+        return rawIdentifier
+            .trim()
+            .substringBefore('|')
+            .substringAfterLast('/')
+            .trim()
+    }
+
     private fun remoteResourceId(resource: Resource): String {
         return resource.remoteId.takeIf { it.isNotBlank() }
             ?: throw IllegalStateException("RemoteRepository must return resources with non-empty remoteId")
@@ -1785,6 +1810,9 @@ class SyncingRepository(
             "Failed to upload one or more attachments during sync"
         private const val MAX_UPLOADED_THUMBNAIL_BYTES = 2 * 1024 * 1024
         private const val CURRENT_USER_REFRESH_INTERVAL_MILLIS = 5 * 60 * 1000L
+        private const val PULL_SYNC_MEMO_PAGE_SIZE = 400
+        private const val MAX_PULL_SYNC_PAGES_PER_SESSION = 20
+        private const val SYNC_APPLY_CHUNK_SIZE = 120
     }
 
 }

@@ -58,7 +58,7 @@ class ExploreViewModel @Inject constructor(
     private val snapshotStore = InteractionSnapshotStore(
         scope = viewModelScope,
         initialState = ExploreUiState(),
-        idleCommitDelayMillis = 700L,
+        idleCommitDelayMillis = 180L,
     )
     private val _mutationErrorMessage = MutableStateFlow<String?>(null)
     val mutationErrorMessage: StateFlow<String?> = _mutationErrorMessage.asStateFlow()

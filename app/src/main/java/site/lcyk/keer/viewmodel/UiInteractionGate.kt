@@ -21,7 +21,6 @@ enum class UiInteractionType {
     PULL_REFRESH,
     LIST_SCROLL,
     DRAWER_TRANSITION,
-    SYNCING,
     DRAWER_HIDDEN,
 }
 
@@ -54,7 +53,11 @@ class UiInteractionGate @Inject constructor() {
     fun observeScopeFrozen(scope: MemoUiScope): Flow<Boolean> {
         return activeInteractions
             .map { activeByScope ->
-                activeByScope[scope].orEmpty().isNotEmpty() ||
+                val scopeInteractions = activeByScope[scope].orEmpty()
+                val freezeByScope = scopeInteractions
+                    .filterNot { interaction -> interaction == UiInteractionType.DRAWER_HIDDEN }
+                    .isNotEmpty()
+                freezeByScope ||
                     (scope != MemoUiScope.DRAWER &&
                         activeByScope[MemoUiScope.DRAWER].orEmpty()
                             .contains(UiInteractionType.DRAWER_TRANSITION))

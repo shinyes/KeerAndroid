@@ -1,10 +1,13 @@
 package site.lcyk.keer.viewmodel
 
 import junit.framework.TestCase.assertEquals
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class InteractionSnapshotStoreTest {
 
     @Test
@@ -38,9 +41,11 @@ class InteractionSnapshotStoreTest {
 
         assertEquals(0, store.visibleState.value)
         advanceTimeBy(49)
+        runCurrent()
         assertEquals(0, store.visibleState.value)
 
         advanceTimeBy(1)
+        runCurrent()
         assertEquals(1, store.visibleState.value)
     }
 }

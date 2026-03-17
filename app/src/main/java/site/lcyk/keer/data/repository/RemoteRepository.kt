@@ -24,7 +24,65 @@ data class MemoChanges(
     val syncAnchor: Instant
 )
 
+enum class SyncPullDomain {
+    MEMOS,
+    USERS,
+    GROUPS,
+    GROUP_MESSAGES,
+    SETTINGS,
+}
+
+data class SyncPullResult(
+    val nextCursor: String,
+    val hasMore: Boolean,
+    val patches: SyncPullPatches,
+)
+
+data class SyncPullPatches(
+    val memos: SyncPullMemoPatch = SyncPullMemoPatch(),
+    val users: SyncPullUserPatch = SyncPullUserPatch(),
+    val groups: SyncPullGroupPatch = SyncPullGroupPatch(),
+    val groupMessages: SyncPullGroupMessagesPatch = SyncPullGroupMessagesPatch(),
+    val settings: SyncPullSettingsPatch = SyncPullSettingsPatch(),
+)
+
+data class SyncPullMemoPatch(
+    val upserts: List<Memo> = emptyList(),
+    val deletes: List<String> = emptyList(),
+)
+
+data class SyncPullUserPatch(
+    val upserts: List<User> = emptyList(),
+)
+
+data class SyncPullGroupPatch(
+    val directory: List<MemoGroup> = emptyList(),
+)
+
+data class SyncPullGroupMessagesPatch(
+    val groups: List<SyncPullGroupMessagesGroupPatch> = emptyList(),
+)
+
+data class SyncPullGroupMessagesGroupPatch(
+    val groupId: String,
+    val fullReplace: Boolean,
+    val hasUnread: Boolean,
+    val messages: List<Memo>,
+    val tags: List<String>,
+)
+
+data class SyncPullSettingsPatch(
+    val generalSettings: UserGeneralSettings? = null,
+)
+
 abstract class RemoteRepository {
+    abstract suspend fun pullSync(
+        cursor: String,
+        domains: Set<SyncPullDomain>,
+        groupScopes: List<String> = emptyList(),
+        limit: Int = 200,
+    ): ApiResponse<SyncPullResult>
+
     abstract suspend fun listMemos(): ApiResponse<List<Memo>>
     abstract suspend fun listArchivedMemos(): ApiResponse<List<Memo>>
     abstract suspend fun listMemoChanges(since: Instant): ApiResponse<MemoChanges>

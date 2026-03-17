@@ -38,8 +38,8 @@ class RepositoryFactory @Inject constructor(
 ) {
     fun createSession(
         account: Account?,
-        readMemoSyncAnchor: suspend (String) -> Instant?,
-        writeMemoSyncAnchor: suspend (String, Instant) -> Unit,
+        readMemoSyncCursor: suspend (String) -> String?,
+        writeMemoSyncCursor: suspend (String, String) -> Unit,
         readUserSyncAnchor: suspend (String) -> Instant?,
         writeUserSyncAnchor: suspend (String, Instant) -> Unit,
         readSyncedUserIDs: suspend (String) -> List<String>,
@@ -108,11 +108,11 @@ class RepositoryFactory @Inject constructor(
                         fileStorage = fileStorage,
                         remoteRepository = remoteRepository,
                         account = account,
-                        readMemoSyncAnchor = {
-                            readMemoSyncAnchor(accountKey)
+                        readMemoSyncCursor = {
+                            readMemoSyncCursor(accountKey)
                         },
-                        writeMemoSyncAnchor = { anchor ->
-                            writeMemoSyncAnchor(accountKey, anchor)
+                        writeMemoSyncCursor = { cursor ->
+                            writeMemoSyncCursor(accountKey, cursor)
                         },
                         onUserSynced = { user ->
                             onUserSynced(accountKey, user)
