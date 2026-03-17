@@ -913,19 +913,16 @@ class SyncingRepository(
             return
         }
         val staleResources = mutableListOf<ResourceEntity>()
-        val deleteChunks = syncApplyPipeline.split(deleteMemoIdentifiers.toList())
-        for (chunk in deleteChunks) {
-            database.withTransaction {
+        database.withTransaction {
+            val deleteChunks = syncApplyPipeline.split(deleteMemoIdentifiers.toList())
+            for (chunk in deleteChunks) {
                 chunk.forEach { identifier ->
                     permanentlyDeleteMemoInTransaction(identifier, staleResources)
                 }
-                memoDao.pruneUnusedTags(accountKey)
             }
-        }
 
-        val applyChunks = syncApplyPipeline.split(remoteApplies)
-        for (chunk in applyChunks) {
-            database.withTransaction {
+            val applyChunks = syncApplyPipeline.split(remoteApplies)
+            for (chunk in applyChunks) {
                 chunk.forEach { pending ->
                     applyRemoteMemoInTransaction(
                         remoteMemo = pending.remoteMemo,
@@ -933,13 +930,10 @@ class SyncingRepository(
                         staleResources = staleResources,
                     )
                 }
-                memoDao.pruneUnusedTags(accountKey)
             }
-        }
 
-        val markChunks = syncApplyPipeline.split(markSyncedEntries)
-        for (chunk in markChunks) {
-            database.withTransaction {
+            val markChunks = syncApplyPipeline.split(markSyncedEntries)
+            for (chunk in markChunks) {
                 chunk.forEach { pending ->
                     markSyncedInTransaction(
                         local = pending.local,
@@ -947,6 +941,7 @@ class SyncingRepository(
                     )
                 }
             }
+            memoDao.pruneUnusedTags(accountKey)
         }
         staleResources.forEach(::deleteLocalFile)
     }

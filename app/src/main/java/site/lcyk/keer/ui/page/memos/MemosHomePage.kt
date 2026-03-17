@@ -60,22 +60,6 @@ fun MemosHomePage(
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
     val homeMemos by memosViewModel.visibleHomeMemos.collectAsStateWithLifecycle()
-    val syncing by memosViewModel.syncStatus
-        .map { status -> status.syncing }
-        .distinctUntilChanged()
-        .collectAsStateWithLifecycle(initialValue = false)
-    val unsyncedCount by memosViewModel.syncStatus
-        .map { status -> status.unsyncedCount }
-        .distinctUntilChanged()
-        .collectAsStateWithLifecycle(initialValue = 0)
-    val progressStep by memosViewModel.syncStatus
-        .map { status ->
-            status.progress?.let { progress ->
-                (progress * 20f).toInt().coerceIn(0, 20)
-            }
-        }
-        .distinctUntilChanged()
-        .collectAsStateWithLifecycle(initialValue = null)
     val homeMemoItemsById = remember(homeMemos) {
         homeMemos.associateBy { item -> item.memo.identifier }
     }
@@ -113,11 +97,8 @@ fun MemosHomePage(
                         }
                     },
                     actions = {
-                        if (currentAccount !is Account.Local && syncing) {
-                            SyncStatusBadge(
-                                syncing = syncing,
-                                unsyncedCount = unsyncedCount,
-                                progress = progressStep?.div(20f),
+                        if (currentAccount !is Account.Local) {
+                            HomeSyncBadgeAction(
                                 onSync = {
                                     scope.launch {
                                         requestManualSync()
@@ -208,5 +189,37 @@ fun MemosHomePage(
     SyncAlertDialog(
         alert = syncAlert,
         onDismiss = { syncAlert = null }
+    )
+}
+
+@Composable
+private fun HomeSyncBadgeAction(
+    onSync: () -> Unit,
+) {
+    val memosViewModel = LocalMemos.current
+    val syncing by memosViewModel.syncStatus
+        .map { status -> status.syncing }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = false)
+    val unsyncedCount by memosViewModel.syncStatus
+        .map { status -> status.unsyncedCount }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = 0)
+    val progressStep by memosViewModel.syncStatus
+        .map { status ->
+            status.progress?.let { progress ->
+                (progress * 20f).toInt().coerceIn(0, 20)
+            }
+        }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = null)
+    if (!syncing) {
+        return
+    }
+    SyncStatusBadge(
+        syncing = syncing,
+        unsyncedCount = unsyncedCount,
+        progress = progressStep?.div(20f),
+        onSync = onSync,
     )
 }

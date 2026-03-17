@@ -7,12 +7,15 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -48,7 +51,7 @@ data class ExploreMemoItem(
 )
 
 @HiltViewModel
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class ExploreViewModel @Inject constructor(
     private val accountService: AccountService,
     private val memoService: MemoService,
@@ -74,6 +77,22 @@ class ExploreViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    private val projectionMemos = memoService.memos
+        .let { memosFlow ->
+            memoService.syncStatus
+                .map { status -> status.syncing }
+                .distinctUntilChanged()
+                .flatMapLatest { syncing ->
+                    val debounceMillis = if (syncing) {
+                        EXPLORE_PROJECTION_MEMO_DEBOUNCE_WHILE_SYNCING_MILLIS
+                    } else {
+                        EXPLORE_PROJECTION_MEMO_DEBOUNCE_IDLE_MILLIS
+                    }
+                    memosFlow.debounce(debounceMillis)
+                }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     private val liveItems = accountService.currentAccount
         .flatMapLatest { account ->
             val accountKey = account?.accountKey().orEmpty()
@@ -81,7 +100,7 @@ class ExploreViewModel @Inject constructor(
                 return@flatMapLatest flowOf(emptyList())
             }
             combine(
-                memoService.memos,
+                projectionMemos,
                 offlineGroupStore.observeAllCachedGroupMemos(accountKey),
                 offlineGroupStore.observePinnedGroupMemoKeys(accountKey),
             ) { localMemos, cachedGroupMemos, pinnedGroupMemoKeys ->
@@ -313,6 +332,11 @@ class ExploreViewModel @Inject constructor(
 
     private fun groupMemoKey(groupId: String, memoRemoteId: String): String {
         return "$groupId|$memoRemoteId"
+    }
+
+    private companion object {
+        private const val EXPLORE_PROJECTION_MEMO_DEBOUNCE_IDLE_MILLIS = 48L
+        private const val EXPLORE_PROJECTION_MEMO_DEBOUNCE_WHILE_SYNCING_MILLIS = 120L
     }
 }
 
