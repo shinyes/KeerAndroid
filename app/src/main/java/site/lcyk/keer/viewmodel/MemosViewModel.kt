@@ -16,11 +16,13 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
@@ -79,7 +81,7 @@ private data class MemoQuoteSignature(
 )
 
 @HiltViewModel
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class MemosViewModel @Inject constructor(
     private val memoService: MemoService,
     private val accountService: AccountService,
@@ -162,6 +164,20 @@ class MemosViewModel @Inject constructor(
     val syncStatus: StateFlow<SyncStatus> =
         memoService.syncStatus.stateIn(viewModelScope, SharingStarted.Eagerly, SyncStatus())
 
+    private val projectionMemos: StateFlow<List<MemoEntity>> =
+        syncStatus
+            .map { status -> status.syncing }
+            .distinctUntilChanged()
+            .flatMapLatest { syncing ->
+                val debounceMillis = if (syncing) {
+                    PROJECTION_MEMO_DEBOUNCE_WHILE_SYNCING_MILLIS
+                } else {
+                    PROJECTION_MEMO_DEBOUNCE_IDLE_MILLIS
+                }
+                memoService.memos.debounce(debounceMillis)
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     private val liveHomeMemos: StateFlow<List<HomeMemoItem>> =
         accountService.currentAccount
             .flatMapLatest { account ->
@@ -170,7 +186,7 @@ class MemosViewModel @Inject constructor(
                     flowOf(emptyList())
                 } else {
                     combine(
-                        memoService.memos,
+                        projectionMemos,
                         offlineGroupStore.observeAllCachedGroupMemos(accountKey),
                         offlineGroupStore.observePinnedGroupMemoKeys(accountKey),
                     ) { localMemos, cachedGroupMemos, pinnedGroupMemoKeys ->
@@ -187,7 +203,7 @@ class MemosViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
-        val liveMemoProjection = memoService.memos
+        val liveMemoProjection = projectionMemos
             .map { latestMemos ->
                 Triple(
                     latestMemos,
@@ -254,7 +270,7 @@ class MemosViewModel @Inject constructor(
 
         viewModelScope.launch {
             combine(
-                memoService.memos,
+                projectionMemos,
                 memoService.tags,
                 liveMatrix,
                 liveHomeMemos,
@@ -569,6 +585,8 @@ class MemosViewModel @Inject constructor(
     private companion object {
         private const val MAX_TRANSIENT_DETAIL_MEMO_COUNT = 200
         private const val FEED_PROFILE_LOG_THRESHOLD_MILLIS = 12L
+        private const val PROJECTION_MEMO_DEBOUNCE_IDLE_MILLIS = 48L
+        private const val PROJECTION_MEMO_DEBOUNCE_WHILE_SYNCING_MILLIS = 120L
         private const val FEED_PROFILE_TAG = "FeedProfile"
     }
 }

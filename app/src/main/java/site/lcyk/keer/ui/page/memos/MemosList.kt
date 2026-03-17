@@ -17,9 +17,9 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -28,9 +28,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemoEditGesture
@@ -89,15 +91,21 @@ fun MemosList(
     val avatarImageLoader = rememberAuthorizedImageLoader()
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     val sourceMemos = memos ?: visibleMemos
+    val sourceMemoSnapshot = remember(sourceMemos) { sourceMemos.toList() }
     val resolvedQuoteMap = visibleResolvedQuotes
-    val filteredMemos by remember(sourceMemos, tag, searchString) {
-        derivedStateOf {
+    val filteredMemos by produceState(
+        initialValue = sourceMemoSnapshot,
+        sourceMemoSnapshot,
+        tag,
+        searchString,
+    ) {
+        value = withContext(Dispatchers.Default) {
             val normalizedTag = tag?.takeIf { it.isNotBlank() }
             val normalizedQuery = searchString?.takeIf { it.isNotBlank() }
             val pinned = mutableListOf<site.lcyk.keer.data.local.entity.MemoEntity>()
             val normal = mutableListOf<site.lcyk.keer.data.local.entity.MemoEntity>()
 
-            for (memo in sourceMemos) {
+            for (memo in sourceMemoSnapshot) {
                 if (normalizedTag != null) {
                     val matchedTag = memo.tags.any { memoTag ->
                         memoTag == normalizedTag || memoTag.startsWith("$normalizedTag/")

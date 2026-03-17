@@ -12,18 +12,20 @@ class InteractionSnapshotStore<T>(
     private val scope: CoroutineScope,
     initialState: T,
     private val idleCommitDelayMillis: Long = 180L,
+    private val liveCommitDebounceMillis: Long = 64L,
 ) {
     private var latestLiveState: T = initialState
     private var frozen = false
-    private var pendingCommitJob: Job? = null
+    private var pendingUnfreezeCommitJob: Job? = null
+    private var pendingLiveCommitJob: Job? = null
 
     private val _visibleState = MutableStateFlow(initialState)
     val visibleState: StateFlow<T> = _visibleState.asStateFlow()
 
     fun updateLiveState(state: T) {
         latestLiveState = state
-        if (!frozen && _visibleState.value != state) {
-            _visibleState.value = state
+        if (!frozen) {
+            scheduleLiveCommit()
         }
     }
 
@@ -32,21 +34,37 @@ class InteractionSnapshotStore<T>(
             return
         }
         frozen = active
-        pendingCommitJob?.cancel()
-        pendingCommitJob = null
+        pendingUnfreezeCommitJob?.cancel()
+        pendingUnfreezeCommitJob = null
+        pendingLiveCommitJob?.cancel()
+        pendingLiveCommitJob = null
         if (!active) {
             if (idleCommitDelayMillis <= 0L) {
-                if (_visibleState.value != latestLiveState) {
-                    _visibleState.value = latestLiveState
-                }
+                commitLatestVisibleState()
                 return
             }
-            pendingCommitJob = scope.launch {
+            pendingUnfreezeCommitJob = scope.launch {
                 delay(idleCommitDelayMillis)
-                if (!frozen && _visibleState.value != latestLiveState) {
-                    _visibleState.value = latestLiveState
-                }
+                commitLatestVisibleState()
             }
+        }
+    }
+
+    private fun scheduleLiveCommit() {
+        if (liveCommitDebounceMillis <= 0L) {
+            commitLatestVisibleState()
+            return
+        }
+        pendingLiveCommitJob?.cancel()
+        pendingLiveCommitJob = scope.launch {
+            delay(liveCommitDebounceMillis)
+            commitLatestVisibleState()
+        }
+    }
+
+    private fun commitLatestVisibleState() {
+        if (!frozen && _visibleState.value != latestLiveState) {
+            _visibleState.value = latestLiveState
         }
     }
 }
