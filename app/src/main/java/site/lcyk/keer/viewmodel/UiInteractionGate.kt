@@ -21,6 +21,8 @@ enum class UiInteractionType {
     PULL_REFRESH,
     LIST_SCROLL,
     DRAWER_TRANSITION,
+    SYNCING,
+    DRAWER_HIDDEN,
 }
 
 @Singleton

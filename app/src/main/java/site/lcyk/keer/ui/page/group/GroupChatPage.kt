@@ -32,7 +32,6 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,13 +46,14 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoEditGesture
-import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.MemoActionMenuButton
@@ -88,7 +88,6 @@ fun GroupChatPage(
     onMenuButtonOpenRequested: (() -> Unit)? = null,
     viewModel: GroupChatViewModel = hiltViewModel()
 ) {
-    val context = navController.context
     val lifecycleOwner = LocalLifecycleOwner.current
     val rootNavController = LocalRootNavController.current
     val scope = rememberCoroutineScope()
@@ -99,7 +98,22 @@ fun GroupChatPage(
     val joinedGroups by userStateViewModel.joinedGroups.collectAsStateWithLifecycle()
     val groupIdAliases by userStateViewModel.groupIdAliases.collectAsStateWithLifecycle()
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
-    val syncStatus by memosViewModel.syncStatus.collectAsStateWithLifecycle()
+    val syncing by memosViewModel.syncStatus
+        .map { status -> status.syncing }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = false)
+    val unsyncedCount by memosViewModel.syncStatus
+        .map { status -> status.unsyncedCount }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = 0)
+    val progressStep by memosViewModel.syncStatus
+        .map { status ->
+            status.progress?.let { progress ->
+                (progress * 20f).toInt().coerceIn(0, 20)
+            }
+        }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = null)
     val avatarImageLoader = rememberAuthorizedImageLoader()
 
     val resolvedGroupId = groupIdAliases
@@ -126,7 +140,7 @@ fun GroupChatPage(
     }
 
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
-    var syncWasRunning by remember { mutableStateOf(syncStatus.syncing) }
+    var syncWasRunning by remember { mutableStateOf(syncing) }
 
     val navigationIcon = if (drawerState != null) Icons.Filled.Menu else Icons.AutoMirrored.Filled.ArrowBack
     val navigationContentDescription = if (drawerState != null) R.string.menu.string else R.string.back.string
@@ -193,10 +207,10 @@ fun GroupChatPage(
         }
     }
 
-    LaunchedEffect(syncStatus.syncing, group?.id) {
+    LaunchedEffect(syncing, group?.id) {
         val wasRunning = syncWasRunning
-        syncWasRunning = syncStatus.syncing
-        if (group != null && wasRunning && !syncStatus.syncing) {
+        syncWasRunning = syncing
+        if (group != null && wasRunning && !syncing) {
             reloadGroup(forceSync = false)
         }
     }
@@ -215,7 +229,9 @@ fun GroupChatPage(
                     navigationIcon = navigationIcon,
                     navigationContentDescription = navigationContentDescription,
                     onNavigationClick = ::handleNavigationClick,
-                    syncStatus = syncStatus,
+                    syncing = syncing,
+                    unsyncedCount = unsyncedCount,
+                    progress = progressStep?.div(20f),
                     showSyncBadge = false,
                     onManualSync = {},
                     onSearch = null
@@ -244,8 +260,10 @@ fun GroupChatPage(
                 navigationIcon = navigationIcon,
                 navigationContentDescription = navigationContentDescription,
                 onNavigationClick = ::handleNavigationClick,
-                syncStatus = syncStatus,
-                showSyncBadge = currentAccount !is Account.Local && (syncStatus.syncing || loading),
+                syncing = syncing,
+                unsyncedCount = unsyncedCount,
+                progress = progressStep?.div(20f),
+                showSyncBadge = currentAccount !is Account.Local && (syncing || loading),
                 onManualSync = {
                     scope.launch {
                         requestManualSync()
@@ -274,17 +292,17 @@ fun GroupChatPage(
             editGesture = editGesture,
             listState = listState,
             refreshState = refreshState,
-            syncing = if (loading && !syncStatus.syncing) {
+            syncing = if (loading && !syncing) {
                 true
             } else {
-                syncStatus.syncing
+                syncing
             },
             contentPadding = innerPadding,
             collaboratorProfiles = collaboratorProfiles,
             avatarImageLoader = avatarImageLoader,
             resolvedQuoteMap = resolvedQuoteMap,
             onRefresh = {
-                if (syncStatus.syncing) {
+                if (syncing) {
                     return@GroupChatList
                 }
                 scope.launch {
@@ -355,7 +373,9 @@ private fun GroupChatTopBar(
     navigationIcon: androidx.compose.ui.graphics.vector.ImageVector,
     navigationContentDescription: String,
     onNavigationClick: () -> Unit,
-    syncStatus: SyncStatus,
+    syncing: Boolean,
+    unsyncedCount: Int,
+    progress: Float?,
     showSyncBadge: Boolean,
     onManualSync: () -> Unit,
     onSearch: (() -> Unit)?
@@ -373,9 +393,9 @@ private fun GroupChatTopBar(
         actions = {
             if (showSyncBadge) {
                 SyncStatusBadge(
-                    syncing = syncStatus.syncing,
-                    unsyncedCount = syncStatus.unsyncedCount,
-                    progress = syncStatus.progress,
+                    syncing = syncing,
+                    unsyncedCount = unsyncedCount,
+                    progress = progress,
                     onSync = onManualSync
                 )
             }

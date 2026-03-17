@@ -25,6 +25,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
@@ -58,7 +60,22 @@ fun MemosHomePage(
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
     val homeMemos by memosViewModel.visibleHomeMemos.collectAsStateWithLifecycle()
-    val syncStatus by memosViewModel.syncStatus.collectAsStateWithLifecycle()
+    val syncing by memosViewModel.syncStatus
+        .map { status -> status.syncing }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = false)
+    val unsyncedCount by memosViewModel.syncStatus
+        .map { status -> status.unsyncedCount }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = 0)
+    val progressStep by memosViewModel.syncStatus
+        .map { status ->
+            status.progress?.let { progress ->
+                (progress * 20f).toInt().coerceIn(0, 20)
+            }
+        }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = null)
     val homeMemoItemsById = remember(homeMemos) {
         homeMemos.associateBy { item -> item.memo.identifier }
     }
@@ -75,7 +92,7 @@ fun MemosHomePage(
     var showQuickComposer by rememberSaveable { mutableStateOf(false) }
 
     suspend fun requestManualSync() {
-        processManualSyncResult(memosViewModel.refreshHomeFeed()) { alert ->
+        processManualSyncResult(memosViewModel.refreshMemos()) { alert ->
             syncAlert = alert
         }
     }
@@ -96,11 +113,11 @@ fun MemosHomePage(
                         }
                     },
                     actions = {
-                        if (currentAccount !is Account.Local && syncStatus.syncing) {
+                        if (currentAccount !is Account.Local && syncing) {
                             SyncStatusBadge(
-                                syncing = syncStatus.syncing,
-                                unsyncedCount = syncStatus.unsyncedCount,
-                                progress = syncStatus.progress,
+                                syncing = syncing,
+                                unsyncedCount = unsyncedCount,
+                                progress = progressStep?.div(20f),
                                 onSync = {
                                     scope.launch {
                                         requestManualSync()

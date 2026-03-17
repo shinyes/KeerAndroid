@@ -16,26 +16,22 @@ fun buildResolvedMemoQuoteMap(
         return emptyMap()
     }
 
-    val byIdentifier = memos.associateBy { memo -> memo.identifier }
-    val byRemoteId = memos
-        .asSequence()
-        .mapNotNull { memo ->
-            memo.remoteId
-                ?.trim()
-                ?.takeIf { it.isNotEmpty() }
-                ?.let { remoteId -> remoteId to memo }
+    val byLookupKey = linkedMapOf<String, MemoEntity>()
+    memos.forEach { memo ->
+        memoQuoteLookupKeys(memo).forEach { key ->
+            byLookupKey.putIfAbsent(key, memo)
         }
-        .toMap()
+    }
 
     return buildMap {
         memos.forEach { memo ->
             val descriptor = memo.resolveMemoQuoteDescriptor() ?: return@forEach
-            val quotedMemo = transientMemoLookup(descriptor.source)
-                ?: when (descriptor.sourceKind) {
-                    MemoQuoteSourceKind.LOCAL -> byIdentifier[descriptor.source]
-                    MemoQuoteSourceKind.REMOTE -> byRemoteId[descriptor.source]
-                }
-                ?: resolveMemoFromQuoteDescriptor(descriptor, memos)
+            val source = descriptor.source.trim()
+            if (source.isEmpty()) {
+                return@forEach
+            }
+            val quotedMemo = transientMemoLookup(source)
+                ?: byLookupKey[source]
             val preview = quotedMemo?.toMemoQuotePreview() ?: memo.storedMemoQuotePreviewOrNull()
             put(
                 memo.identifier,
@@ -46,4 +42,35 @@ fun buildResolvedMemoQuoteMap(
             )
         }
     }
+}
+
+private fun memoQuoteLookupKeys(memo: MemoEntity): Sequence<String> = sequence {
+    val identifier = memo.identifier.trim()
+    if (identifier.isNotEmpty()) {
+        yield(identifier)
+        extractRemoteIdFromMemoIdentifier(identifier)?.let { remoteId ->
+            yield(remoteId)
+        }
+    }
+    memo.remoteId
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?.let { remoteId ->
+            yield(remoteId)
+        }
+}
+
+private fun extractRemoteIdFromMemoIdentifier(identifier: String): String? {
+    if (identifier.startsWith(EXPLORE_MEMO_PREFIX)) {
+        return identifier.removePrefix(EXPLORE_MEMO_PREFIX).trim().ifEmpty { null }
+    }
+    if (!identifier.startsWith(GROUP_MEMO_PREFIX)) {
+        return null
+    }
+    val payload = identifier.removePrefix(GROUP_MEMO_PREFIX)
+    val separatorIndex = payload.indexOf(':')
+    if (separatorIndex < 0 || separatorIndex == payload.lastIndex) {
+        return null
+    }
+    return payload.substring(separatorIndex + 1).trim().ifEmpty { null }
 }

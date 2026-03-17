@@ -57,17 +57,25 @@ fun MemosPage(
     LaunchedEffect(drawerState, isExpanded) {
         if (isExpanded) {
             memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_TRANSITION, false)
+            memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_HIDDEN, false)
             return@LaunchedEffect
         }
-        snapshotFlow { drawerState.currentValue != drawerState.targetValue }
-            .collect { inTransition ->
+        val initialHidden =
+            drawerState.currentValue == DrawerValue.Closed && drawerState.targetValue == DrawerValue.Closed
+        memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_HIDDEN, initialHidden)
+        snapshotFlow { drawerState.currentValue to drawerState.targetValue }
+            .collect { (currentValue, targetValue) ->
+                val inTransition = currentValue != targetValue
+                val drawerHidden = currentValue == DrawerValue.Closed && targetValue == DrawerValue.Closed
                 memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_TRANSITION, inTransition)
+                memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_HIDDEN, drawerHidden)
             }
     }
 
     DisposableEffect(isExpanded) {
         onDispose {
             memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_TRANSITION, false)
+            memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_HIDDEN, false)
         }
     }
 

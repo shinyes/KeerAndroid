@@ -63,6 +63,7 @@ fun MemosList(
     contentPadding: PaddingValues,
     lazyListState: LazyListState = rememberLazyListState(),
     memos: List<site.lcyk.keer.data.local.entity.MemoEntity>? = null,
+    observeInternalMemosWhenExternalProvided: Boolean = false,
     tag: String? = null,
     searchString: String? = null,
     onRefresh: (suspend () -> Unit)? = null,
@@ -71,7 +72,6 @@ fun MemosList(
     editGestureResolver: ((site.lcyk.keer.data.local.entity.MemoEntity, MemoEditGesture) -> MemoEditGesture)? = null,
     actionButton: (@Composable (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)? = null,
 ) {
-    val context = LocalContext.current
     val navController = LocalRootNavController.current
     val viewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
@@ -81,7 +81,12 @@ fun MemosList(
     val syncing by viewModel.syncStatus
         .map { it.syncing }
         .collectAsStateWithLifecycle(initialValue = false)
-    val visibleMemos by viewModel.visibleMemos.collectAsStateWithLifecycle()
+    val shouldObserveInternalMemos = memos == null || observeInternalMemosWhenExternalProvided
+    val visibleMemos = if (shouldObserveInternalMemos) {
+        viewModel.visibleMemos.collectAsStateWithLifecycle().value
+    } else {
+        emptyList()
+    }
     val visibleResolvedQuotes by viewModel.visibleResolvedQuotes.collectAsStateWithLifecycle()
     val editGesture = generalSettings.memoEditGesture
     val refreshState = rememberPullToRefreshState()

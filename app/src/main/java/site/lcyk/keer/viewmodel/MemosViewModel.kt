@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.R
@@ -44,7 +45,6 @@ import site.lcyk.keer.data.repository.UserGeneralSettingsRepository
 import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.data.service.OfflineGroupStore
-import site.lcyk.keer.data.service.SyncCoordinator
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
@@ -209,7 +209,9 @@ class MemosViewModel @Inject constructor(
                     homeMemos = latestHomeMemos,
                     resolvedQuoteByMemoId = resolvedQuotes,
                 )
-            }.collectLatest { latestState ->
+            }
+                .flowOn(Dispatchers.Default)
+                .collectLatest { latestState ->
                 measureFeedSection(
                     section = "feed_state_commit",
                     memoCount = latestState.memos.size,
@@ -234,9 +236,11 @@ class MemosViewModel @Inject constructor(
                     visibleColumns = visibleColumns,
                     groupIdAliases = groupIdAliases,
                 )
-            }.collectLatest { latestDrawerState ->
-                drawerSnapshotStore.updateLiveState(latestDrawerState)
             }
+                .flowOn(Dispatchers.Default)
+                .collectLatest { latestDrawerState ->
+                    drawerSnapshotStore.updateLiveState(latestDrawerState)
+                }
         }
 
         viewModelScope.launch {
@@ -251,6 +255,20 @@ class MemosViewModel @Inject constructor(
             }
         }
 
+        viewModelScope.launch {
+            syncStatus
+                .map { status -> status.syncing }
+                .distinctUntilChanged()
+                .collectLatest { syncing ->
+                    if (syncing) {
+                        setSyncInteractionActive(true)
+                    } else {
+                        delay(SYNC_FREEZE_RELEASE_DELAY_MILLIS)
+                        setSyncInteractionActive(false)
+                    }
+                }
+        }
+
     }
 
     suspend fun refreshLocalSnapshot() = Unit
@@ -260,12 +278,11 @@ class MemosViewModel @Inject constructor(
         trigger: SyncTrigger = SyncTrigger.AUTO,
     ) = withContext(viewModelScope.coroutineContext) {
         if (syncAfterLoad) {
-            val domains = when (trigger) {
-                SyncTrigger.APP_START,
-                SyncTrigger.APP_FOREGROUND -> SyncCoordinator.FULL_DOMAINS
-                else -> setOf(SyncDomain.MEMOS)
-            }
-            memoService.requestSync(trigger = trigger, force = false, domains = domains)
+            memoService.requestSync(
+                trigger = trigger,
+                force = false,
+                domains = setOf(SyncDomain.MEMOS),
+            )
         }
     }
 
@@ -274,7 +291,7 @@ class MemosViewModel @Inject constructor(
     }
 
     suspend fun refreshHomeFeed(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
-        performManualSync(domains = setOf(SyncDomain.MEMOS, SyncDomain.GROUPS))
+        performManualSync(domains = setOf(SyncDomain.MEMOS))
     }
 
     suspend fun refreshExploreFeed(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
@@ -393,6 +410,13 @@ class MemosViewModel @Inject constructor(
         )
     }
 
+    private fun setSyncInteractionActive(active: Boolean) {
+        uiInteractionGate.setActive(MemoUiScope.FEED, UiInteractionType.SYNCING, active)
+        uiInteractionGate.setActive(MemoUiScope.DRAWER, UiInteractionType.SYNCING, active)
+        uiInteractionGate.setActive(MemoUiScope.EXPLORE, UiInteractionType.SYNCING, active)
+        uiInteractionGate.setActive(MemoUiScope.GROUP_CHAT, UiInteractionType.SYNCING, active)
+    }
+
     private suspend fun performManualSync(domains: Set<SyncDomain>): ManualSyncResult {
         val syncResult = memoService.sync(
             force = true,
@@ -495,6 +519,7 @@ class MemosViewModel @Inject constructor(
         private const val MAX_TRANSIENT_DETAIL_MEMO_COUNT = 200
         private const val FEED_PROFILE_LOG_THRESHOLD_MILLIS = 12L
         private const val FEED_PROFILE_TAG = "FeedProfile"
+        private const val SYNC_FREEZE_RELEASE_DELAY_MILLIS = 1_000L
     }
 }
 

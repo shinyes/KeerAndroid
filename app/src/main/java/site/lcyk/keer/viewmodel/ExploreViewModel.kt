@@ -55,7 +55,11 @@ class ExploreViewModel @Inject constructor(
     private val offlineGroupStore: OfflineGroupStore,
     private val uiInteractionGate: UiInteractionGate,
 ) : ViewModel() {
-    private val snapshotStore = InteractionSnapshotStore(viewModelScope, ExploreUiState())
+    private val snapshotStore = InteractionSnapshotStore(
+        scope = viewModelScope,
+        initialState = ExploreUiState(),
+        idleCommitDelayMillis = 700L,
+    )
     private val _mutationErrorMessage = MutableStateFlow<String?>(null)
     val mutationErrorMessage: StateFlow<String?> = _mutationErrorMessage.asStateFlow()
 
