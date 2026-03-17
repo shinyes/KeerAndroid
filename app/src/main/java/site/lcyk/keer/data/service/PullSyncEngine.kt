@@ -4,13 +4,13 @@ import com.skydoves.sandwich.ApiResponse
 import javax.inject.Inject
 import javax.inject.Singleton
 import site.lcyk.keer.data.model.SyncDomain
+import site.lcyk.keer.data.repository.UserGeneralSettingsRepository
 
 @Singleton
 class PullSyncEngine @Inject constructor(
-    private val profileSyncRunner: ProfileSyncRunner,
-    private val usersSyncRunner: UsersSyncRunner,
+    private val accountService: AccountService,
+    private val userGeneralSettingsRepository: UserGeneralSettingsRepository,
     private val groupsSyncRunner: GroupsSyncRunner,
-    private val memosSyncRunner: MemosSyncRunner,
 ) {
 
     private val executionOrder = listOf(
@@ -29,10 +29,10 @@ class PullSyncEngine @Inject constructor(
                 continue
             }
             val result = when (domain) {
-                SyncDomain.PROFILE -> profileSyncRunner.sync()
-                SyncDomain.USERS -> usersSyncRunner.sync()
+                SyncDomain.PROFILE -> syncProfile()
+                SyncDomain.USERS -> syncUsers()
                 SyncDomain.GROUPS -> groupsSyncRunner.sync(groupId)
-                SyncDomain.MEMOS -> memosSyncRunner.sync()
+                SyncDomain.MEMOS -> syncMemos()
             }
             if (result !is ApiResponse.Success) {
                 return result
@@ -40,5 +40,26 @@ class PullSyncEngine @Inject constructor(
         }
         return ApiResponse.Success(Unit)
     }
-}
 
+    private suspend fun syncProfile(): ApiResponse<Unit> {
+        val avatarSync = accountService.syncPendingAvatarIfNeeded()
+        if (avatarSync !is ApiResponse.Success) {
+            return avatarSync
+        }
+        return when (val settingsSync = userGeneralSettingsRepository.refreshCurrentGeneralSettings()) {
+            is ApiResponse.Success -> ApiResponse.Success(Unit)
+            is ApiResponse.Failure.Error -> settingsSync
+            is ApiResponse.Failure.Exception -> settingsSync
+        }
+    }
+
+    private suspend fun syncUsers(): ApiResponse<Unit> {
+        val remoteRepository = accountService.getRemoteRepository()
+            ?: return ApiResponse.Success(Unit)
+        return remoteRepository.syncKnownUsers()
+    }
+
+    private suspend fun syncMemos(): ApiResponse<Unit> {
+        return accountService.getRepository().sync()
+    }
+}

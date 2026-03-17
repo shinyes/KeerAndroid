@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
@@ -78,19 +77,11 @@ class ExploreViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val projectionMemos = memoService.memos
-        .let { memosFlow ->
-            memoService.syncStatus
-                .map { status -> status.syncing }
-                .distinctUntilChanged()
-                .flatMapLatest { syncing ->
-                    val debounceMillis = if (syncing) {
-                        EXPLORE_PROJECTION_MEMO_DEBOUNCE_WHILE_SYNCING_MILLIS
-                    } else {
-                        EXPLORE_PROJECTION_MEMO_DEBOUNCE_IDLE_MILLIS
-                    }
-                    memosFlow.debounce(debounceMillis)
-                }
-        }
+        .debounceWithSyncState(
+            syncing = memoService.syncStatus.map { status -> status.syncing },
+            idleDelayMillis = EXPLORE_PROJECTION_MEMO_DEBOUNCE_IDLE_MILLIS,
+            syncingDelayMillis = EXPLORE_PROJECTION_MEMO_DEBOUNCE_WHILE_SYNCING_MILLIS,
+        )
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val liveItems = accountService.currentAccount

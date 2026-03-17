@@ -162,17 +162,12 @@ class MemosViewModel @Inject constructor(
         memoService.syncStatus.stateIn(viewModelScope, SharingStarted.Eagerly, SyncStatus())
 
     private val projectionMemos: StateFlow<List<MemoEntity>> =
-        syncStatus
-            .map { status -> status.syncing }
-            .distinctUntilChanged()
-            .flatMapLatest { syncing ->
-                val debounceMillis = if (syncing) {
-                    PROJECTION_MEMO_DEBOUNCE_WHILE_SYNCING_MILLIS
-                } else {
-                    PROJECTION_MEMO_DEBOUNCE_IDLE_MILLIS
-                }
-                memoService.memos.debounce(debounceMillis)
-            }
+        memoService.memos
+            .debounceWithSyncState(
+                syncing = syncStatus.map { status -> status.syncing },
+                idleDelayMillis = PROJECTION_MEMO_DEBOUNCE_IDLE_MILLIS,
+                syncingDelayMillis = PROJECTION_MEMO_DEBOUNCE_WHILE_SYNCING_MILLIS,
+            )
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val liveHomeMemos: StateFlow<List<HomeMemoItem>> =
