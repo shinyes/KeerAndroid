@@ -8,30 +8,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.viewmodel.LocalMemos
-import site.lcyk.keer.viewmodel.LocalUserState
 import java.time.LocalDate
-import java.time.OffsetDateTime
 import java.time.temporal.ChronoUnit
 
 @Composable
-fun Stats() {
-    val memosViewModel = LocalMemos.current
-    val userStateViewModel = LocalUserState.current
-    val visibleMemos by memosViewModel.visibleMemos.collectAsStateWithLifecycle()
-    val visibleTags by memosViewModel.visibleTags.collectAsStateWithLifecycle()
-    val days = remember(userStateViewModel.currentUser, LocalDate.now()) {
-        userStateViewModel.currentUser?.let { currentUser ->
-                ChronoUnit.DAYS.between(currentUser.startDate.atZone(OffsetDateTime.now().offset).toLocalDate(), LocalDate.now())
-        } ?: 0
+fun Stats(
+    memoCount: Int,
+    tagCount: Int,
+    startDate: LocalDate?,
+) {
+    val today = LocalDate.now()
+    val days = remember(startDate, today) {
+        startDate?.let { ChronoUnit.DAYS.between(it, today) } ?: 0
     }
 
     Row(
@@ -43,7 +37,7 @@ fun Stats() {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                visibleMemos.count().toString(),
+                memoCount.toString(),
                 style = MaterialTheme.typography.headlineSmall
             )
             Text(
@@ -54,7 +48,7 @@ fun Stats() {
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                visibleTags.count().toString(),
+                tagCount.toString(),
                 style = MaterialTheme.typography.headlineSmall
             )
             Text(

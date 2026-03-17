@@ -81,6 +81,7 @@ import site.lcyk.keer.util.normalizeTagName
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import java.time.DayOfWeek
+import java.time.OffsetDateTime
 import java.time.format.TextStyle
 import java.time.temporal.WeekFields
 import java.util.Locale
@@ -106,6 +107,7 @@ fun SideDrawer(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val currentUser = userStateViewModel.currentUser
     val drawerUiState by memosViewModel.visibleDrawerState.collectAsStateWithLifecycle()
     val joinedGroups = drawerUiState.drawerGroups
     val groupIdAliases = drawerUiState.groupIdAliases
@@ -165,6 +167,9 @@ fun SideDrawer(
             ?.let(Uri::decode)
     }
     val visibleColumns = drawerUiState.visibleColumns
+    val statsStartDate = remember(currentUser) {
+        currentUser?.startDate?.atZone(OffsetDateTime.now().offset)?.toLocalDate()
+    }
 
     fun isSelected(route: String): Boolean {
         return currentDestination?.hierarchy?.any { it.route == route } == true
@@ -226,7 +231,11 @@ fun SideDrawer(
             }
         }
         item {
-            Stats()
+            Stats(
+                memoCount = drawerUiState.matrix.sumOf { it.count },
+                tagCount = drawerUiState.tags.size,
+                startDate = statsStartDate,
+            )
         }
 
         item {
@@ -253,7 +262,7 @@ fun SideDrawer(
                         color = MaterialTheme.colorScheme.outline)
                 }
                 if (showHeatMap) {
-                    Heatmap()
+                    Heatmap(matrix = drawerUiState.matrix)
                 }
             }
         }
@@ -265,9 +274,9 @@ fun SideDrawer(
                 selected = isSelected(RouteName.MEMOS),
                 onClick = {
                     scope.launch {
-                        memosNavController.navigateToMemosPage()
                         onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
+                        memosNavController.navigateToMemosPage()
                     }
                 },
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)

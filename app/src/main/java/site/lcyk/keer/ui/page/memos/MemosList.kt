@@ -191,11 +191,6 @@ fun MemosList(
             Timber.d(it)
         }
     }
-
-    LaunchedEffect(Unit) {
-        viewModel.loadMemos()
-    }
-
     SyncAlertDialog(
         alert = syncAlert,
         onDismiss = { syncAlert = null }

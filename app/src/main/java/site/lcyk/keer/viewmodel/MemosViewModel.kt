@@ -77,7 +77,7 @@ class MemosViewModel @Inject constructor(
     private val feedSnapshotStore = InteractionSnapshotStore(
         scope = viewModelScope,
         initialState = FeedUiState(),
-        idleCommitDelayMillis = 0L,
+        idleCommitDelayMillis = 180L,
     )
     private val drawerSnapshotStore = InteractionSnapshotStore(viewModelScope, DrawerUiState())
 
