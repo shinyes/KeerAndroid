@@ -64,13 +64,17 @@ import timber.log.Timber
 @Composable
 fun MemoVideo(
     resource: ResourceRepresentable,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    autoPreviewPrefetch: Boolean = true,
 ) {
     val context = LocalContext.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState(initial = null)
     val memosViewModel = LocalMemos.current
-    val observedResource = rememberObservedMemoResource(resource)
+    val observedResource = rememberObservedMemoResource(
+        resource = resource,
+        observeUpdates = autoPreviewPrefetch,
+    )
     val liveResource = observedResource.resource
     var showPlayerDialog by remember(resource.remoteId, resource.uri, resource.localUri) {
         mutableStateOf(false)
@@ -86,12 +90,16 @@ fun MemoVideo(
     }
 
     LaunchedEffect(
+        autoPreviewPrefetch,
         observedResource.tracked,
         (liveResource as? ResourceEntity)?.identifier,
         liveResource.thumbnailUri,
         liveResource.thumbnailLocalUri,
         currentAccount?.accountKey()
     ) {
+        if (!autoPreviewPrefetch) {
+            return@LaunchedEffect
+        }
         if (!observedResource.tracked) {
             return@LaunchedEffect
         }

@@ -189,6 +189,7 @@
     <string name="expand">展开</string>
     <string name="collapse">收起</string>
     <string name="view_more">查看更多</string>
+    <string name="view_full_content">查看全文</string>
     <string name="accounts">账户</string>
     <string name="account_detail">账户详情</string>
     <string name="switch_account">切换账户</string>

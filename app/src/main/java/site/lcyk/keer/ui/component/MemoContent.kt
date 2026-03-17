@@ -1,20 +1,24 @@
 package site.lcyk.keer.ui.component
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import site.lcyk.keer.ui.page.common.LocalRootNavController
@@ -26,6 +30,11 @@ import site.lcyk.keer.util.extractPreviewContent
 import site.lcyk.keer.viewmodel.LocalUserState
 import kotlin.math.ceil
 
+enum class PreviewHintStyle {
+    LINK,
+    GRADIENT,
+}
+
 @Composable
 fun MemoContent(
     memo: MemoRepresentable,
@@ -33,7 +42,9 @@ fun MemoContent(
     checkboxChange: (checked: Boolean, startOffset: Int, endOffset: Int) -> Unit = { _, _, _ -> },
     onViewMore: (() -> Unit)? = null,
     selectable: Boolean = false,
-    onTagClick: ((String) -> Unit)? = null
+    onTagClick: ((String) -> Unit)? = null,
+    previewHintStyle: PreviewHintStyle = PreviewHintStyle.LINK,
+    autoPreviewPrefetch: Boolean = true,
 ) {
     val rootNavController = LocalRootNavController.current
     val (text, previewed) = remember(memo.content, previewMode) {
@@ -60,23 +71,67 @@ fun MemoContent(
             onTagClick = handleTagClick
         )
 
-        MemoResourceContent(memo)
+        MemoResourceContent(
+            memo = memo,
+            autoPreviewPrefetch = autoPreviewPrefetch,
+        )
 
         if (previewed && onViewMore != null) {
-            Row {
-                Text(
-                    text = R.string.view_more.string,
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.bodyMedium.copy(textDecoration = TextDecoration.Underline),
-                    modifier = Modifier.clickable(onClick = onViewMore)
-                )
+            when (previewHintStyle) {
+                PreviewHintStyle.LINK -> {
+                    Row {
+                        Text(
+                            text = R.string.view_more.string,
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodyMedium.copy(textDecoration = TextDecoration.Underline),
+                            modifier = Modifier.clickable(onClick = onViewMore)
+                        )
+                    }
+                }
+                PreviewHintStyle.GRADIENT -> {
+                    MemoPreviewGradientHint(onViewMore = onViewMore)
+                }
             }
         }
     }
 }
 
 @Composable
-fun MemoResourceContent(memo: MemoRepresentable) {
+private fun MemoPreviewGradientHint(onViewMore: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(24.dp)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0f),
+                            MaterialTheme.colorScheme.surface
+                        )
+                    )
+                )
+        )
+        Text(
+            text = R.string.view_full_content.string,
+            color = MaterialTheme.colorScheme.primary,
+            style = MaterialTheme.typography.labelLarge.copy(textDecoration = TextDecoration.Underline),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .clickable(onClick = onViewMore)
+        )
+    }
+}
+
+@Composable
+fun MemoResourceContent(
+    memo: MemoRepresentable,
+    autoPreviewPrefetch: Boolean = true,
+) {
     val cols = 3
 
     val mediaList = memo.resources.filter { it.isMediaResource() }
@@ -93,7 +148,8 @@ fun MemoResourceContent(memo: MemoRepresentable) {
                                 modifier = Modifier
                                     .aspectRatio(1f)
                                     .padding(2.dp)
-                                    .clip(RoundedCornerShape(4.dp))
+                                    .clip(RoundedCornerShape(4.dp)),
+                                autoPreviewPrefetch = autoPreviewPrefetch,
                             )
                         }
                     } else {

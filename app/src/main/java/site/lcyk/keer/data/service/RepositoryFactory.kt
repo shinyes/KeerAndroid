@@ -103,19 +103,21 @@ class RepositoryFactory @Inject constructor(
                 )
                 RepositorySession(
                     repository = SyncingRepository(
-                        database.memoDao(),
-                        fileStorage,
-                        remoteRepository,
-                        account,
+                        database = database,
+                        memoDao = database.memoDao(),
+                        fileStorage = fileStorage,
+                        remoteRepository = remoteRepository,
+                        account = account,
                         readMemoSyncAnchor = {
                             readMemoSyncAnchor(accountKey)
                         },
                         writeMemoSyncAnchor = { anchor ->
                             writeMemoSyncAnchor(accountKey, anchor)
                         },
-                    ) { user ->
-                        onUserSynced(accountKey, user)
-                    },
+                        onUserSynced = { user ->
+                            onUserSynced(accountKey, user)
+                        },
+                    ),
                     remoteRepository = remoteRepository,
                     httpClient = clientBundle.httpClient,
                 )

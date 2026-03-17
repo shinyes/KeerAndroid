@@ -24,7 +24,16 @@ internal data class ObservedMemoResource(
 )
 
 @Composable
-internal fun rememberObservedMemoResource(resource: ResourceRepresentable): ObservedMemoResource {
+internal fun rememberObservedMemoResource(
+    resource: ResourceRepresentable,
+    observeUpdates: Boolean = true,
+): ObservedMemoResource {
+    if (!observeUpdates) {
+        return ObservedMemoResource(
+            resource = resource,
+            tracked = false,
+        )
+    }
     val memosViewModel = LocalMemos.current
     val identifier = (resource as? ResourceEntity)?.identifier
     val resourceFlow = remember(identifier) {

@@ -190,6 +190,7 @@
     <string name="expand">Expand</string>
     <string name="collapse">Collapse</string>
     <string name="view_more">View More</string>
+    <string name="view_full_content">View Full Content</string>
     <string name="accounts">Accounts</string>
     <string name="account_detail">Account Detail</string>
     <string name="switch_account">Switch Account</string>

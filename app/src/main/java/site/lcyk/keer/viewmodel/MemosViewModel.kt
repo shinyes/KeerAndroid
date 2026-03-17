@@ -77,9 +77,13 @@ class MemosViewModel @Inject constructor(
     private val feedSnapshotStore = InteractionSnapshotStore(
         scope = viewModelScope,
         initialState = FeedUiState(),
-        idleCommitDelayMillis = 180L,
+        idleCommitDelayMillis = 700L,
     )
-    private val drawerSnapshotStore = InteractionSnapshotStore(viewModelScope, DrawerUiState())
+    private val drawerSnapshotStore = InteractionSnapshotStore(
+        scope = viewModelScope,
+        initialState = DrawerUiState(),
+        idleCommitDelayMillis = 420L,
+    )
 
     var errorMessage: String? by mutableStateOf(null)
         private set
@@ -246,6 +250,18 @@ class MemosViewModel @Inject constructor(
                 drawerSnapshotStore.setFrozen(frozen)
             }
         }
+
+        viewModelScope.launch {
+            syncStatus
+                .map { status -> status.syncing }
+                .distinctUntilChanged()
+                .collectLatest { syncing ->
+                    uiInteractionGate.setActive(MemoUiScope.FEED, UiInteractionType.SYNCING, syncing)
+                    uiInteractionGate.setActive(MemoUiScope.EXPLORE, UiInteractionType.SYNCING, syncing)
+                    uiInteractionGate.setActive(MemoUiScope.GROUP_CHAT, UiInteractionType.SYNCING, syncing)
+                    uiInteractionGate.setActive(MemoUiScope.DRAWER, UiInteractionType.SYNCING, syncing)
+                }
+        }
     }
 
     suspend fun refreshLocalSnapshot() = Unit
@@ -344,17 +360,17 @@ class MemosViewModel @Inject constructor(
     }
 
     suspend fun cacheResourceFile(resourceIdentifier: String, downloadedUri: Uri): ApiResponse<Unit> =
-        withContext(viewModelScope.coroutineContext) {
+        withContext(Dispatchers.IO) {
             memoService.getRepository().cacheResourceFile(resourceIdentifier, downloadedUri)
         }
 
     suspend fun cacheResourceThumbnail(resourceIdentifier: String, downloadedUri: Uri): ApiResponse<Unit> =
-        withContext(viewModelScope.coroutineContext) {
+        withContext(Dispatchers.IO) {
             memoService.getRepository().cacheResourceThumbnail(resourceIdentifier, downloadedUri)
         }
 
     suspend fun getResourceById(resourceIdentifier: String): ResourceEntity? =
-        withContext(viewModelScope.coroutineContext) {
+        withContext(Dispatchers.IO) {
             memoService.getRepository().getResourceById(resourceIdentifier)
         }
 

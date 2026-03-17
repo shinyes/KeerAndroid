@@ -1,4 +1,4 @@
-package site.lcyk.keer.util
+﻿package site.lcyk.keer.util
 
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.MarkdownTokenTypes
@@ -9,6 +9,7 @@ import org.intellij.markdown.parser.MarkdownParser
 import org.intellij.markdown.IElementType
 
 private const val PREVIEW_UNBREAKABLE_COST = 100
+private const val PREVIEW_ELLIPSIS = "..."
 
 private enum class PreviewAppendKind {
     NONE,
@@ -122,7 +123,11 @@ fun extractPreviewContent(markdownText: String, maxLength: Int = 500): Pair<Stri
 
     if (truncated && lastAppendKind == PreviewAppendKind.TEXT) {
         val preview = result.toString().trimEnd()
-        val withEllipsis = if (preview.endsWith("…")) preview else "$preview…"
+        val withEllipsis = if (preview.endsWith(PREVIEW_ELLIPSIS)) {
+            preview
+        } else {
+            "$preview$PREVIEW_ELLIPSIS"
+        }
         return Pair(withEllipsis, true)
     }
 

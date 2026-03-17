@@ -283,7 +283,13 @@ fun MemosCard(
                 onViewMore = {
                     onClick(memo)
                 },
-                onTagClick = onTagClick
+                onTagClick = onTagClick,
+                previewHintStyle = if (previewMode) {
+                    PreviewHintStyle.GRADIENT
+                } else {
+                    PreviewHintStyle.LINK
+                },
+                autoPreviewPrefetch = !previewMode,
             )
 
             if (resolvedQuote != null) {

@@ -1,6 +1,7 @@
 package site.lcyk.keer.data.repository
 
 import android.net.Uri
+import androidx.room.withTransaction
 import androidx.core.net.toUri
 import com.skydoves.sandwich.ApiResponse
 import com.skydoves.sandwich.StatusCode
@@ -23,6 +24,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.FileStorage
+import site.lcyk.keer.data.local.KeerDatabase
 import site.lcyk.keer.data.local.dao.MemoDao
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
@@ -46,6 +48,7 @@ import java.util.Base64
 import java.util.UUID
 
 class SyncingRepository(
+    private val database: KeerDatabase,
     private val memoDao: MemoDao,
     private val fileStorage: FileStorage,
     private val remoteRepository: RemoteRepository,
@@ -63,6 +66,16 @@ class SyncingRepository(
         val resource: ResourceEntity,
         val file: File?,
         val sizeBytes: Long
+    )
+
+    private data class PendingRemoteApply(
+        val remoteMemo: Memo,
+        val preferredLocalIdentifier: String?,
+    )
+
+    private data class PendingMarkSynced(
+        val local: MemoEntity,
+        val remoteMemo: Memo,
     )
 
     private val accountKey = account.accountKey()
@@ -545,82 +558,82 @@ class SyncingRepository(
         }
     }
 
-    override suspend fun cacheResourceFile(identifier: String, downloadedUri: Uri): ApiResponse<Unit> {
-        return try {
-            val resource = memoDao.getResourceById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
-            val existingLocal = existingLocalUri(resource)
-            if (existingLocal != null) {
-                return ApiResponse.Success(Unit)
-            }
-
-            val canonical = fileStorage.saveFileFromUri(
-                accountKey = accountKey,
-                sourceUri = downloadedUri,
-                filename = "${resource.identifier}_${resource.filename}"
-            ).toString()
-
-            resource.localUri?.takeIf { it != canonical }?.let { oldLocal ->
-                val oldUri = oldLocal.toUri()
-                if (oldUri.scheme == "file") {
-                    fileStorage.deleteFile(oldUri)
+    override suspend fun cacheResourceFile(identifier: String, downloadedUri: Uri): ApiResponse<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val resource = memoDao.getResourceById(identifier, accountKey)
+                    ?: return@withContext ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
+                val existingLocal = existingLocalUri(resource)
+                if (existingLocal != null) {
+                    return@withContext ApiResponse.Success(Unit)
                 }
-            }
 
-            val updatedUri = if (resource.remoteId == null && resource.uri.toUri().scheme == "file") {
-                canonical
-            } else {
-                resource.uri
-            }
-            memoDao.insertResource(
-                resource.copy(
-                    uri = updatedUri,
-                    localUri = canonical
-                )
-            )
-            notifyResourceRelationsChanged(resource)
-            ApiResponse.Success(Unit)
-        } catch (e: Exception) {
-            ApiResponse.Failure.Exception(e)
-        }
-    }
+                val canonical = fileStorage.saveFileFromUri(
+                    accountKey = accountKey,
+                    sourceUri = downloadedUri,
+                    filename = "${resource.identifier}_${resource.filename}"
+                ).toString()
 
-    override suspend fun cacheResourceThumbnail(identifier: String, downloadedUri: Uri): ApiResponse<Unit> {
-        return try {
-            val resource = memoDao.getResourceById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
-            val existingLocal = existingThumbnailLocalUri(resource)
-            if (existingLocal != null) {
-                return ApiResponse.Success(Unit)
-            }
-
-            val canonical = fileStorage.saveThumbnailFromUri(
-                accountKey = accountKey,
-                sourceUri = downloadedUri,
-                filename = buildCachedThumbnailFilename(resource)
-            ).toString()
-
-            resource.thumbnailLocalUri?.takeIf { it != canonical }?.let { oldLocal ->
-                val oldUri = oldLocal.toUri()
-                if (oldUri.scheme == "file") {
-                    fileStorage.deleteFile(oldUri)
+                resource.localUri?.takeIf { it != canonical }?.let { oldLocal ->
+                    val oldUri = oldLocal.toUri()
+                    if (oldUri.scheme == "file") {
+                        fileStorage.deleteFile(oldUri)
+                    }
                 }
-            }
 
-            memoDao.insertResource(
-                resource.copy(
-                    thumbnailLocalUri = canonical
+                val updatedUri = if (resource.remoteId == null && resource.uri.toUri().scheme == "file") {
+                    canonical
+                } else {
+                    resource.uri
+                }
+                memoDao.insertResource(
+                    resource.copy(
+                        uri = updatedUri,
+                        localUri = canonical
+                    )
                 )
-            )
-            notifyResourceRelationsChanged(resource)
-            ApiResponse.Success(Unit)
-        } catch (e: Exception) {
-            ApiResponse.Failure.Exception(e)
+                ApiResponse.Success(Unit)
+            } catch (e: Exception) {
+                ApiResponse.Failure.Exception(e)
+            }
         }
-    }
 
-    override suspend fun getResourceById(identifier: String): ResourceEntity? {
-        return memoDao.getResourceById(identifier, accountKey)
+    override suspend fun cacheResourceThumbnail(identifier: String, downloadedUri: Uri): ApiResponse<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val resource = memoDao.getResourceById(identifier, accountKey)
+                    ?: return@withContext ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
+                val existingLocal = existingThumbnailLocalUri(resource)
+                if (existingLocal != null) {
+                    return@withContext ApiResponse.Success(Unit)
+                }
+
+                val canonical = fileStorage.saveThumbnailFromUri(
+                    accountKey = accountKey,
+                    sourceUri = downloadedUri,
+                    filename = buildCachedThumbnailFilename(resource)
+                ).toString()
+
+                resource.thumbnailLocalUri?.takeIf { it != canonical }?.let { oldLocal ->
+                    val oldUri = oldLocal.toUri()
+                    if (oldUri.scheme == "file") {
+                        fileStorage.deleteFile(oldUri)
+                    }
+                }
+
+                memoDao.insertResource(
+                    resource.copy(
+                        thumbnailLocalUri = canonical
+                    )
+                )
+                ApiResponse.Success(Unit)
+            } catch (e: Exception) {
+                ApiResponse.Failure.Exception(e)
+            }
+        }
+
+    override suspend fun getResourceById(identifier: String): ResourceEntity? = withContext(Dispatchers.IO) {
+        memoDao.getResourceById(identifier, accountKey)
             ?: memoDao.getResourceByRemoteId(identifier, accountKey)
     }
 
@@ -720,30 +733,49 @@ class SyncingRepository(
         val localByRemoteId = localMemos.mapNotNull { memo ->
             memo.remoteId?.let { it to memo }
         }.toMap()
+        val pendingRemoteAppliesByRemoteId = linkedMapOf<String, PendingRemoteApply>()
+        val pendingMarkSyncedByLocalIdentifier = linkedMapOf<String, PendingMarkSynced>()
+        val pendingDeleteMemoIdentifiers = linkedSetOf<String>()
+
+        fun queueRemoteApply(remoteMemo: Memo, preferredLocalIdentifier: String? = null) {
+            pendingRemoteAppliesByRemoteId[remoteMemoId(remoteMemo)] =
+                PendingRemoteApply(
+                    remoteMemo = remoteMemo,
+                    preferredLocalIdentifier = preferredLocalIdentifier,
+                )
+        }
+
+        fun queueMarkSynced(local: MemoEntity, remoteMemo: Memo) {
+            pendingMarkSyncedByLocalIdentifier[local.identifier] =
+                PendingMarkSynced(
+                    local = local,
+                    remoteMemo = remoteMemo,
+                )
+        }
 
         for (remoteMemo in remoteMemos) {
             val remoteId = remoteMemoId(remoteMemo)
             val local = localByRemoteId[remoteId]
 
             if (local == null) {
-                applyRemoteMemo(remoteMemo)
+                queueRemoteApply(remoteMemo)
                 continue
             }
 
             if (local.isDeleted) {
                 if (!local.needsSync) {
-                    applyRemoteMemo(remoteMemo, local.identifier)
+                    queueRemoteApply(remoteMemo, local.identifier)
                     continue
                 }
 
                 val remoteChanged = hasRemoteChanged(local, remoteMemo)
                 val equivalent = memoEquivalent(local, remoteMemo)
                 if (remoteChanged || !equivalent) {
-                    applyRemoteMemo(remoteMemo, local.identifier)
+                    queueRemoteApply(remoteMemo, local.identifier)
                 } else {
                     val deleted = remoteRepository.deleteMemo(remoteId)
                     if (deleted is ApiResponse.Success) {
-                        permanentlyDeleteMemo(local.identifier)
+                        pendingDeleteMemoIdentifiers += local.identifier
                     } else {
                         recordFailure()
                     }
@@ -753,7 +785,7 @@ class SyncingRepository(
 
             val equivalent = memoEquivalent(local, remoteMemo)
             if (equivalent) {
-                markSynced(local, remoteMemo)
+                queueMarkSynced(local, remoteMemo)
                 continue
             }
 
@@ -761,7 +793,7 @@ class SyncingRepository(
             val remoteChanged = hasRemoteChanged(local, remoteMemo)
 
             when {
-                !localChanged -> applyRemoteMemo(remoteMemo, local.identifier)
+                !localChanged -> queueRemoteApply(remoteMemo, local.identifier)
                 !remoteChanged -> {
                     if (!pushLocalMemo(local.identifier)) {
                         recordFailure()
@@ -778,17 +810,36 @@ class SyncingRepository(
         for (deletedRemoteID in remoteDeletedIds) {
             val local = localByRemoteId[deletedRemoteID] ?: continue
             when {
-                local.isDeleted -> permanentlyDeleteMemo(local.identifier)
+                local.isDeleted -> pendingDeleteMemoIdentifiers += local.identifier
                 local.needsSync -> {
                     if (!pushLocalMemo(local.identifier, forceCreate = true)) {
                         recordFailure()
                     }
                 }
-                else -> permanentlyDeleteMemo(local.identifier)
+                else -> pendingDeleteMemoIdentifiers += local.identifier
             }
         }
 
+        remoteDeletedIds.forEach { deletedRemoteId ->
+            pendingRemoteAppliesByRemoteId.remove(deletedRemoteId)
+        }
+        pendingMarkSyncedByLocalIdentifier.entries.removeAll { entry ->
+            entry.value.local.remoteId?.let(remoteDeletedIds::contains) == true
+        }
+        if (
+            pendingRemoteAppliesByRemoteId.isNotEmpty() ||
+            pendingMarkSyncedByLocalIdentifier.isNotEmpty() ||
+            pendingDeleteMemoIdentifiers.isNotEmpty()
+        ) {
+            applySyncMemoMutationsBatch(
+                remoteApplies = pendingRemoteAppliesByRemoteId.values.toList(),
+                markSyncedEntries = pendingMarkSyncedByLocalIdentifier.values.toList(),
+                deleteMemoIdentifiers = pendingDeleteMemoIdentifiers,
+            )
+        }
+
         val latestLocals = memoDao.getAllMemosForSync(accountKey)
+        val pendingFinalDeleteMemoIdentifiers = linkedSetOf<String>()
         for (local in latestLocals) {
             if (local.remoteId != null && remoteById.containsKey(local.remoteId)) {
                 continue
@@ -800,13 +851,13 @@ class SyncingRepository(
                 }
                 if (treatMissingRemoteAsDeleted) {
                     if (local.isDeleted) {
-                        permanentlyDeleteMemo(local.identifier)
+                        pendingFinalDeleteMemoIdentifiers += local.identifier
                     } else if (local.needsSync) {
                         if (!pushLocalMemo(local.identifier, forceCreate = true)) {
                             recordFailure()
                         }
                     } else {
-                        permanentlyDeleteMemo(local.identifier)
+                        pendingFinalDeleteMemoIdentifiers += local.identifier
                     }
                 } else {
                     if (local.needsSync) {
@@ -820,7 +871,7 @@ class SyncingRepository(
 
             if (local.remoteId == null) {
                 if (local.isDeleted) {
-                    permanentlyDeleteMemo(local.identifier)
+                    pendingFinalDeleteMemoIdentifiers += local.identifier
                 } else if (local.needsSync) {
                     if (!pushLocalMemo(local.identifier, forceCreate = true)) {
                         recordFailure()
@@ -828,6 +879,11 @@ class SyncingRepository(
                 }
             }
         }
+
+        if (pendingFinalDeleteMemoIdentifiers.isNotEmpty()) {
+            permanentlyDeleteMemosBatch(pendingFinalDeleteMemoIdentifiers)
+        }
+        memoDao.pruneUnusedTags(accountKey)
 
         return if (hadErrors) {
             ApiResponse.Failure.Exception(
@@ -841,6 +897,41 @@ class SyncingRepository(
             }
             ApiResponse.Success(Unit)
         }
+    }
+
+    private suspend fun applySyncMemoMutationsBatch(
+        remoteApplies: List<PendingRemoteApply>,
+        markSyncedEntries: List<PendingMarkSynced>,
+        deleteMemoIdentifiers: Collection<String>,
+    ) {
+        if (
+            remoteApplies.isEmpty() &&
+            markSyncedEntries.isEmpty() &&
+            deleteMemoIdentifiers.isEmpty()
+        ) {
+            return
+        }
+        val staleResources = mutableListOf<ResourceEntity>()
+        database.withTransaction {
+            deleteMemoIdentifiers.forEach { identifier ->
+                permanentlyDeleteMemoInTransaction(identifier, staleResources)
+            }
+            remoteApplies.forEach { pending ->
+                applyRemoteMemoInTransaction(
+                    remoteMemo = pending.remoteMemo,
+                    preferredLocalIdentifier = pending.preferredLocalIdentifier,
+                    staleResources = staleResources,
+                )
+            }
+            markSyncedEntries.forEach { pending ->
+                markSyncedInTransaction(
+                    local = pending.local,
+                    remoteMemo = pending.remoteMemo,
+                )
+            }
+            memoDao.pruneUnusedTags(accountKey)
+        }
+        staleResources.forEach(::deleteLocalFile)
     }
 
     private suspend fun refreshCurrentUserFromRemoteIfNeeded(): ApiResponse<Unit> {
@@ -966,7 +1057,12 @@ class SyncingRepository(
         )
 
         memoDao.insertMemo(duplicateLocal)
-        memoDao.replaceMemoTags(duplicateLocal.identifier, accountKey, localTags)
+        memoDao.replaceMemoTags(
+            memoId = duplicateLocal.identifier,
+            accountKey = accountKey,
+            tags = localTags,
+            pruneUnusedTagsAfter = false,
+        )
         memoDao.getMemoResources(local.identifier, accountKey).forEach { resource ->
             memoDao.insertResource(
                 resource.copy(
@@ -1162,6 +1258,22 @@ class SyncingRepository(
         remoteMemo: Memo,
         preferredLocalIdentifier: String? = null
     ) {
+        val staleResources = mutableListOf<ResourceEntity>()
+        database.withTransaction {
+            applyRemoteMemoInTransaction(
+                remoteMemo = remoteMemo,
+                preferredLocalIdentifier = preferredLocalIdentifier,
+                staleResources = staleResources,
+            )
+        }
+        staleResources.forEach(::deleteLocalFile)
+    }
+
+    private suspend fun applyRemoteMemoInTransaction(
+        remoteMemo: Memo,
+        preferredLocalIdentifier: String?,
+        staleResources: MutableList<ResourceEntity>,
+    ) {
         val remoteId = remoteMemoId(remoteMemo)
         val current = memoDao.getMemoByRemoteId(remoteId, accountKey)
             ?: preferredLocalIdentifier?.let { memoDao.getMemoById(it, accountKey) }
@@ -1193,13 +1305,18 @@ class SyncingRepository(
                 lastSyncedAt = remoteUpdatedAt
             )
         )
-        memoDao.replaceMemoTags(localIdentifier, accountKey, remoteMemo.tags)
+        memoDao.replaceMemoTags(
+            memoId = localIdentifier,
+            accountKey = accountKey,
+            tags = remoteMemo.tags,
+            pruneUnusedTagsAfter = false,
+        )
 
         val currentResources = memoDao.getMemoResources(localIdentifier, accountKey)
         val remoteResourceIds = remoteMemo.resources.mapTo(hashSetOf()) { remoteResourceId(it) }
         currentResources.forEach { currentResource ->
             if (currentResource.remoteId !in remoteResourceIds) {
-                deleteLocalFile(currentResource)
+                staleResources += currentResource
                 memoDao.deleteResource(currentResource)
             }
         }
@@ -1238,6 +1355,12 @@ class SyncingRepository(
     }
 
     private suspend fun markSynced(local: MemoEntity, remoteMemo: Memo) {
+        database.withTransaction {
+            markSyncedInTransaction(local, remoteMemo)
+        }
+    }
+
+    private suspend fun markSyncedInTransaction(local: MemoEntity, remoteMemo: Memo) {
         memoDao.insertMemo(
             local.copy(
                 remoteId = remoteMemoId(remoteMemo),
@@ -1253,7 +1376,12 @@ class SyncingRepository(
                 lastSyncedAt = remoteMemo.updatedAt ?: remoteMemo.date
             )
         )
-        memoDao.replaceMemoTags(local.identifier, accountKey, remoteMemo.tags)
+        memoDao.replaceMemoTags(
+            memoId = local.identifier,
+            accountKey = accountKey,
+            tags = remoteMemo.tags,
+            pruneUnusedTagsAfter = false,
+        )
     }
 
     private suspend fun memoEquivalent(local: MemoEntity, remote: Memo): Boolean {
@@ -1473,13 +1601,30 @@ class SyncingRepository(
     }
 
     private suspend fun permanentlyDeleteMemo(identifier: String) {
-        memoDao.getMemoById(identifier, accountKey)?.let { memo ->
-            memoDao.getMemoResources(identifier, accountKey).forEach { resource ->
-                deleteLocalFile(resource)
+        permanentlyDeleteMemosBatch(listOf(identifier))
+    }
+
+    private suspend fun permanentlyDeleteMemosBatch(identifiers: Collection<String>) {
+        if (identifiers.isEmpty()) {
+            return
+        }
+        val staleResources = mutableListOf<ResourceEntity>()
+        database.withTransaction {
+            identifiers.forEach { identifier ->
+                permanentlyDeleteMemoInTransaction(identifier, staleResources)
             }
-            memoDao.deleteMemo(memo)
             memoDao.pruneUnusedTags(accountKey)
         }
+        staleResources.forEach(::deleteLocalFile)
+    }
+
+    private suspend fun permanentlyDeleteMemoInTransaction(
+        identifier: String,
+        staleResources: MutableList<ResourceEntity>,
+    ) {
+        val memo = memoDao.getMemoById(identifier, accountKey) ?: return
+        staleResources += memoDao.getMemoResources(identifier, accountKey)
+        memoDao.deleteMemo(memo)
     }
 
     private fun resolveLocalFile(resource: ResourceEntity): File? {
@@ -1556,12 +1701,6 @@ class SyncingRepository(
 
     private suspend fun notifyMemoRelationsChanged(memo: MemoEntity) {
         memoDao.insertMemo(memo.copy())
-    }
-
-    private suspend fun notifyResourceRelationsChanged(resource: ResourceEntity) {
-        val memoId = resource.memoId ?: return
-        val memo = memoDao.getMemoById(memoId, accountKey) ?: return
-        notifyMemoRelationsChanged(memo)
     }
 
     private fun buildUploadThumbnail(resource: ResourceEntity): ResourceUploadThumbnail? {

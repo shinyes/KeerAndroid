@@ -174,7 +174,12 @@ interface MemoDao {
     fun observeTagsByRecentUsage(accountKey: String, since: Instant): Flow<List<String>>
 
     @Transaction
-    suspend fun replaceMemoTags(memoId: String, accountKey: String, tags: List<String>) {
+    suspend fun replaceMemoTags(
+        memoId: String,
+        accountKey: String,
+        tags: List<String>,
+        pruneUnusedTagsAfter: Boolean = true,
+    ) {
         val now = Instant.now()
         val normalizedTags = tags
             .asSequence()
@@ -201,7 +206,9 @@ interface MemoDao {
                 )
             )
         }
-        pruneUnusedTags(accountKey)
+        if (pruneUnusedTagsAfter) {
+            pruneUnusedTags(accountKey)
+        }
     }
 
 }

@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.FileStorage
 import site.lcyk.keer.data.local.dao.MemoDao
@@ -381,39 +382,39 @@ class LocalDatabaseRepository(
         }
     }
 
-    override suspend fun cacheResourceThumbnail(identifier: String, downloadedUri: Uri): ApiResponse<Unit> {
-        return try {
-            val resource = memoDao.getResourceById(identifier, accountKey)
-                ?: return ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
-            val existing = existingThumbnailLocalFile(resource)
-            if (existing != null) {
-                return ApiResponse.Success(Unit)
+    override suspend fun cacheResourceThumbnail(identifier: String, downloadedUri: Uri): ApiResponse<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val resource = memoDao.getResourceById(identifier, accountKey)
+                    ?: return@withContext ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
+                val existing = existingThumbnailLocalFile(resource)
+                if (existing != null) {
+                    return@withContext ApiResponse.Success(Unit)
+                }
+
+                val canonical = fileStorage.saveThumbnailFromUri(
+                    accountKey = accountKey,
+                    sourceUri = downloadedUri,
+                    filename = buildCachedThumbnailFilename(resource)
+                ).toString()
+
+                resource.thumbnailLocalUri
+                    ?.takeIf { it != canonical }
+                    ?.toUri()
+                    ?.takeIf { it.scheme == "file" }
+                    ?.let(fileStorage::deleteFile)
+
+                memoDao.insertResource(
+                    resource.copy(thumbnailLocalUri = canonical)
+                )
+                ApiResponse.Success(Unit)
+            } catch (e: Exception) {
+                ApiResponse.Failure.Exception(e)
             }
-
-            val canonical = fileStorage.saveThumbnailFromUri(
-                accountKey = accountKey,
-                sourceUri = downloadedUri,
-                filename = buildCachedThumbnailFilename(resource)
-            ).toString()
-
-            resource.thumbnailLocalUri
-                ?.takeIf { it != canonical }
-                ?.toUri()
-                ?.takeIf { it.scheme == "file" }
-                ?.let(fileStorage::deleteFile)
-
-            memoDao.insertResource(
-                resource.copy(thumbnailLocalUri = canonical)
-            )
-            notifyResourceRelationsChanged(resource)
-            ApiResponse.Success(Unit)
-        } catch (e: Exception) {
-            ApiResponse.Failure.Exception(e)
         }
-    }
 
-    override suspend fun getResourceById(identifier: String): ResourceEntity? {
-        return memoDao.getResourceById(identifier, accountKey)
+    override suspend fun getResourceById(identifier: String): ResourceEntity? = withContext(Dispatchers.IO) {
+        memoDao.getResourceById(identifier, accountKey)
             ?: memoDao.getResourceByRemoteId(identifier, accountKey)
     }
 
@@ -500,12 +501,6 @@ class LocalDatabaseRepository(
 
     private suspend fun notifyMemoRelationsChanged(memo: MemoEntity) {
         memoDao.insertMemo(memo.copy())
-    }
-
-    private suspend fun notifyResourceRelationsChanged(resource: ResourceEntity) {
-        val memoId = resource.memoId ?: return
-        val memo = memoDao.getMemoById(memoId, accountKey) ?: return
-        notifyMemoRelationsChanged(memo)
     }
 
 }
