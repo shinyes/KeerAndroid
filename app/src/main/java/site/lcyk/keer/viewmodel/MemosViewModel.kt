@@ -251,17 +251,6 @@ class MemosViewModel @Inject constructor(
             }
         }
 
-        viewModelScope.launch {
-            syncStatus
-                .map { status -> status.syncing }
-                .distinctUntilChanged()
-                .collectLatest { syncing ->
-                    uiInteractionGate.setActive(MemoUiScope.FEED, UiInteractionType.SYNCING, syncing)
-                    uiInteractionGate.setActive(MemoUiScope.EXPLORE, UiInteractionType.SYNCING, syncing)
-                    uiInteractionGate.setActive(MemoUiScope.GROUP_CHAT, UiInteractionType.SYNCING, syncing)
-                    uiInteractionGate.setActive(MemoUiScope.DRAWER, UiInteractionType.SYNCING, syncing)
-                }
-        }
     }
 
     suspend fun refreshLocalSnapshot() = Unit
