@@ -162,6 +162,21 @@ class AccountLocalSettingsStore @Inject constructor(
         }
     }
 
+    suspend fun readMemoSyncCursor(accountKey: String): String? {
+        return userSettings(accountKey)
+            ?.memoSyncAnchor
+            .orEmpty()
+            .trim()
+            .ifBlank { null }
+    }
+
+    suspend fun writeMemoSyncCursor(accountKey: String, cursor: String) {
+        val normalizedCursor = cursor.trim().ifEmpty { "0" }
+        updateUserData(accountKey) { target ->
+            target.copy(settings = target.settings.copy(memoSyncAnchor = normalizedCursor))
+        }
+    }
+
     suspend fun readUserSyncAnchor(accountKey: String): Instant? {
         return userSettings(accountKey)
             ?.userSyncAnchor

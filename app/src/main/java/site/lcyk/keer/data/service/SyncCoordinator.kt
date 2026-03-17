@@ -23,25 +23,8 @@ import site.lcyk.keer.ext.getErrorMessage
 class SyncCoordinator @Inject constructor(
     private val accountService: AccountService,
     private val pendingSyncWorkInspector: PendingSyncWorkInspector,
-    private val profileSyncRunner: ProfileSyncRunner,
-    private val usersSyncRunner: UsersSyncRunner,
-    private val groupsSyncRunner: GroupsSyncRunner,
-    private val memosSyncRunner: MemosSyncRunner,
+    private val pullSyncEngine: PullSyncEngine,
 ) {
-    private val domainExecutionOrder = listOf(
-        SyncDomain.PROFILE,
-        SyncDomain.USERS,
-        SyncDomain.GROUPS,
-        SyncDomain.MEMOS,
-    )
-
-    private val domainRunners: Map<SyncDomain, suspend (String?) -> ApiResponse<Unit>> = mapOf(
-        SyncDomain.PROFILE to { profileSyncRunner.sync() },
-        SyncDomain.USERS to { usersSyncRunner.sync() },
-        SyncDomain.GROUPS to { groupId -> groupsSyncRunner.sync(groupId) },
-        SyncDomain.MEMOS to { memosSyncRunner.sync() },
-    )
-
     private data class SyncRequest(
         val force: Boolean,
         val trigger: SyncTrigger,
@@ -134,7 +117,7 @@ class SyncCoordinator @Inject constructor(
             publishStatus()
 
             val normalizedGroupId = groupId?.trim()?.takeIf(String::isNotBlank)
-            val result = runDomains(domains, normalizedGroupId)
+            val result = pullSyncEngine.run(domains, normalizedGroupId)
 
             if (result is ApiResponse.Success) {
                 consecutiveFailureCount = 0
@@ -158,22 +141,6 @@ class SyncCoordinator @Inject constructor(
             publishStatus()
             result
         }
-    }
-
-    private suspend fun runDomains(
-        domains: Set<SyncDomain>,
-        groupId: String?,
-    ): ApiResponse<Unit> {
-        for (domain in domainExecutionOrder) {
-            if (domain !in domains) {
-                continue
-            }
-            val result = domainRunners.getValue(domain).invoke(groupId)
-            if (result !is ApiResponse.Success) {
-                return result
-            }
-        }
-        return ApiResponse.Success(Unit)
     }
 
     private suspend fun processSyncRequests() {

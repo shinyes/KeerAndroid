@@ -60,7 +60,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
@@ -99,9 +98,6 @@ fun SideDrawer(
         List(DayOfWeek.entries.size) { index ->
             day.plus(index.toLong()).getDisplayName(TextStyle.SHORT, Locale.getDefault())
         }
-    }
-    var showHeatMap by remember {
-        mutableStateOf(false)
     }
     val scope = rememberCoroutineScope()
     val memosViewModel = LocalMemos.current
@@ -154,7 +150,9 @@ fun SideDrawer(
             groupIdAliases.firstOrNull { it.localId == selected }?.remoteId ?: selected
         }
     }
-    val visibleTagEntries = flattenTagTree(tagTree, expandedTagNodes)
+    val visibleTagEntries = remember(tagTree, expandedTagNodes.toMap()) {
+        flattenTagTree(tagTree, expandedTagNodes)
+    }
     val hasUnreadGroupMessages = remember(joinedGroups, currentSelectedGroupId) {
         joinedGroups.any { group ->
             group.hasUnreadMessages && currentSelectedGroupId != group.id
@@ -261,9 +259,7 @@ fun SideDrawer(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.outline)
                 }
-                if (showHeatMap) {
-                    Heatmap(matrix = drawerUiState.matrix)
-                }
+                Heatmap(matrix = drawerUiState.matrix)
             }
         }
 
@@ -715,11 +711,6 @@ fun SideDrawer(
                 }
             }
         )
-    }
-
-    LaunchedEffect(Unit) {
-        delay(0)
-        showHeatMap = true
     }
 
     LaunchedEffect(currentSelectedTag, tagTree) {

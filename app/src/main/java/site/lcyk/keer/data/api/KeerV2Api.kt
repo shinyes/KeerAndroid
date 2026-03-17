@@ -89,6 +89,9 @@ interface KeerV2Api {
         @Query("ids") ids: String? = null,
     ): ApiResponse<ListUserChangesResponse>
 
+    @POST("api/v1/sync/pull")
+    suspend fun pullSync(@Body body: SyncPullRequest): ApiResponse<SyncPullResponse>
+
     @POST("api/v1/memos")
     suspend fun createMemo(@Body body: KeerV2CreateMemoRequest): ApiResponse<KeerV2Memo>
 
@@ -270,6 +273,66 @@ data class ListUserChangesResponse(
     val users: List<KeerV2User> = emptyList(),
     @Serializable(with = Rfc3339InstantSerializer::class)
     val syncAnchor: Instant? = null
+)
+
+@Serializable
+data class SyncPullRequest(
+    val cursor: String = "0",
+    val domains: List<String> = emptyList(),
+    val groupScopes: List<String> = emptyList(),
+    val limit: Int = 200,
+)
+
+@Serializable
+data class SyncPullResponse(
+    val nextCursor: String = "0",
+    val hasMore: Boolean = false,
+    val patches: SyncPullPatches = SyncPullPatches(),
+)
+
+@Serializable
+data class SyncPullPatches(
+    val memos: SyncPullMemoPatch = SyncPullMemoPatch(),
+    val users: SyncPullUserPatch = SyncPullUserPatch(),
+    val groups: SyncPullGroupPatch = SyncPullGroupPatch(),
+    val groupMessages: SyncPullGroupMessagesPatch = SyncPullGroupMessagesPatch(),
+    val settings: SyncPullSettingsPatch = SyncPullSettingsPatch(),
+)
+
+@Serializable
+data class SyncPullMemoPatch(
+    val upserts: List<KeerV2Memo> = emptyList(),
+    val deletes: List<String> = emptyList(),
+)
+
+@Serializable
+data class SyncPullUserPatch(
+    val upserts: List<KeerV2User> = emptyList(),
+)
+
+@Serializable
+data class SyncPullGroupPatch(
+    val directory: List<KeerV2Group> = emptyList(),
+)
+
+@Serializable
+data class SyncPullGroupMessagesPatch(
+    val groups: List<SyncPullGroupMessagesGroupPatch> = emptyList(),
+)
+
+@Serializable
+data class SyncPullGroupMessagesGroupPatch(
+    val group: String,
+    @EncodeDefault
+    val fullReplace: Boolean = true,
+    val hasUnread: Boolean = false,
+    val messages: List<KeerV2GroupMessage> = emptyList(),
+    val tags: List<String> = emptyList(),
+)
+
+@Serializable
+data class SyncPullSettingsPatch(
+    val generalSetting: KeerV2UserSettingGeneralSetting? = null,
 )
 
 @Serializable

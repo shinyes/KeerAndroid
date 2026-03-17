@@ -36,6 +36,7 @@ import site.lcyk.keer.data.api.KeerV2User
 import site.lcyk.keer.data.api.KeerV2UserSettingGeneralSetting
 import site.lcyk.keer.data.api.MarkGroupReadRequest
 import site.lcyk.keer.data.api.MemosVisibility
+import site.lcyk.keer.data.api.SyncPullRequest
 import site.lcyk.keer.data.api.UpdateUserSettingBody
 import site.lcyk.keer.data.api.UpdateUserSettingRequest
 import site.lcyk.keer.data.api.UpdateGroupMessageRequest
@@ -616,6 +617,91 @@ class KeerV2Repository(
 
     override suspend fun listMemos(): ApiResponse<List<Memo>> {
         return listMemosByState(KeerV2State.NORMAL)
+    }
+
+    override suspend fun pullSync(
+        cursor: String,
+        domains: Set<SyncPullDomain>,
+        groupScopes: List<String>,
+        limit: Int,
+    ): ApiResponse<SyncPullResult> {
+        val normalizedDomains = if (domains.isEmpty()) {
+            SyncPullDomain.entries.toSet()
+        } else {
+            domains
+        }
+        val normalizedCursor = cursor.trim().ifEmpty { "0" }
+        val normalizedGroupScopes = groupScopes
+            .asSequence()
+            .map { scope -> scope.trim() }
+            .filter { scope -> scope.isNotEmpty() }
+            .distinct()
+            .toList()
+        val normalizedLimit = limit.coerceIn(1, 1000)
+
+        val response = memosApi.pullSync(
+            SyncPullRequest(
+                cursor = normalizedCursor,
+                domains = normalizedDomains.map { domain -> domain.name },
+                groupScopes = normalizedGroupScopes,
+                limit = normalizedLimit,
+            )
+        )
+        if (response !is ApiResponse.Success) {
+            return response.mapSuccess {
+                SyncPullResult(
+                    nextCursor = normalizedCursor,
+                    hasMore = false,
+                    patches = SyncPullPatches(),
+                )
+            }
+        }
+
+        val dto = response.data
+        val groupMessageCreators = dto.patches.groupMessages.groups
+            .flatMap { groupPatch -> groupPatch.messages.map { message -> message.creator } }
+            .distinct()
+        val userMap = getUsersByIDs(groupMessageCreators)
+
+        val result = SyncPullResult(
+            nextCursor = dto.nextCursor.trim().ifEmpty { normalizedCursor },
+            hasMore = dto.hasMore,
+            patches = SyncPullPatches(
+                memos = SyncPullMemoPatch(
+                    upserts = dto.patches.memos.upserts.map { memo -> convertMemo(memo) },
+                    deletes = dto.patches.memos.deletes
+                        .asSequence()
+                        .map(::getName)
+                        .map(::getId)
+                        .filter { remoteId -> remoteId.isNotBlank() }
+                        .distinct()
+                        .toList(),
+                ),
+                users = SyncPullUserPatch(
+                    upserts = dto.patches.users.upserts.map { user -> convertUser(user) },
+                ),
+                groups = SyncPullGroupPatch(
+                    directory = dto.patches.groups.directory.map { group -> convertGroup(group) },
+                ),
+                groupMessages = SyncPullGroupMessagesPatch(
+                    groups = dto.patches.groupMessages.groups.map { groupPatch ->
+                        SyncPullGroupMessagesGroupPatch(
+                            groupId = getId(groupPatch.group),
+                            fullReplace = groupPatch.fullReplace,
+                            hasUnread = groupPatch.hasUnread,
+                            messages = groupPatch.messages.map { message ->
+                                convertGroupMessage(message, userMap)
+                            },
+                            tags = normalizeTags(groupPatch.tags),
+                        )
+                    }
+                ),
+                settings = SyncPullSettingsPatch(
+                    generalSettings = dto.patches.settings.generalSetting?.toUserGeneralSettings()
+                ),
+            ),
+        )
+        return ApiResponse.Success(result)
     }
 
     override suspend fun listArchivedMemos(): ApiResponse<List<Memo>> {

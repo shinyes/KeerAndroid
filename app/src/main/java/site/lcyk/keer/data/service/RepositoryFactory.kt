@@ -38,8 +38,8 @@ class RepositoryFactory @Inject constructor(
 ) {
     fun createSession(
         account: Account?,
-        readMemoSyncAnchor: suspend (String) -> Instant?,
-        writeMemoSyncAnchor: suspend (String, Instant) -> Unit,
+        readMemoSyncCursor: suspend (String) -> String?,
+        writeMemoSyncCursor: suspend (String, String) -> Unit,
         readUserSyncAnchor: suspend (String) -> Instant?,
         writeUserSyncAnchor: suspend (String, Instant) -> Unit,
         readSyncedUserIDs: suspend (String) -> List<String>,
@@ -103,19 +103,21 @@ class RepositoryFactory @Inject constructor(
                 )
                 RepositorySession(
                     repository = SyncingRepository(
-                        database.memoDao(),
-                        fileStorage,
-                        remoteRepository,
-                        account,
-                        readMemoSyncAnchor = {
-                            readMemoSyncAnchor(accountKey)
+                        database = database,
+                        memoDao = database.memoDao(),
+                        fileStorage = fileStorage,
+                        remoteRepository = remoteRepository,
+                        account = account,
+                        readMemoSyncCursor = {
+                            readMemoSyncCursor(accountKey)
                         },
-                        writeMemoSyncAnchor = { anchor ->
-                            writeMemoSyncAnchor(accountKey, anchor)
+                        writeMemoSyncCursor = { cursor ->
+                            writeMemoSyncCursor(accountKey, cursor)
                         },
-                    ) { user ->
-                        onUserSynced(accountKey, user)
-                    },
+                        onUserSynced = { user ->
+                            onUserSynced(accountKey, user)
+                        },
+                    ),
                     remoteRepository = remoteRepository,
                     httpClient = clientBundle.httpClient,
                 )
