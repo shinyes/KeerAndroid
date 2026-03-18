@@ -19,10 +19,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.CachedMemoItem
 import site.lcyk.keer.data.model.Memo
+import site.lcyk.keer.data.model.Resource
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.PendingGroupMemo
 import site.lcyk.keer.data.model.PendingGroupOperation
@@ -88,15 +90,9 @@ class GroupChatViewModel @Inject constructor(
 
     suspend fun loadGroupMemos(groupId: String, forceSync: Boolean = false) = withContext(viewModelScope.coroutineContext) {
         val localState = readLocalState(groupId)
-        val initialCachedRemote = localState.cachedMemos.map(CachedMemoItem::toMemo)
         publishGroupUiState(
             groupId,
-            mergeGroupMemos(
-                groupId = groupId,
-                remote = initialCachedRemote,
-                pending = localState.pending,
-                pinnedKeys = localState.pinnedKeys,
-            )
+            buildMergedGroupMemosFromLocalState(groupId, localState)
         )
         if (!shouldRunGroupSync(groupId, forceSync, localState.pending.isNotEmpty())) {
             _loading.value = false
@@ -122,15 +118,9 @@ class GroupChatViewModel @Inject constructor(
             }
 
             val latestLocalState = readLocalState(groupId)
-            val latestCachedRemote = latestLocalState.cachedMemos.map(CachedMemoItem::toMemo)
             publishGroupUiState(
                 groupId,
-                mergeGroupMemos(
-                    groupId = groupId,
-                    remote = latestCachedRemote,
-                    pending = latestLocalState.pending,
-                    pinnedKeys = latestLocalState.pinnedKeys,
-                )
+                buildMergedGroupMemosFromLocalState(groupId, latestLocalState)
             )
         } finally {
             _loading.value = false
@@ -214,6 +204,11 @@ class GroupChatViewModel @Inject constructor(
             resourceIdentifiers = resourceIdentifiers.distinct()
         )
         appendPendingMemo(pending)
+        val afterAppendState = readLocalState(groupId)
+        publishGroupUiState(
+            groupId,
+            buildMergedGroupMemosFromLocalState(groupId, afterAppendState)
+        )
         syncPendingGroupMemos(groupId)
         loadGroupMemos(groupId, forceSync = false)
         true
@@ -250,10 +245,12 @@ class GroupChatViewModel @Inject constructor(
             return@withContext memo
         }
         val localState = readLocalState(groupId)
+        val pendingResources = resolvePendingMemoResources(localState.pending)
         return@withContext mergeGroupMemos(
             groupId = groupId,
             remote = localState.cachedMemos.map(CachedMemoItem::toMemo),
             pending = localState.pending,
+            pendingResources = pendingResources,
             pinnedKeys = localState.pinnedKeys
         ).firstOrNull { memo -> memo.remoteId == normalizedRemoteID }
     }
@@ -301,21 +298,10 @@ class GroupChatViewModel @Inject constructor(
             if (!updated) {
                 return@withContext false
             }
+            val latestLocalState = readLocalState(groupId)
             publishGroupUiState(
                 groupId,
-                memos.value
-                    .map { memo ->
-                        if (memo.remoteId == normalizedRemoteID) {
-                            memo.copy(
-                                content = normalizedContent,
-                                tags = normalizedTags,
-                                updatedAt = Instant.now(),
-                            )
-                        } else {
-                            memo
-                        }
-                    }
-                    .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
+                buildMergedGroupMemosFromLocalState(groupId, latestLocalState)
             )
             _errorMessage.value = null
             return@withContext true
@@ -650,9 +636,14 @@ class GroupChatViewModel @Inject constructor(
         groupId: String,
         remote: List<Memo>,
         pending: List<PendingGroupMemo>,
+        pendingResources: Map<String, List<Resource>>,
         pinnedKeys: Set<String>
     ): List<Memo> {
-        val pendingMemos = pending.map { it.toMemo() }
+        val pendingMemos = pending.map { pendingMemo ->
+            pendingMemo.toMemo(
+                resources = pendingResources[pendingMemo.localId].orEmpty()
+            )
+        }
         return (remote + pendingMemos)
             .distinctBy { it.remoteId }
             .map { memo ->
@@ -662,7 +653,7 @@ class GroupChatViewModel @Inject constructor(
             .sortedWith(compareByDescending<Memo> { it.pinned }.thenByDescending { it.date })
     }
 
-    private fun PendingGroupMemo.toMemo(): Memo {
+    private fun PendingGroupMemo.toMemo(resources: List<Resource>): Memo {
         val timestamp = Instant.ofEpochMilli(createdAtEpochMillis)
         return Memo(
             remoteId = localMemoRemoteId(localId),
@@ -670,7 +661,7 @@ class GroupChatViewModel @Inject constructor(
             date = timestamp,
             pinned = false,
             visibility = MemoVisibility.PROTECTED,
-            resources = emptyList(),
+            resources = resources,
             tags = tags,
             creator = User(
                 identifier = creatorId,
@@ -744,6 +735,66 @@ class GroupChatViewModel @Inject constructor(
         return "local:$localId"
     }
 
+    private suspend fun buildMergedGroupMemosFromLocalState(
+        groupId: String,
+        localState: GroupLocalState,
+    ): List<Memo> {
+        val pendingResources = resolvePendingMemoResources(localState.pending)
+        return mergeGroupMemos(
+            groupId = groupId,
+            remote = localState.cachedMemos.map(CachedMemoItem::toMemo),
+            pending = localState.pending,
+            pendingResources = pendingResources,
+            pinnedKeys = localState.pinnedKeys,
+        )
+    }
+
+    private suspend fun resolvePendingMemoResources(
+        pendingMemos: List<PendingGroupMemo>,
+    ): Map<String, List<Resource>> {
+        if (pendingMemos.isEmpty()) {
+            return emptyMap()
+        }
+
+        val repository = accountService.getRepository()
+        val allIdentifiers = pendingMemos
+            .asSequence()
+            .flatMap { pendingMemo -> pendingMemo.resourceIdentifiers.asSequence() }
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+            .toList()
+        if (allIdentifiers.isEmpty()) {
+            return emptyMap()
+        }
+
+        val resolvedByIdentifier = linkedMapOf<String, Resource>()
+        allIdentifiers.forEach { identifier ->
+            val resolved = runCatching {
+                repository.getResourceById(identifier)
+            }.getOrNull() ?: return@forEach
+            val resolvedResource = resolved.toPendingMemoResource(identifier)
+            resolvedByIdentifier[identifier] = resolvedResource
+            resolved.remoteId
+                ?.trim()
+                ?.takeIf(String::isNotEmpty)
+                ?.let { remoteId ->
+                    resolvedByIdentifier[remoteId] = resolvedResource
+                }
+        }
+
+        return pendingMemos.associate { pendingMemo ->
+            val resources = pendingMemo.resourceIdentifiers
+                .asSequence()
+                .map(String::trim)
+                .filter(String::isNotEmpty)
+                .mapNotNull { identifier -> resolvedByIdentifier[identifier] }
+                .distinctBy(Resource::remoteId)
+                .toList()
+            pendingMemo.localId to resources
+        }
+    }
+
     private suspend fun publishGroupUiState(groupId: String, groupMemos: List<Memo>) {
         val accountKey = readCurrentAccountKey().orEmpty()
         val quoteCandidates = withContext(Dispatchers.Default) {
@@ -770,6 +821,20 @@ class GroupChatViewModel @Inject constructor(
         private const val GROUP_PENDING_SYNC_INTERVAL_MILLIS = 20_000L
         private const val GROUP_TAG_FETCH_INTERVAL_MILLIS = 120_000L
     }
+}
+
+private fun ResourceEntity.toPendingMemoResource(fallbackRemoteId: String): Resource {
+    return Resource(
+        remoteId = remoteId?.takeIf(String::isNotBlank) ?: fallbackRemoteId,
+        date = date,
+        filename = filename,
+        mimeType = mimeType,
+        encryptionMetadata = encryptionMetadata,
+        uri = uri,
+        localUri = localUri,
+        thumbnailUri = thumbnailUri,
+        thumbnailLocalUri = thumbnailLocalUri,
+    )
 }
 
 private fun Memo.toGroupMemoEntity(

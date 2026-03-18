@@ -411,6 +411,24 @@ class AccountKeyManager @Inject constructor(
         )
     }
 
+    fun getCachedSharingPrivateKey(accountKey: String, slotRef: String): ByteArray? {
+        val normalizedAccountKey = accountKey.trim()
+        if (normalizedAccountKey.isEmpty()) {
+            return null
+        }
+        val cacheKey = sharingCacheKey(normalizedAccountKey, slotRef)
+        return sharingPrivateKeyCache[cacheKey]?.copyOf()
+    }
+
+    fun getCachedGroupKey(accountKey: String, slotRef: String): ByteArray? {
+        val normalizedAccountKey = accountKey.trim()
+        if (normalizedAccountKey.isEmpty()) {
+            return null
+        }
+        val cacheKey = groupCacheKey(normalizedAccountKey, slotRef)
+        return groupKeyCache[cacheKey]?.copyOf()
+    }
+
     private suspend fun ensureWritableGroupKeyVersion(
         account: Account.KeerV2,
         api: KeerV2Api,

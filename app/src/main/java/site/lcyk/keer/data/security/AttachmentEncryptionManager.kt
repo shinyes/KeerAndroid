@@ -67,6 +67,7 @@ data class PreparedEncryptedUpload(
 @Singleton
 class AttachmentEncryptionManager @Inject constructor(
     @param:ApplicationContext private val context: Context,
+    private val accountKeyManager: AccountKeyManager,
 ) {
     private val secureAccountMasterKeyStorage: site.lcyk.keer.data.service.SecureAccountMasterKeyStorage by lazy {
         site.lcyk.keer.data.service.SecureAccountMasterKeyStorage(context.applicationContext)
@@ -380,11 +381,26 @@ class AttachmentEncryptionManager @Inject constructor(
         wrappedKeys: List<WrappedContentKey>,
         accountKey: String?,
     ): ByteArray {
+        val normalizedAccountKey = accountKey?.trim().orEmpty()
         return requireNotNull(
             E2eeKeyEnvelope.unwrapFirstSupportedKey(
-                accountKey = accountKey,
+                accountKey = normalizedAccountKey.ifEmpty { null },
                 wrappedKeys = wrappedKeys,
                 secureAccountMasterKeyStorage = secureAccountMasterKeyStorage,
+                sharingPrivateKeyResolver = { slotRef ->
+                    if (normalizedAccountKey.isEmpty()) {
+                        null
+                    } else {
+                        accountKeyManager.getCachedSharingPrivateKey(normalizedAccountKey, slotRef)
+                    }
+                },
+                groupKeyResolver = { slotRef ->
+                    if (normalizedAccountKey.isEmpty()) {
+                        null
+                    } else {
+                        accountKeyManager.getCachedGroupKey(normalizedAccountKey, slotRef)
+                    }
+                },
             )
         ) {
             "Missing supported wrapped key"

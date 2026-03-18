@@ -72,17 +72,19 @@ fun MemoVideo(
     val memosViewModel = LocalMemos.current
     val observedResource = rememberObservedMemoResource(resource)
     val liveResource = observedResource.resource
+    var fallbackPreviewUri by remember(resource.remoteId, resource.uri) { mutableStateOf<String?>(null) }
     var showPlayerDialog by remember(resource.remoteId, resource.uri, resource.localUri) {
         mutableStateOf(false)
     }
     val imageLoader = rememberAuthorizedImageLoader()
     val previewModel = remember(
+        fallbackPreviewUri,
         liveResource.thumbnailLocalUri,
         liveResource.thumbnailUri,
         liveResource.localUri,
         liveResource.uri
     ) {
-        resolveMemoVideoPreviewUri(liveResource)
+        fallbackPreviewUri ?: resolveMemoVideoPreviewUri(liveResource)
     }
 
     LaunchedEffect(
@@ -92,19 +94,42 @@ fun MemoVideo(
         liveResource.thumbnailLocalUri,
         currentAccount?.accountKey()
     ) {
-        if (!observedResource.tracked) {
+        val resourceEntity = liveResource as? ResourceEntity
+        if (observedResource.tracked && resourceEntity != null) {
+            ensureMemoVideoCardPreview(
+                context = context,
+                okHttpClient = userStateViewModel.okHttpClient,
+                resource = resourceEntity,
+                currentAccountKey = currentAccount?.accountKey(),
+                cacheResourceThumbnail = { identifier, downloadedUri ->
+                    memosViewModel.cacheResourceThumbnail(identifier, downloadedUri)
+                }
+            )
             return@LaunchedEffect
         }
-        val resourceEntity = liveResource as? ResourceEntity ?: return@LaunchedEffect
-        ensureMemoVideoCardPreview(
-            context = context,
-            okHttpClient = userStateViewModel.okHttpClient,
-            resource = resourceEntity,
-            currentAccountKey = currentAccount?.accountKey(),
-            cacheResourceThumbnail = { identifier, downloadedUri ->
-                memosViewModel.cacheResourceThumbnail(identifier, downloadedUri)
+
+        if (fallbackPreviewUri != null || liveResource.encryptionMetadata.isNullOrBlank()) {
+            return@LaunchedEffect
+        }
+        val remoteThumbnail = liveResource.thumbnailUri?.trim().orEmpty()
+        if (!remoteThumbnail.isHttpUrl()) {
+            return@LaunchedEffect
+        }
+        MemoResourcePreviewLoader.run("temp-video-thumb:${liveResource.remoteId ?: liveResource.uri}") {
+            downloadResourceVariantToTemp(
+                context = context,
+                okHttpClient = userStateViewModel.okHttpClient,
+                resource = liveResource,
+                accountKey = resolveResourceAccountKey(liveResource, currentAccount?.accountKey()),
+                url = remoteThumbnail,
+                filename = liveResource.filename,
+                variant = EncryptedBlobVariant.THUMBNAIL,
+                cacheDirName = "thumbnail_cache",
+                prefix = "video_thumb_",
+            )?.let { downloaded ->
+                fallbackPreviewUri = downloaded.toURI().toString()
             }
-        )
+        }
     }
 
     Box(
@@ -291,6 +316,12 @@ private fun resolveMemoVideoPreviewUri(resource: ResourceRepresentable): String 
     return resource.uri
 }
 
+private fun String.isHttpUrl(): Boolean {
+    val normalized = trim()
+    return normalized.startsWith("http://", ignoreCase = true) ||
+        normalized.startsWith("https://", ignoreCase = true)
+}
+
 @UnstableApi
 private fun buildVideoPlayer(
     context: Context,
@@ -306,7 +337,7 @@ private fun buildVideoPlayer(
         ?.takeIf { it.isNotBlank() }
         ?.takeIf { isRemoteHttpSource }
         ?.let {
-            AttachmentEncryptionManager(context.applicationContext).createStreamingDataSourceFactory(
+            resolveAttachmentEncryptionManager(context).createStreamingDataSourceFactory(
                 accountKey = resolveResourceAccountKey(resource, currentAccountKey),
                 okHttpClient = okHttpClient,
                 sourceUrl = sourceUri.toString(),

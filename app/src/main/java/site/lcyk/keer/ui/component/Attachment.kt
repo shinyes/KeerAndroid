@@ -28,6 +28,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.PopupProperties
 import androidx.core.net.toUri
 import com.skydoves.sandwich.ApiResponse
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -248,7 +252,7 @@ internal suspend fun downloadResourceVariantToTemp(
         return@withContext try {
             body.byteStream().use { input ->
                 if (shouldDecrypt) {
-                    AttachmentEncryptionManager(context.applicationContext).decryptVariantToFile(
+                    resolveAttachmentEncryptionManager(context).decryptVariantToFile(
                         accountKey = resolveResourceAccountKey(resource, accountKey),
                         rawMetadata = rawMetadata,
                         variant = variant,
@@ -283,6 +287,18 @@ internal fun resolveResourceAccountKey(
 
 private fun sanitizeFilename(filename: String): String {
     return filename.replace(Regex("[^A-Za-z0-9._-]"), "_")
+}
+
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+private interface AttachmentEncryptionManagerEntryPoint {
+    fun attachmentEncryptionManager(): AttachmentEncryptionManager
+}
+
+internal fun resolveAttachmentEncryptionManager(context: Context): AttachmentEncryptionManager {
+    return EntryPointAccessors
+        .fromApplication(context.applicationContext, AttachmentEncryptionManagerEntryPoint::class.java)
+        .attachmentEncryptionManager()
 }
 
 internal fun resolveUsableThumbnailLocalUri(rawLocalThumbnailUri: String?): String? {
