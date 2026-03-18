@@ -4,8 +4,6 @@
         tools:ignore="InsecureBaseConfiguration">
         <trust-anchors>
             <certificates src="system" />
-            <certificates src="user"
-                tools:ignore="AcceptsUserCertificates" />
         </trust-anchors>
     </base-config>
 </network-security-config>
