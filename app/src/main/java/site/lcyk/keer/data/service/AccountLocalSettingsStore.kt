@@ -163,15 +163,24 @@ class AccountLocalSettingsStore @Inject constructor(
     }
 
     suspend fun readMemoSyncCursor(accountKey: String): String? {
-        return userSettings(accountKey)
+        val raw = userSettings(accountKey)
             ?.memoSyncAnchor
             .orEmpty()
             .trim()
-            .ifBlank { null }
+        if (raw.isBlank()) {
+            return null
+        }
+        return if (raw.all(Char::isDigit) && raw.toLongOrNull() != null) {
+            raw
+        } else {
+            null
+        }
     }
 
     suspend fun writeMemoSyncCursor(accountKey: String, cursor: String) {
-        val normalizedCursor = cursor.trim().ifEmpty { "0" }
+        val normalizedCursor = cursor.trim()
+            .takeIf { value -> value.isNotEmpty() && value.all(Char::isDigit) && value.toLongOrNull() != null }
+            ?: "0"
         updateUserData(accountKey) { target ->
             target.copy(settings = target.settings.copy(memoSyncAnchor = normalizedCursor))
         }

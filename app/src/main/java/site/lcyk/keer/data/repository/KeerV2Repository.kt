@@ -630,7 +630,9 @@ class KeerV2Repository(
         } else {
             domains
         }
-        val normalizedCursor = cursor.trim().ifEmpty { "0" }
+        val normalizedCursor = cursor.trim()
+            .takeIf { value -> value.isNotEmpty() && value.all(Char::isDigit) && value.toLongOrNull() != null }
+            ?: "0"
         val normalizedGroupScopes = groupScopes
             .asSequence()
             .map { scope -> scope.trim() }
