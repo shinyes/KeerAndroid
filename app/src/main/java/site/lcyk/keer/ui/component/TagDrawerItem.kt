@@ -72,8 +72,7 @@ fun TagDrawerItem(
 
     Row(
         modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = (depth * 12).dp),
+            .fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Start
     ) {
