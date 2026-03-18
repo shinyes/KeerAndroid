@@ -22,6 +22,74 @@
 - 系统分享接收、快捷入口、小组件
 - 基于 Jetpack Compose 的 Material 3 界面
 
+## 个人 Memo 导入导出
+
+当前已支持远程账户下“个人 memo”的完整导入与导出（包含附件文件）。
+
+入口位置（远程账户）：
+
+- 设置页 -> `Export personal memos`
+- 设置页 -> `Import personal memos`
+
+导出与导入说明：
+
+- 导出为单个 `zip` 文件（包含 `manifest.json` + 附件文件）
+- 导出时会优先使用本地已缓存的附件文件；本地不存在时再回退到远端下载
+- 导入 `zip` 时会自动上传附件并绑定到对应 memo
+- 兼容旧的纯 JSON 导入（无附件场景）
+- 导入具备幂等去重能力：同一份数据包在“部分成功”后再次导入时，已成功导入的 memo 会自动跳过，避免重复写入
+- 去重记录按账号持久化在本地并自动清理：默认保留 180 天，最多 20000 条，超出后会优先淘汰更旧记录
+
+JSON 字段说明（`manifest.json` 或旧 JSON 导入）：
+
+- 支持标准对象格式：`{ "format": "keer.memo.transfer.v2", "memos": [...] }`
+- 也兼容直接数组格式：`[ {...}, {...} ]`
+- 每条 memo 至少要有正文字段之一：`content` / `text` / `body`
+- `createdAt` / `createTime` 可选，支持 RFC3339 或时间戳；如果提供，会尽量保持创建时间
+- `importId` 可选，建议外部导入时提供稳定唯一值（可显著提升去重可靠性）
+- `visibility` 可选，缺失时默认 `PRIVATE`
+- `latitude` / `longitude`（或 `lat` / `lng`）可选，缺失不会影响导入
+- `tags` 可选，可用数组或逗号分隔字符串
+- `pinned` / `archived` 可选
+- `attachments` 可选（`zip` 导入时生效）
+
+最小可用 JSON 示例（无附件）：
+
+```json
+[
+  {
+    "content": "今天完成了导入功能联调",
+    "createdAt": "2026-03-19T10:30:00Z"
+  }
+]
+```
+
+`manifest.json` 示例（位于导出 zip 内）：
+
+```json
+{
+  "format": "keer.memo.transfer.v2",
+  "memos": [
+    {
+      "importId": "keer:v1:8f1d8b4d...",
+      "content": "示例 memo",
+      "createdAt": "2026-03-19T10:30:00Z",
+      "visibility": "PUBLIC",
+      "tags": ["work", "android"],
+      "latitude": 31.2304,
+      "longitude": 121.4737,
+      "attachments": [
+        {
+          "path": "attachments/memo-0001/001-image.png",
+          "filename": "image.png",
+          "mimeType": "image/png"
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## 运行要求
 
 - Android 8.0 及以上

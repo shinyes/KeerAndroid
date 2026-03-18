@@ -223,6 +223,12 @@
     <string name="export_local_only">Export is available for local account only.</string>
     <string name="local_export_success">Local data exported</string>
     <string name="local_export_failed">Failed to export local data</string>
+    <string name="export_personal_memos">Export personal memos</string>
+    <string name="import_personal_memos">Import personal memos</string>
+    <string name="personal_memos_export_success">Exported %1$d memos and %2$d attachments.</string>
+    <string name="personal_memos_export_failed">Failed to export personal memos.</string>
+    <string name="personal_memos_import_result">Import finished. Imported %1$d memos, uploaded %2$d attachments, failed %3$d, skipped %4$d.</string>
+    <string name="personal_memos_import_failed">Failed to import personal memos.</string>
     <string name="resource_not_found">Resource not found</string>
     <string name="tag_name_empty">Tag name cannot be empty</string>
     <string name="current_account_no_avatar_sync">Current account does not support avatar sync.</string>

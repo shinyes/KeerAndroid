@@ -32,7 +32,10 @@ import site.lcyk.keer.data.repository.JoinedGroupRepository
 import site.lcyk.keer.data.repository.UserDirectoryRepository
 import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.service.AccountService
+import site.lcyk.keer.data.service.MemoExportResult
+import site.lcyk.keer.data.service.MemoImportResult
 import site.lcyk.keer.data.service.MemoService
+import site.lcyk.keer.data.service.MemoTransferService
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.data.repository.UserGeneralSettingsRepository
 import site.lcyk.keer.ext.string
@@ -45,6 +48,7 @@ class UserStateViewModel @Inject constructor(
     private val accountService: AccountService,
     private val accountLocalSettingsStore: AccountLocalSettingsStore,
     private val memoService: MemoService,
+    private val memoTransferService: MemoTransferService,
     private val userGeneralSettingsRepository: UserGeneralSettingsRepository,
     private val userDirectoryRepository: UserDirectoryRepository,
     private val joinedGroupRepository: JoinedGroupRepository,
@@ -223,6 +227,23 @@ class UserStateViewModel @Inject constructor(
         val remoteRepository = accountService.getRemoteRepository()
             ?: return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_admin_ops.string))
         remoteRepository.cleanupOrphanFiles()
+    }
+
+    suspend fun exportPersonalMemos(destinationUri: Uri): Result<MemoExportResult> = withContext(viewModelScope.coroutineContext) {
+        memoTransferService.exportPersonalMemos(destinationUri)
+    }
+
+    suspend fun importPersonalMemos(sourceUri: Uri): Result<MemoImportResult> = withContext(viewModelScope.coroutineContext) {
+        val result = memoTransferService.importPersonalMemos(sourceUri)
+        val summary = result.getOrNull() ?: return@withContext result
+        if (summary.imported > 0) {
+            memoService.requestSync(
+                trigger = SyncTrigger.MUTATION,
+                force = true,
+                domains = setOf(SyncDomain.MEMOS)
+            )
+        }
+        result
     }
 
     fun observeAccountAvatarUri(accountKey: String) =

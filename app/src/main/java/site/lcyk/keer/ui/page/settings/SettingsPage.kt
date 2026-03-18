@@ -115,6 +115,66 @@ fun SettingsPage(
             userStateViewModel.uploadCurrentUserAvatar(uri)
         }
     }
+    val exportPersonalMemosLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            userStateViewModel.exportPersonalMemos(uri)
+                .onSuccess { summary ->
+                    Toast.makeText(
+                        context,
+                        resources.getString(
+                            R.string.personal_memos_export_success,
+                            summary.exportedCount,
+                            summary.exportedAttachmentCount,
+                        ),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                .onFailure { throwable ->
+                    Toast.makeText(
+                        context,
+                        throwable.localizedMessage ?: R.string.personal_memos_export_failed.string,
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+        }
+    }
+    val importPersonalMemosLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+        scope.launch {
+            userStateViewModel.importPersonalMemos(uri)
+                .onSuccess { summary ->
+                    Toast.makeText(
+                        context,
+                        resources.getString(
+                            R.string.personal_memos_import_result,
+                            summary.imported,
+                            summary.importedAttachmentCount,
+                            summary.failed,
+                            summary.skipped,
+                        ),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                .onFailure { throwable ->
+                    Toast.makeText(
+                        context,
+                        throwable.localizedMessage ?: R.string.personal_memos_import_failed.string,
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+        }
+    }
     var showChangePasswordDialog by remember { mutableStateOf(false) }
     var currentPassword by rememberSaveable { mutableStateOf("") }
     var newPassword by rememberSaveable { mutableStateOf("") }
@@ -224,6 +284,34 @@ fun SettingsPage(
                     text = R.string.resources.string
                 ) {
                     navController.navigateSingleTop(RouteName.RESOURCE)
+                }
+            }
+
+            if (currentAccount is Account.KeerV2) {
+                item {
+                    SettingItem(
+                        icon = Icons.Outlined.Inventory2,
+                        text = R.string.export_personal_memos.string
+                    ) {
+                        exportPersonalMemosLauncher.launch("keer-personal-memos-${System.currentTimeMillis()}.zip")
+                    }
+                }
+
+                item {
+                    SettingItem(
+                        icon = Icons.Outlined.Edit,
+                        text = R.string.import_personal_memos.string
+                    ) {
+                        importPersonalMemosLauncher.launch(
+                            arrayOf(
+                                "application/zip",
+                                "application/x-zip-compressed",
+                                "application/json",
+                                "text/plain",
+                                "*/*"
+                            )
+                        )
+                    }
                 }
             }
 

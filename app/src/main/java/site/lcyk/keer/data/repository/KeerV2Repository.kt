@@ -167,6 +167,17 @@ class KeerV2Repository(
             encryptedPayload = memo.encryptedPayload.orEmpty(),
             payloadEnvelope = memo.payloadEnvelope,
         )
+        val creator = memo.creator
+            ?.trim()
+            ?.takeIf { creatorIdentifier -> creatorIdentifier.isNotEmpty() }
+            ?.let { creatorIdentifier ->
+                val creatorId = getId(creatorIdentifier)
+                User(
+                    identifier = creatorId,
+                    name = creatorId,
+                    startDate = memo.createTime ?: memo.updateTime ?: Instant.now(),
+                )
+            }
         val quoteDescriptor = memo.quote?.let { quote ->
             val sourceKind = resolveQuoteSourceKind(quote.sourceKind)
             val source = quote.source.trim().ifEmpty { null }
@@ -189,6 +200,7 @@ class KeerV2Repository(
             tags = payload.tags,
             latitude = payload.latitude,
             longitude = payload.longitude,
+            creator = creator,
             archived = memo.state == KeerV2State.ARCHIVED,
             updatedAt = memo.updateTime,
             quoteSourceKind = quoteDescriptor?.first,
