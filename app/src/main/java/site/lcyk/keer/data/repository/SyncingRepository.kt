@@ -1073,7 +1073,6 @@ class SyncingRepository(
             memoId = duplicateLocal.identifier,
             accountKey = accountKey,
             tags = localTags,
-            pruneUnusedTagsAfter = false,
         )
         memoDao.getMemoResources(local.identifier, accountKey).forEach { resource ->
             memoDao.insertResource(
@@ -1321,7 +1320,6 @@ class SyncingRepository(
             memoId = localIdentifier,
             accountKey = accountKey,
             tags = remoteMemo.tags,
-            pruneUnusedTagsAfter = false,
         )
 
         val currentResources = memoDao.getMemoResources(localIdentifier, accountKey)
@@ -1392,7 +1390,6 @@ class SyncingRepository(
             memoId = local.identifier,
             accountKey = accountKey,
             tags = remoteMemo.tags,
-            pruneUnusedTagsAfter = false,
         )
     }
 
