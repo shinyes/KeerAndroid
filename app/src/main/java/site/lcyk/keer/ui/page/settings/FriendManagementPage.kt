@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -34,6 +35,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
@@ -101,7 +103,7 @@ fun FriendManagementPage(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (currentAccount !is Account.KeerV2) {
                 item {
@@ -163,19 +165,10 @@ fun FriendManagementPage(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text(
-                                text = friend.name,
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                text = friend.identifier,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.outline
-                            )
-                            androidx.compose.foundation.layout.Row(
+                            Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
@@ -185,16 +178,18 @@ fun FriendManagementPage(
                                     verticalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
                                     Text(
-                                        text = R.string.show_in_explore_list.string,
-                                        style = MaterialTheme.typography.labelLarge
+                                        text = friend.name,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
-                                    if (!hasLinkedDirectChat) {
-                                        Text(
-                                            text = R.string.show_in_explore_list_hint_private.string,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
+                                    Text(
+                                        text = friend.identifier,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                 }
                                 Switch(
                                     checked = visibleInExplore,
@@ -216,10 +211,19 @@ fun FriendManagementPage(
                                     },
                                 )
                             }
+                            if (!hasLinkedDirectChat) {
+                                Text(
+                                    text = R.string.show_in_explore_list_hint_private.string,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                             FlowRow(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
                             ) {
                                 TextButton(
                                     onClick = {
@@ -234,12 +238,20 @@ fun FriendManagementPage(
                                                 }
                                             }
                                         }
-                                    }
+                                    },
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                        horizontal = 10.dp,
+                                        vertical = 2.dp
+                                    )
                                 ) {
                                     Text(R.string.private_chat.string)
                                 }
                                 TextButton(
-                                    onClick = { deleteTarget = friend }
+                                    onClick = { deleteTarget = friend },
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                        horizontal = 10.dp,
+                                        vertical = 2.dp
+                                    )
                                 ) {
                                     Icon(Icons.Outlined.Delete, contentDescription = null)
                                     Text(

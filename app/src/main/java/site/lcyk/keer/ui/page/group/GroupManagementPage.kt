@@ -39,6 +39,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -106,7 +107,7 @@ fun GroupManagementPage(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (loading) {
                 item {
@@ -157,25 +158,30 @@ fun GroupManagementPage(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(
                                 modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
                                 Text(
                                     text = group.name,
-                                    style = MaterialTheme.typography.titleMedium
+                                    style = MaterialTheme.typography.titleSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = "#${group.id}",
+                                    text = "#${group.id}  ·  ${navController.context.getString(R.string.group_members_count, group.members.size)}",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.outline
+                                    color = MaterialTheme.colorScheme.outline,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             if (isCreator) {
@@ -191,15 +197,11 @@ fun GroupManagementPage(
                             Text(
                                 text = group.description,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
-
-                        Text(
-                            text = navController.context.getString(R.string.group_members_count, group.members.size),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.outline
-                        )
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -231,13 +233,17 @@ fun GroupManagementPage(
 
                         FlowRow(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
                             TextButton(
                                 onClick = {
                                     navController.navigateToGroupChatPage(group.id)
-                                }
+                                },
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    horizontal = 10.dp,
+                                    vertical = 2.dp
+                                )
                             ) {
                                 Icon(Icons.Outlined.Tag, contentDescription = null)
                                 Text(
@@ -247,7 +253,11 @@ fun GroupManagementPage(
                             }
 
                             TextButton(
-                                onClick = { editTargetGroup = group }
+                                onClick = { editTargetGroup = group },
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    horizontal = 10.dp,
+                                    vertical = 2.dp
+                                )
                             ) {
                                 Icon(Icons.Outlined.ModeEdit, contentDescription = null)
                                 Text(
@@ -257,7 +267,11 @@ fun GroupManagementPage(
                             }
 
                             TextButton(
-                                onClick = { inviteTargetGroup = group }
+                                onClick = { inviteTargetGroup = group },
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    horizontal = 10.dp,
+                                    vertical = 2.dp
+                                )
                             ) {
                                 Icon(Icons.Outlined.GroupAdd, contentDescription = null)
                                 Text(
@@ -267,7 +281,11 @@ fun GroupManagementPage(
                             }
 
                             TextButton(
-                                onClick = { deleteTargetGroup = group }
+                                onClick = { deleteTargetGroup = group },
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    horizontal = 10.dp,
+                                    vertical = 2.dp
+                                )
                             ) {
                                 Text(
                                     if (isCreator) {
