@@ -299,10 +299,12 @@ private fun androidx.compose.foundation.layout.BoxScope.FeedPullSyncIndicator(
     refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState
 ) {
     val viewModel = LocalMemos.current
-    val syncing by viewModel.syncStatus
-        .map { status -> status.syncing }
-        .distinctUntilChanged()
-        .collectAsStateWithLifecycle(initialValue = false)
+    val syncingFlow = remember(viewModel) {
+        viewModel.syncStatus
+            .map { status -> status.syncing }
+            .distinctUntilChanged()
+    }
+    val syncing by syncingFlow.collectAsStateWithLifecycle(initialValue = false)
     PullSyncLineIndicator(
         refreshState = refreshState,
         syncing = syncing

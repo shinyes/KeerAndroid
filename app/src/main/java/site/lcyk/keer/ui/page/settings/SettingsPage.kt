@@ -45,6 +45,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -82,6 +84,7 @@ fun SettingsPage(
     val rootNavController = LocalRootNavController.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     val accounts by userStateViewModel.accounts.collectAsState()
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
@@ -120,6 +123,9 @@ fun SettingsPage(
     var passwordChangeLoading by remember { mutableStateOf(false) }
     var showCleanupOrphansDialog by remember { mutableStateOf(false) }
     var cleanupOrphansLoading by remember { mutableStateOf(false) }
+    val currentPasswordRequiredMessage = stringResource(R.string.current_password_required)
+    val newPasswordRequiredMessage = stringResource(R.string.new_password_required)
+    val passwordsDoNotMatchMessage = stringResource(R.string.passwords_do_not_match)
     val showAdminSection = currentAccount is Account.KeerV2 && (currentUser?.isAdmin == true)
 
     LaunchedEffect(currentAccount?.accountKey()) {
@@ -391,7 +397,7 @@ fun SettingsPage(
                                 is com.skydoves.sandwich.ApiResponse.Success -> {
                                     Toast.makeText(
                                         context,
-                                        context.getString(
+                                        resources.getString(
                                             R.string.cleanup_orphan_files_result,
                                             response.data.scannedKeys,
                                             response.data.deletedKeys,
@@ -493,13 +499,13 @@ fun SettingsPage(
                     onClick = {
                         when {
                             currentPassword.isBlank() -> {
-                                passwordChangeError = context.getString(R.string.current_password_required)
+                                passwordChangeError = currentPasswordRequiredMessage
                             }
                             newPassword.isBlank() -> {
-                                passwordChangeError = context.getString(R.string.new_password_required)
+                                passwordChangeError = newPasswordRequiredMessage
                             }
                             newPassword != confirmNewPassword -> {
-                                passwordChangeError = context.getString(R.string.passwords_do_not_match)
+                                passwordChangeError = passwordsDoNotMatchMessage
                             }
                             else -> {
                                 passwordChangeLoading = true

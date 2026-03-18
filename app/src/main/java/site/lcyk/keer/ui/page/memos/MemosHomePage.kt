@@ -197,22 +197,28 @@ private fun HomeSyncBadgeAction(
     onSync: () -> Unit,
 ) {
     val memosViewModel = LocalMemos.current
-    val syncing by memosViewModel.syncStatus
-        .map { status -> status.syncing }
-        .distinctUntilChanged()
-        .collectAsStateWithLifecycle(initialValue = false)
-    val unsyncedCount by memosViewModel.syncStatus
-        .map { status -> status.unsyncedCount }
-        .distinctUntilChanged()
-        .collectAsStateWithLifecycle(initialValue = 0)
-    val progressStep by memosViewModel.syncStatus
-        .map { status ->
-            status.progress?.let { progress ->
-                (progress * 20f).toInt().coerceIn(0, 20)
+    val syncingFlow = remember(memosViewModel) {
+        memosViewModel.syncStatus
+            .map { status -> status.syncing }
+            .distinctUntilChanged()
+    }
+    val unsyncedCountFlow = remember(memosViewModel) {
+        memosViewModel.syncStatus
+            .map { status -> status.unsyncedCount }
+            .distinctUntilChanged()
+    }
+    val progressStepFlow = remember(memosViewModel) {
+        memosViewModel.syncStatus
+            .map { status ->
+                status.progress?.let { progress ->
+                    (progress * 20f).toInt().coerceIn(0, 20)
+                }
             }
-        }
-        .distinctUntilChanged()
-        .collectAsStateWithLifecycle(initialValue = null)
+            .distinctUntilChanged()
+    }
+    val syncing by syncingFlow.collectAsStateWithLifecycle(initialValue = false)
+    val unsyncedCount by unsyncedCountFlow.collectAsStateWithLifecycle(initialValue = 0)
+    val progressStep by progressStepFlow.collectAsStateWithLifecycle(initialValue = null)
     if (!syncing) {
         return
     }

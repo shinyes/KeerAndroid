@@ -42,7 +42,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -68,7 +67,6 @@ fun ColumnConfigPage(
     navController: NavHostController,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
@@ -80,6 +78,8 @@ fun ColumnConfigPage(
             .filterNot(::isCollaboratorTag)
             .filterNot(::isQuoteTag)
     }
+    val columnNameRequiredMessage = stringResource(R.string.column_name_required)
+    val columnTagsRequiredMessage = stringResource(R.string.column_tags_required)
 
     var editingColumnId by rememberSaveable { mutableStateOf<String?>(null) }
     var draftName by rememberSaveable { mutableStateOf("") }
@@ -262,10 +262,10 @@ fun ColumnConfigPage(
                         val normalizedTags = normalizeTagList(draftTags)
                         when {
                             normalizedName.isBlank() -> {
-                                editorError = context.getString(R.string.column_name_required)
+                                editorError = columnNameRequiredMessage
                             }
                             normalizedTags.isEmpty() -> {
-                                editorError = context.getString(R.string.column_tags_required)
+                                editorError = columnTagsRequiredMessage
                             }
                             else -> {
                                 scope.launch {
