@@ -95,17 +95,19 @@ fun MemoVideo(
 
     LaunchedEffect(
         autoPreviewPrefetch,
-        observedResource.tracked,
         (liveResource as? ResourceEntity)?.identifier,
         liveResource.thumbnailUri,
         liveResource.thumbnailLocalUri,
         currentAccount?.accountKey()
     ) {
         if (!autoPreviewPrefetch) {
-            return@LaunchedEffect
+            // Keep tracked resources reactive via observeResource; only skip per-card tracked prefetch.
         }
         val resourceEntity = liveResource as? ResourceEntity
-        if (observedResource.tracked && resourceEntity != null) {
+        if (resourceEntity != null) {
+            if (!autoPreviewPrefetch) {
+                return@LaunchedEffect
+            }
             ensureMemoVideoCardPreview(
                 context = context,
                 okHttpClient = userStateViewModel.okHttpClient,

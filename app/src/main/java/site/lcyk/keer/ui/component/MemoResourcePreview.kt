@@ -30,8 +30,8 @@ internal fun rememberObservedMemoResource(
 ): ObservedMemoResource {
     val memosViewModel = LocalMemos.current
     val identifier = (resource as? ResourceEntity)?.identifier
-    val resourceFlow = remember(identifier, autoPreviewPrefetch) {
-        if (!autoPreviewPrefetch || identifier.isNullOrBlank()) {
+    val resourceFlow = remember(identifier) {
+        if (identifier.isNullOrBlank()) {
             flowOf(null)
         } else {
             memosViewModel.observeResource(identifier)
