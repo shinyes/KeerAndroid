@@ -82,6 +82,7 @@ fun MemosList(
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
     val syncing by viewModel.syncStatus
         .map { it.syncing }
+        .distinctUntilChanged()
         .collectAsStateWithLifecycle(initialValue = false)
     val visibleMemos by viewModel.visibleMemos.collectAsStateWithLifecycle()
     val visibleResolvedQuotes by viewModel.visibleResolvedQuotes.collectAsStateWithLifecycle()

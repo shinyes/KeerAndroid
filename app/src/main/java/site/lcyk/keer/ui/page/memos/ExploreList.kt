@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
@@ -76,6 +77,7 @@ fun ExploreList(
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
     val syncing by memosViewModel.syncStatus
         .map { it.syncing }
+        .distinctUntilChanged()
         .collectAsStateWithLifecycle(initialValue = false)
     val mutationErrorMessage by viewModel.mutationErrorMessage.collectAsStateWithLifecycle()
     val rootNavController = LocalRootNavController.current
@@ -109,6 +111,7 @@ fun ExploreList(
 
     LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
             .collect { isScrolling ->
                 memosViewModel.setInteractionActive(MemoUiScope.EXPLORE, UiInteractionType.LIST_SCROLL, isScrolling)
             }
@@ -116,6 +119,7 @@ fun ExploreList(
 
     LaunchedEffect(refreshState) {
         snapshotFlow { refreshState.distanceFraction > 0f }
+            .distinctUntilChanged()
             .collect { pullActive ->
                 memosViewModel.setInteractionActive(MemoUiScope.EXPLORE, UiInteractionType.PULL_REFRESH, pullActive)
             }

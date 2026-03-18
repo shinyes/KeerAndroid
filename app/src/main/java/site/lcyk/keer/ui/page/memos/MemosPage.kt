@@ -23,6 +23,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
 import androidx.window.core.layout.WindowSizeClass
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import site.lcyk.keer.ui.component.SideDrawer
 import site.lcyk.keer.viewmodel.LocalMemos
@@ -57,17 +58,35 @@ fun MemosPage(
     LaunchedEffect(drawerState, isExpanded) {
         if (isExpanded) {
             memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_TRANSITION, false)
+            memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_HIDDEN, false)
             return@LaunchedEffect
         }
         snapshotFlow { drawerState.currentValue != drawerState.targetValue }
+            .distinctUntilChanged()
             .collect { inTransition ->
                 memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_TRANSITION, inTransition)
             }
     }
 
+    LaunchedEffect(drawerState, isExpanded) {
+        if (isExpanded) {
+            memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_HIDDEN, false)
+            return@LaunchedEffect
+        }
+        snapshotFlow {
+            drawerState.currentValue == DrawerValue.Closed &&
+                drawerState.targetValue == DrawerValue.Closed
+        }
+            .distinctUntilChanged()
+            .collect { hidden ->
+            memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_HIDDEN, hidden)
+        }
+    }
+
     DisposableEffect(isExpanded) {
         onDispose {
             memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_TRANSITION, false)
+            memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_HIDDEN, false)
         }
     }
 

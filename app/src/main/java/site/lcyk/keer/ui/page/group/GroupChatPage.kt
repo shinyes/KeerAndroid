@@ -48,13 +48,14 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoEditGesture
-import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.MemoActionMenuButton
@@ -102,7 +103,10 @@ fun GroupChatPage(
     val joinedGroups by userStateViewModel.joinedGroups.collectAsStateWithLifecycle()
     val groupIdAliases by userStateViewModel.groupIdAliases.collectAsStateWithLifecycle()
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
-    val syncStatus by memosViewModel.syncStatus.collectAsStateWithLifecycle()
+    val syncing by memosViewModel.syncStatus
+        .map { status -> status.syncing }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = false)
     val avatarImageLoader = rememberAuthorizedImageLoader()
 
     val resolvedGroupId = groupIdAliases
@@ -130,7 +134,7 @@ fun GroupChatPage(
     }
 
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
-    var syncWasRunning by remember { mutableStateOf(syncStatus.syncing) }
+    var syncWasRunning by remember { mutableStateOf(syncing) }
     var showQuickComposer by rememberSaveable { mutableStateOf(false) }
 
     val navigationIcon = if (drawerState != null) Icons.Filled.Menu else Icons.AutoMirrored.Filled.ArrowBack
@@ -184,6 +188,7 @@ fun GroupChatPage(
 
     LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
             .collect { isScrolling ->
                 memosViewModel.setInteractionActive(MemoUiScope.GROUP_CHAT, UiInteractionType.LIST_SCROLL, isScrolling)
             }
@@ -191,6 +196,7 @@ fun GroupChatPage(
 
     LaunchedEffect(refreshState) {
         snapshotFlow { refreshState.distanceFraction > 0f }
+            .distinctUntilChanged()
             .collect { pullActive ->
                 memosViewModel.setInteractionActive(MemoUiScope.GROUP_CHAT, UiInteractionType.PULL_REFRESH, pullActive)
             }
@@ -203,10 +209,10 @@ fun GroupChatPage(
         }
     }
 
-    LaunchedEffect(syncStatus.syncing, group?.id) {
+    LaunchedEffect(syncing, group?.id) {
         val wasRunning = syncWasRunning
-        syncWasRunning = syncStatus.syncing
-        if (group != null && wasRunning && !syncStatus.syncing) {
+        syncWasRunning = syncing
+        if (group != null && wasRunning && !syncing) {
             reloadGroup(forceSync = false)
         }
     }
@@ -225,7 +231,6 @@ fun GroupChatPage(
                     navigationIcon = navigationIcon,
                     navigationContentDescription = navigationContentDescription,
                     onNavigationClick = ::handleNavigationClick,
-                    syncStatus = syncStatus,
                     showSyncBadge = false,
                     onManualSync = {},
                     onSearch = null
@@ -255,8 +260,7 @@ fun GroupChatPage(
                     navigationIcon = navigationIcon,
                     navigationContentDescription = navigationContentDescription,
                     onNavigationClick = ::handleNavigationClick,
-                    syncStatus = syncStatus,
-                    showSyncBadge = currentAccount !is Account.Local && (syncStatus.syncing || loading),
+                    showSyncBadge = currentAccount !is Account.Local && (syncing || loading),
                     onManualSync = {
                         scope.launch {
                             requestManualSync()
@@ -285,17 +289,17 @@ fun GroupChatPage(
                 editGesture = editGesture,
                 listState = listState,
                 refreshState = refreshState,
-                syncing = if (loading && !syncStatus.syncing) {
+                syncing = if (loading && !syncing) {
                     true
                 } else {
-                    syncStatus.syncing
+                    syncing
                 },
                 contentPadding = innerPadding,
                 collaboratorProfiles = collaboratorProfiles,
                 avatarImageLoader = avatarImageLoader,
                 resolvedQuoteMap = resolvedQuoteMap,
                 onRefresh = {
-                    if (syncStatus.syncing) {
+                    if (syncing) {
                         return@GroupChatList
                     }
                     scope.launch {
@@ -396,7 +400,6 @@ private fun GroupChatTopBar(
     navigationIcon: androidx.compose.ui.graphics.vector.ImageVector,
     navigationContentDescription: String,
     onNavigationClick: () -> Unit,
-    syncStatus: SyncStatus,
     showSyncBadge: Boolean,
     onManualSync: () -> Unit,
     onSearch: (() -> Unit)?
@@ -413,12 +416,7 @@ private fun GroupChatTopBar(
         },
         actions = {
             if (showSyncBadge) {
-                SyncStatusBadge(
-                    syncing = syncStatus.syncing,
-                    unsyncedCount = syncStatus.unsyncedCount,
-                    progress = syncStatus.progress,
-                    onSync = onManualSync
-                )
+                GroupChatSyncBadgeAction(onSync = onManualSync)
             }
             if (onSearch != null) {
                 IconButton(onClick = onSearch) {
@@ -426,6 +424,35 @@ private fun GroupChatTopBar(
                 }
             }
         }
+    )
+}
+
+@Composable
+private fun GroupChatSyncBadgeAction(
+    onSync: () -> Unit,
+) {
+    val memosViewModel = LocalMemos.current
+    val syncing by memosViewModel.syncStatus
+        .map { status -> status.syncing }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = false)
+    val unsyncedCount by memosViewModel.syncStatus
+        .map { status -> status.unsyncedCount }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = 0)
+    val progress by memosViewModel.syncStatus
+        .map { status -> status.progress }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = null)
+
+    if (!syncing) {
+        return
+    }
+    SyncStatusBadge(
+        syncing = syncing,
+        unsyncedCount = unsyncedCount,
+        progress = progress,
+        onSync = onSync,
     )
 }
 

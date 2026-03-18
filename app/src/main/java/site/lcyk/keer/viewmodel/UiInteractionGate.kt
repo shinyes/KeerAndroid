@@ -54,9 +54,17 @@ class UiInteractionGate @Inject constructor() {
         return activeInteractions
             .map { activeByScope ->
                 val scopeInteractions = activeByScope[scope].orEmpty()
-                val freezeByScope = scopeInteractions
-                    .filterNot { interaction -> interaction == UiInteractionType.DRAWER_HIDDEN }
-                    .isNotEmpty()
+                val freezeByScope = when (scope) {
+                    MemoUiScope.DRAWER -> {
+                        scopeInteractions.contains(UiInteractionType.DRAWER_TRANSITION) ||
+                            scopeInteractions.contains(UiInteractionType.DRAWER_HIDDEN)
+                    }
+                    else -> {
+                        scopeInteractions
+                            .filterNot { interaction -> interaction == UiInteractionType.DRAWER_HIDDEN }
+                            .isNotEmpty()
+                    }
+                }
                 freezeByScope ||
                     (scope != MemoUiScope.DRAWER &&
                         activeByScope[MemoUiScope.DRAWER].orEmpty()
