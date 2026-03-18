@@ -25,7 +25,7 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.ViewColumn
+import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -286,7 +286,7 @@ fun SideDrawer(
             item("drawer_column_${column.id}") {
                 NavigationDrawerItem(
                     label = { Text(column.name) },
-                    icon = { Icon(Icons.Outlined.ViewColumn, contentDescription = null) },
+                    icon = { Icon(Icons.Outlined.Bookmarks, contentDescription = null) },
                     selected = isSelected("${RouteName.COLUMN}/{columnId}") &&
                         currentSelectedColumnId == column.id,
                     onClick = {

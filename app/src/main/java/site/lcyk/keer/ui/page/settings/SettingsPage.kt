@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Edit
@@ -22,7 +23,6 @@ import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.outlined.ViewColumn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -188,7 +188,7 @@ fun SettingsPage(
 
             item {
                 SettingItem(
-                    icon = Icons.Outlined.ViewColumn,
+                    icon = Icons.Outlined.Bookmarks,
                     text = R.string.column_config.string,
                     trailingIcon = {
                         if (currentColumnsCount > 0) {
@@ -230,6 +230,33 @@ fun SettingsPage(
                 }
             }
 
+            if (currentAccount is Account.KeerV2) {
+                item {
+                    SettingItem(
+                        icon = Icons.Outlined.Lock,
+                        text = R.string.change_password.string
+                    ) {
+                        passwordChangeError = null
+                        showChangePasswordDialog = true
+                    }
+                }
+            }
+
+            item {
+                SettingItem(
+                    icon = Icons.Outlined.Edit,
+                    text = R.string.edit_gesture.string,
+                    trailingIcon = {
+                        Text(
+                            text = currentEditGesture.titleResource.string,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                ) {
+                    showEditGestureDialog = true
+                }
+            }
+
             item {
                 HorizontalDivider(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
@@ -267,33 +294,6 @@ fun SettingsPage(
             item {
                 SettingItem(icon = Icons.Outlined.PersonAdd, text = R.string.add_account.string) {
                     rootNavController.navigateToAddAccountPage()
-                }
-            }
-
-            if (currentAccount is Account.KeerV2) {
-                item {
-                    SettingItem(
-                        icon = Icons.Outlined.Lock,
-                        text = R.string.change_password.string
-                    ) {
-                        passwordChangeError = null
-                        showChangePasswordDialog = true
-                    }
-                }
-            }
-
-            item {
-                SettingItem(
-                    icon = Icons.Outlined.Edit,
-                    text = R.string.edit_gesture.string,
-                    trailingIcon = {
-                        Text(
-                            text = currentEditGesture.titleResource.string,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                ) {
-                    showEditGestureDialog = true
                 }
             }
 
