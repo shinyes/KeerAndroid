@@ -31,6 +31,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -65,10 +66,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.isSpecified
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.skydoves.sandwich.suspendOnSuccess
@@ -99,6 +102,17 @@ private val quickComposerEditorPadding = PaddingValues(
     end = 16.dp,
     bottom = 8.dp
 )
+private val quickComposerSurfaceVerticalPadding = 20.dp
+private val quickComposerCompactContainerHeight = 152.dp
+private val quickComposerDefaultMinContainerHeight = 196.dp
+private val quickComposerMaxContainerHeight = 360.dp
+private val quickComposerCompactEditorHeight = 96.dp
+private val quickComposerDefaultMinEditorHeight = 132.dp
+private val quickComposerDefaultMaxEditorHeight = 216.dp
+private val quickComposerBottomBarHeight = 60.dp
+private val quickComposerFallbackLineHeight = 20.dp
+private const val quickComposerMinEditorLines = 4
+private const val quickComposerMaxEditorLines = 10
 
 data class QuickMemoSubmitRequest(
     val content: String,
@@ -457,16 +471,42 @@ fun QuickMemoComposer(
             ),
         modifier = Modifier.fillMaxSize()
     ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding(),
             contentAlignment = Alignment.BottomCenter
         ) {
+            val density = LocalDensity.current
+            val availableContainerHeight = maxHeight - quickComposerSurfaceVerticalPadding
+            val composerMaxHeight = availableContainerHeight
+                .coerceAtLeast(quickComposerCompactContainerHeight)
+                .coerceAtMost(quickComposerMaxContainerHeight)
+            val composerMinHeight = minOf(quickComposerDefaultMinContainerHeight, composerMaxHeight)
+
+            val editorVerticalPadding = quickComposerEditorPadding.calculateTopPadding() +
+                quickComposerEditorPadding.calculateBottomPadding()
+            val editorHeightBudget = composerMaxHeight - quickComposerBottomBarHeight - editorVerticalPadding
+            val editorMaxHeight = editorHeightBudget
+                .coerceAtLeast(quickComposerCompactEditorHeight)
+                .coerceAtMost(quickComposerDefaultMaxEditorHeight)
+            val editorMinHeight = minOf(quickComposerDefaultMinEditorHeight, editorMaxHeight)
+
+            val lineHeight = MaterialTheme.typography.bodyLarge.lineHeight
+            val editorLineHeight = if (lineHeight.isSpecified) {
+                with(density) { lineHeight.toDp() }
+            } else {
+                quickComposerFallbackLineHeight
+            }.coerceAtLeast(quickComposerFallbackLineHeight)
+            val maxEditorLines = (editorMaxHeight / editorLineHeight)
+                .toInt()
+                .coerceIn(quickComposerMinEditorLines, quickComposerMaxEditorLines)
+
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 10.dp)
                     .navigationBarsPadding()
-                    .imePadding()
                     .animateContentSize(
                         animationSpec = tween(durationMillis = 150, easing = quickComposerEasing)
                     ),
@@ -478,7 +518,7 @@ fun QuickMemoComposer(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 196.dp, max = 360.dp)
+                        .heightIn(min = composerMinHeight, max = composerMaxHeight)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
@@ -506,10 +546,10 @@ fun QuickMemoComposer(
                         focusRequester = focusRequester,
                         editorPadding = quickComposerEditorPadding,
                         fillAvailableHeight = false,
-                        editorMinHeight = 132.dp,
-                        editorMaxHeight = 216.dp,
-                        minLines = 4,
-                        maxLines = 10,
+                        editorMinHeight = editorMinHeight,
+                        editorMaxHeight = editorMaxHeight,
+                        minLines = quickComposerMinEditorLines,
+                        maxLines = maxEditorLines,
                         validMimeTypePrefixes = validMimeTypePrefixes,
                         onDroppedText = { droppedText ->
                             text = text.copy(text = text.text + droppedText)
