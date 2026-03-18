@@ -100,11 +100,23 @@ private val quickComposerEditorPadding = PaddingValues(
     bottom = 8.dp
 )
 
+data class QuickMemoSubmitRequest(
+    val content: String,
+    val tags: List<String>,
+    val resourceIdentifiers: List<String>,
+    val latitude: Double?,
+    val longitude: Double?,
+)
+
 @Composable
 fun QuickMemoComposer(
     visible: Boolean,
     onDismissRequest: () -> Unit,
     forcedTags: List<String> = emptyList(),
+    availableTags: List<String>? = null,
+    enableLocation: Boolean = true,
+    persistDraft: Boolean = true,
+    onSubmitRequest: (suspend (QuickMemoSubmitRequest) -> String?)? = null,
     inputViewModel: MemoInputViewModel = hiltViewModel(),
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -148,6 +160,9 @@ fun QuickMemoComposer(
     val validMimeTypePrefixes = remember { setOf("text/") }
 
     fun startLocationPrefetch(force: Boolean = false) {
+        if (!enableLocation) {
+            return
+        }
         if (!hasLocationPermission(context)) {
             return
         }
@@ -207,7 +222,9 @@ fun QuickMemoComposer(
             selectedCollaborators = emptyList()
             inputViewModel.uploadResources.clear()
             inputViewModel.uploadTasks.clear()
-            inputViewModel.updateDraft("")
+            if (persistDraft) {
+                inputViewModel.updateDraft("")
+            }
             stopLocationTracking?.invoke()
             stopLocationTracking = null
             prefetchedLocation = null
@@ -232,7 +249,9 @@ fun QuickMemoComposer(
         ) {
             showExitConfirmation = true
         } else {
-            inputViewModel.updateDraft(text.text)
+            if (persistDraft) {
+                inputViewModel.updateDraft(text.text)
+            }
             keyboardController?.hide()
             onDismissRequest()
         }
@@ -255,7 +274,7 @@ fun QuickMemoComposer(
             quoteDescriptor = null,
         )
 
-        val location = if (collectCoordinates && hasLocationPermission(context)) {
+        val location = if (enableLocation && collectCoordinates && hasLocationPermission(context)) {
             val cached = prefetchedLocation?.takeIf(::isQualifiedLocation)
             cached ?: getCurrentLocationBestEffort(
                 context = context,
@@ -269,19 +288,26 @@ fun QuickMemoComposer(
             null
         }
 
-        inputViewModel.createMemo(
+        val request = QuickMemoSubmitRequest(
             content = payload,
-            visibility = site.lcyk.keer.data.model.MemoVisibility.PRIVATE,
             tags = mergedTags,
+            resourceIdentifiers = inputViewModel.uploadResources
+                .map { resource -> resource.remoteId?.trim().orEmpty().ifEmpty { resource.identifier.trim() } }
+                .filter { identifier -> identifier.isNotEmpty() }
+                .distinct(),
             latitude = location?.latitude,
             longitude = location?.longitude,
-        ).suspendOnSuccess {
+        )
+
+        suspend fun clearComposerStateAfterSuccess() {
             text = TextFieldValue("", TextRange(0))
             selectedTags = emptyList()
             selectedCollaborators = emptyList()
             inputViewModel.uploadResources.clear()
             inputViewModel.uploadTasks.clear()
-            inputViewModel.updateDraft("")
+            if (persistDraft) {
+                inputViewModel.updateDraft("")
+            }
             stopLocationTracking?.invoke()
             stopLocationTracking = null
             prefetchedLocation = null
@@ -289,6 +315,27 @@ fun QuickMemoComposer(
             memosViewModel.refreshLocalSnapshot()
             keyboardController?.hide()
             onDismissRequest()
+        }
+
+        val submitOverride = onSubmitRequest
+        if (submitOverride != null) {
+            val errorMessage = submitOverride(request)
+            if (errorMessage == null) {
+                clearComposerStateAfterSuccess()
+            } else {
+                snackbarState.showSnackbar(errorMessage)
+            }
+            return@launch
+        }
+
+        inputViewModel.createMemo(
+            content = request.content,
+            visibility = site.lcyk.keer.data.model.MemoVisibility.PRIVATE,
+            tags = request.tags,
+            latitude = request.latitude,
+            longitude = request.longitude,
+        ).suspendOnSuccess {
+            clearComposerStateAfterSuccess()
         }.suspendOnErrorMessage { message ->
             snackbarState.showSnackbar(message)
         }
@@ -305,6 +352,10 @@ fun QuickMemoComposer(
     }
 
     fun attemptSubmit() {
+        if (!enableLocation) {
+            submit(collectCoordinates = false)
+            return
+        }
         if (!hasLocationPermission(context)) {
             pendingSubmitAfterLocationPermission = true
             requestLocationPermissions.launch(locationPermissions)
@@ -533,11 +584,13 @@ fun QuickMemoComposer(
     }
 
     if (visible && showTagSelector) {
-        MemoTagSelectorDialog(
-            availableTags = memosViewModel.tags
+        val selectorTags = availableTags
+            ?: memosViewModel.tags
                 .toList()
                 .filterNot(::isCollaboratorTag)
-                .filterNot(::isQuoteTag),
+                .filterNot(::isQuoteTag)
+        MemoTagSelectorDialog(
+            availableTags = selectorTags,
             selectedTags = selectedTags,
             onSelectedTagsChange = { selectedTags = normalizeTagList(normalizedForcedTags + it) },
             onDismiss = { showTagSelector = false }
@@ -589,7 +642,11 @@ fun QuickMemoComposer(
         memosViewModel.loadTags()
         userStateViewModel.refreshFriends()
         startLocationPrefetch(force = true)
-        val draft = inputViewModel.draft.first().orEmpty()
+        val draft = if (persistDraft) {
+            inputViewModel.draft.first().orEmpty()
+        } else {
+            ""
+        }
         text = TextFieldValue(draft, TextRange(draft.length))
         initialContent = text.text
         initialTags = normalizedForcedTags

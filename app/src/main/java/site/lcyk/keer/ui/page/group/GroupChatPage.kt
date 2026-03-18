@@ -38,6 +38,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -67,11 +68,13 @@ import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.SyncStatusBadge
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
+import site.lcyk.keer.ui.page.memoinput.QuickMemoComposer
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToSearchPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
 import site.lcyk.keer.util.extractCollaboratorIds
+import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.viewmodel.GroupChatViewModel
 import site.lcyk.keer.viewmodel.LocalMemos
@@ -119,6 +122,7 @@ fun GroupChatPage(
     val resolvedQuoteMap by viewModel.visibleResolvedQuotes.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val groupTags by viewModel.groupTags.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val refreshState = rememberPullToRefreshState()
     val expandedFab by remember {
@@ -127,6 +131,7 @@ fun GroupChatPage(
 
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     var syncWasRunning by remember { mutableStateOf(syncStatus.syncing) }
+    var showQuickComposer by rememberSaveable { mutableStateOf(false) }
 
     val navigationIcon = if (drawerState != null) Icons.Filled.Menu else Icons.AutoMirrored.Filled.ArrowBack
     val navigationContentDescription = if (drawerState != null) R.string.menu.string else R.string.back.string
@@ -157,6 +162,11 @@ fun GroupChatPage(
 
     LaunchedEffect(group?.id) {
         reloadGroup(forceSync = false)
+    }
+
+    LaunchedEffect(group?.id) {
+        val resolvedGroup = group ?: return@LaunchedEffect
+        viewModel.loadGroupTags(resolvedGroup.id, forceSync = false)
     }
 
     val collaboratorIdsToPrefetch = remember(memos) {
@@ -237,105 +247,136 @@ fun GroupChatPage(
         return
     }
 
-    Scaffold(
-        topBar = {
-            GroupChatTopBar(
-                title = group.name,
-                navigationIcon = navigationIcon,
-                navigationContentDescription = navigationContentDescription,
-                onNavigationClick = ::handleNavigationClick,
-                syncStatus = syncStatus,
-                showSyncBadge = currentAccount !is Account.Local && (syncStatus.syncing || loading),
-                onManualSync = {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                GroupChatTopBar(
+                    title = group.name,
+                    navigationIcon = navigationIcon,
+                    navigationContentDescription = navigationContentDescription,
+                    onNavigationClick = ::handleNavigationClick,
+                    syncStatus = syncStatus,
+                    showSyncBadge = currentAccount !is Account.Local && (syncStatus.syncing || loading),
+                    onManualSync = {
+                        scope.launch {
+                            requestManualSync()
+                        }
+                    },
+                    onSearch = {
+                        navController.navigateToSearchPage()
+                    }
+                )
+            },
+            floatingActionButton = {
+                if (!showQuickComposer) {
+                    GroupChatFab(
+                        expanded = expandedFab,
+                        onClick = { showQuickComposer = true }
+                    )
+                }
+            }
+        ) { innerPadding ->
+            GroupChatList(
+                groupId = group.id,
+                memos = memos,
+                loading = loading,
+                activeAccountKey = activeAccountKey,
+                currentUserId = currentUserId,
+                editGesture = editGesture,
+                listState = listState,
+                refreshState = refreshState,
+                syncing = if (loading && !syncStatus.syncing) {
+                    true
+                } else {
+                    syncStatus.syncing
+                },
+                contentPadding = innerPadding,
+                collaboratorProfiles = collaboratorProfiles,
+                avatarImageLoader = avatarImageLoader,
+                resolvedQuoteMap = resolvedQuoteMap,
+                onRefresh = {
+                    if (syncStatus.syncing) {
+                        return@GroupChatList
+                    }
                     scope.launch {
                         requestManualSync()
                     }
                 },
-                onSearch = {
-                    navController.navigateToSearchPage()
-                }
-            )
-        },
-        floatingActionButton = {
-            GroupChatFab(
-                expanded = expandedFab,
-                onClick = {
-                    navController.navigateToGroupInputPage(groupId = group.id)
+                canManageMemo = { memo ->
+                    viewModel.canManageGroupMemo(memo, currentUserId)
+                },
+                onOpenMemoDetail = { selectedMemo ->
+                    memosViewModel.cacheMemoForDetail(selectedMemo)
+                    rootNavController.navigateToMemoDetailPage(selectedMemo.identifier)
+                },
+                onTogglePinned = { memo, pinned ->
+                    scope.launch {
+                        viewModel.setGroupMemoPinned(
+                            groupId = group.id,
+                            memoRemoteId = memo.remoteId,
+                            pinned = pinned
+                        )
+                    }
+                },
+                onEditMemo = { memo ->
+                    navController.navigateToGroupInputPage(
+                        groupId = group.id,
+                        memoId = memo.remoteId
+                    )
+                },
+                onDeleteMemo = { memo ->
+                    scope.launch {
+                        viewModel.deleteGroupMemo(
+                            groupId = group.id,
+                            memoRemoteId = memo.remoteId
+                        )
+                    }
+                },
+                onRequestQuote = { source ->
+                    val sourceMemo = source.toGroupMemoEntity(
+                        accountKey = activeAccountKey,
+                        groupId = group.id
+                    )
+                    memosViewModel.cacheMemoForDetail(sourceMemo)
+                    navController.navigateToGroupInputPage(
+                        groupId = group.id,
+                        quoteMemoIdentifier = sourceMemo.identifier
+                    )
+                },
+                onOpenTopic = { _, _ -> },
+                onTagClick = { tag ->
+                    navController.navigateToTagPage(tag)
                 }
             )
         }
-    ) { innerPadding ->
-        GroupChatList(
-            groupId = group.id,
-            memos = memos,
-            loading = loading,
-            activeAccountKey = activeAccountKey,
-            currentUserId = currentUserId,
-            editGesture = editGesture,
-            listState = listState,
-            refreshState = refreshState,
-            syncing = if (loading && !syncStatus.syncing) {
-                true
-            } else {
-                syncStatus.syncing
-            },
-            contentPadding = innerPadding,
-            collaboratorProfiles = collaboratorProfiles,
-            avatarImageLoader = avatarImageLoader,
-            resolvedQuoteMap = resolvedQuoteMap,
-            onRefresh = {
-                if (syncStatus.syncing) {
-                    return@GroupChatList
+
+        QuickMemoComposer(
+            visible = showQuickComposer,
+            onDismissRequest = { showQuickComposer = false },
+            availableTags = groupTags,
+            enableLocation = false,
+            persistDraft = false,
+            onSubmitRequest = { request ->
+                val existingTags = groupTags
+                    .map { tag -> tag.trim().lowercase() }
+                    .toSet()
+                normalizeTagList(request.tags).forEach { tag ->
+                    if (tag.lowercase() !in existingTags) {
+                        viewModel.addGroupTag(group.id, tag)
+                    }
                 }
-                scope.launch {
-                    requestManualSync()
-                }
-            },
-            canManageMemo = { memo ->
-                viewModel.canManageGroupMemo(memo, currentUserId)
-            },
-            onOpenMemoDetail = { selectedMemo ->
-                memosViewModel.cacheMemoForDetail(selectedMemo)
-                rootNavController.navigateToMemoDetailPage(selectedMemo.identifier)
-            },
-            onTogglePinned = { memo, pinned ->
-                scope.launch {
-                    viewModel.setGroupMemoPinned(
-                        groupId = group.id,
-                        memoRemoteId = memo.remoteId,
-                        pinned = pinned
-                    )
-                }
-            },
-            onEditMemo = { memo ->
-                navController.navigateToGroupInputPage(
+                val sent = viewModel.sendGroupMemo(
                     groupId = group.id,
-                    memoId = memo.remoteId
+                    content = request.content,
+                    tags = request.tags,
+                    resourceIdentifiers = request.resourceIdentifiers
                 )
-            },
-            onDeleteMemo = { memo ->
-                scope.launch {
-                    viewModel.deleteGroupMemo(
-                        groupId = group.id,
-                        memoRemoteId = memo.remoteId
-                    )
+                if (sent) {
+                    null
+                } else {
+                    errorMessage ?: R.string.sync_failed.string
                 }
             },
-            onRequestQuote = { source ->
-                val sourceMemo = source.toGroupMemoEntity(
-                    accountKey = activeAccountKey,
-                    groupId = group.id
-                )
-                memosViewModel.cacheMemoForDetail(sourceMemo)
-                navController.navigateToGroupInputPage(
-                    groupId = group.id,
-                    quoteMemoIdentifier = sourceMemo.identifier
-                )
-            },
-            onOpenTopic = { _, _ -> },
-            onTagClick = { tag ->
-                navController.navigateToTagPage(tag)
-            }
         )
     }
 
