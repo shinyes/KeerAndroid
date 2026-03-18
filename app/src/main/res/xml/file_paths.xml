@@ -16,6 +16,12 @@
         name="cache_resources"
         path="resources/" />
     <cache-path
+        name="attachment_cache"
+        path="attachment_cache/" />
+    <cache-path
+        name="thumbnail_cache"
+        path="thumbnail_cache/" />
+    <cache-path
         name="coil3_disk_cache"
         path="coil3_disk_cache/" />
 </paths>
