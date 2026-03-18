@@ -274,9 +274,9 @@ fun SideDrawer(
                 selected = isSelected(RouteName.MEMOS),
                 onClick = {
                     scope.launch {
+                        memosNavController.navigateToMemosPage()
                         onDrawerItemCloseRequested?.invoke()
                         drawerState?.close()
-                        memosNavController.navigateToMemosPage()
                     }
                 },
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
