@@ -43,6 +43,7 @@ import site.lcyk.keer.data.model.MemoEditGesture
 import site.lcyk.keer.ui.component.MemoActionMenuButton
 import site.lcyk.keer.ui.component.MemoMenuAction
 import site.lcyk.keer.ui.component.MemosCard
+import site.lcyk.keer.ui.component.MediaPreviewPrefetchEffect
 import site.lcyk.keer.ui.component.PullSyncLineIndicator
 import site.lcyk.keer.ui.component.RefreshableListContainer
 import site.lcyk.keer.ui.component.SyncAlertDialog
@@ -79,6 +80,8 @@ fun ExploreList(
         .map { it.syncing }
         .distinctUntilChanged()
         .collectAsStateWithLifecycle(initialValue = false)
+    val exploreFrozen by memosViewModel.observeScopeFrozen(MemoUiScope.EXPLORE)
+        .collectAsStateWithLifecycle(initialValue = false)
     val mutationErrorMessage by viewModel.mutationErrorMessage.collectAsStateWithLifecycle()
     val rootNavController = LocalRootNavController.current
     val listState = rememberLazyListState()
@@ -90,6 +93,9 @@ fun ExploreList(
     var editingContent by remember { mutableStateOf("") }
     var deletingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
     val accountKey = currentAccount?.accountKey() ?: "explore"
+    val prefetchMemoEntities = remember(items, accountKey) {
+        items.map { item -> item.memo.toExploreMemoEntity(accountKey) }
+    }
     val collaboratorIdsToPrefetch = remember(items) {
         items
             .asSequence()
@@ -131,6 +137,21 @@ fun ExploreList(
             memosViewModel.setInteractionActive(MemoUiScope.EXPLORE, UiInteractionType.PULL_REFRESH, false)
         }
     }
+
+    MediaPreviewPrefetchEffect(
+        listState = listState,
+        memos = prefetchMemoEntities,
+        frozen = exploreFrozen,
+        syncing = syncing,
+        currentAccountKey = currentAccount?.accountKey(),
+        okHttpClient = userStateViewModel.okHttpClient,
+        cacheResourceFile = { identifier, downloadedUri ->
+            memosViewModel.cacheResourceFile(identifier, downloadedUri)
+        },
+        cacheResourceThumbnail = { identifier, downloadedUri ->
+            memosViewModel.cacheResourceThumbnail(identifier, downloadedUri)
+        },
+    )
 
     ExploreMemoFeed(
         memos = items,
@@ -318,6 +339,7 @@ private fun ExploreMemoFeed(
                     onClick = onOpenMemoDetail,
                     editGesture = MemoEditGesture.NONE,
                     previewMode = true,
+                    autoPreviewPrefetch = false,
                     showSyncStatus = false,
                     authorAvatarUrl = memoItem.memo.creator?.avatarUrl,
                     authorName = memoItem.memo.creator?.name,

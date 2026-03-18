@@ -39,6 +39,7 @@ import site.lcyk.keer.data.model.MemoEditGesture
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.MemoActionMenuButton
 import site.lcyk.keer.ui.component.MemoMenuAction
+import site.lcyk.keer.ui.component.MediaPreviewPrefetchEffect
 import site.lcyk.keer.ui.component.RefreshableListContainer
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
@@ -55,6 +56,7 @@ import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
+import site.lcyk.keer.viewmodel.MemoCardUiModel
 import site.lcyk.keer.viewmodel.MemoUiScope
 import site.lcyk.keer.viewmodel.UiInteractionType
 import timber.log.Timber
@@ -73,7 +75,6 @@ fun MemosList(
     editGestureResolver: ((site.lcyk.keer.data.local.entity.MemoEntity, MemoEditGesture) -> MemoEditGesture)? = null,
     actionButton: (@Composable (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)? = null,
 ) {
-    val context = LocalContext.current
     val navController = LocalRootNavController.current
     val viewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
@@ -83,6 +84,8 @@ fun MemosList(
     val syncing by viewModel.syncStatus
         .map { it.syncing }
         .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = false)
+    val feedFrozen by viewModel.observeScopeFrozen(MemoUiScope.FEED)
         .collectAsStateWithLifecycle(initialValue = false)
     val visibleMemos by viewModel.visibleMemos.collectAsStateWithLifecycle()
     val visibleResolvedQuotes by viewModel.visibleResolvedQuotes.collectAsStateWithLifecycle()
@@ -131,6 +134,23 @@ fun MemosList(
             }
         }
     }
+    val memoCardUiModels by produceState(
+        initialValue = emptyList<MemoCardUiModel>(),
+        filteredMemos,
+        resolvedQuoteMap,
+    ) {
+        value = withContext(Dispatchers.Default) {
+            filteredMemos.map { memo ->
+                MemoCardUiModel(
+                    memo = memo,
+                    resolvedQuote = resolvedQuoteMap[memo.identifier],
+                )
+            }
+        }
+    }
+    val prefetchMemos = remember(memoCardUiModels) {
+        memoCardUiModels.map { it.memo }
+    }
 
     val collaboratorIdsToPrefetch = remember(filteredMemos) {
         filteredMemos
@@ -160,8 +180,23 @@ fun MemosList(
         }
     }
 
+    MediaPreviewPrefetchEffect(
+        listState = lazyListState,
+        memos = prefetchMemos,
+        frozen = feedFrozen,
+        syncing = syncing,
+        currentAccountKey = currentAccount?.accountKey(),
+        okHttpClient = userStateViewModel.okHttpClient,
+        cacheResourceFile = { identifier, downloadedUri ->
+            viewModel.cacheResourceFile(identifier, downloadedUri)
+        },
+        cacheResourceThumbnail = { identifier, downloadedUri ->
+            viewModel.cacheResourceThumbnail(identifier, downloadedUri)
+        },
+    )
+
     MemoFeedList(
-        memos = filteredMemos,
+        memoCards = memoCardUiModels,
         lazyListState = lazyListState,
         refreshState = refreshState,
         contentPadding = contentPadding,
@@ -192,7 +227,6 @@ fun MemosList(
         onRequestEdit = onRequestEdit,
         editGestureResolver = editGestureResolver,
         actionButton = actionButton,
-        resolvedQuoteMap = resolvedQuoteMap,
     )
 
     LaunchedEffect(viewModel.errorMessage) {
@@ -209,7 +243,7 @@ fun MemosList(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MemoFeedList(
-    memos: List<site.lcyk.keer.data.local.entity.MemoEntity>,
+    memoCards: List<MemoCardUiModel>,
     lazyListState: LazyListState,
     refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState,
     contentPadding: PaddingValues,
@@ -224,7 +258,6 @@ private fun MemoFeedList(
     onRequestEdit: ((site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)?,
     editGestureResolver: ((site.lcyk.keer.data.local.entity.MemoEntity, MemoEditGesture) -> MemoEditGesture)?,
     actionButton: (@Composable (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)?,
-    resolvedQuoteMap: Map<String, site.lcyk.keer.util.ResolvedMemoQuote>,
 ) {
     RefreshableListContainer(
         isRefreshing = syncing,
@@ -245,15 +278,17 @@ private fun MemoFeedList(
             contentPadding = contentPadding
         ) {
             items(
-                items = memos,
-                key = { it.identifier },
+                items = memoCards,
+                key = { it.memo.identifier },
                 contentType = { "memo" }
-            ) { memo ->
+            ) { card ->
+                val memo = card.memo
                 MemosCard(
                     memo = memo,
                     onClick = onOpenMemoDetail,
                     editGesture = editGestureResolver?.invoke(memo, editGesture) ?: editGesture,
                     previewMode = true,
+                    autoPreviewPrefetch = false,
                     showSyncStatus = showSyncStatus,
                     onTagClick = onTagClick,
                     actionButton = actionButton,
@@ -261,7 +296,7 @@ private fun MemoFeedList(
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
                     prefetchCollaborators = false,
-                    resolvedQuote = resolvedQuoteMap[memo.identifier],
+                    resolvedQuote = card.resolvedQuote,
                 )
             }
         }

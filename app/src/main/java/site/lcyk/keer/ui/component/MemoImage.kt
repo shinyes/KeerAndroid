@@ -35,7 +35,6 @@ import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.ResourceRepresentable
-import site.lcyk.keer.data.security.EncryptedBlobVariant
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
@@ -45,13 +44,17 @@ import timber.log.Timber
 @Composable
 fun MemoImage(
     resource: ResourceRepresentable,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    autoPreviewPrefetch: Boolean = true,
 ) {
     val context = LocalContext.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState(initial = null)
     val memosViewModel = LocalMemos.current
-    val observedResource = rememberObservedMemoResource(resource)
+    val observedResource = rememberObservedMemoResource(
+        resource = resource,
+        autoPreviewPrefetch = autoPreviewPrefetch,
+    )
     val liveResource = observedResource.resource
     val scope = rememberCoroutineScope()
     var fallbackPreviewUri by remember(resource.remoteId, resource.uri) { mutableStateOf<String?>(null) }
@@ -60,17 +63,20 @@ fun MemoImage(
         mutableStateOf<ImageViewerSelectionState?>(null)
     }
     val imageLoader = rememberAuthorizedImageLoader()
+    val runtimeCachedPreviewUri = MediaPreviewRuntimeCache.resolvePreviewUri(previewCacheKey(liveResource))
     val previewModel = remember(
         fallbackPreviewUri,
+        runtimeCachedPreviewUri,
         liveResource.thumbnailLocalUri,
         liveResource.thumbnailUri,
         liveResource.localUri,
         liveResource.uri
     ) {
-        fallbackPreviewUri ?: resolveMemoImagePreviewUri(liveResource)
+        fallbackPreviewUri ?: runtimeCachedPreviewUri ?: resolveMemoImagePreviewUri(liveResource)
     }
 
     LaunchedEffect(
+        autoPreviewPrefetch,
         observedResource.tracked,
         (liveResource as? ResourceEntity)?.identifier,
         liveResource.thumbnailUri,
@@ -78,6 +84,9 @@ fun MemoImage(
         liveResource.localUri,
         currentAccount?.accountKey()
     ) {
+        if (!autoPreviewPrefetch) {
+            return@LaunchedEffect
+        }
         val resourceEntity = liveResource as? ResourceEntity
         if (observedResource.tracked && resourceEntity != null) {
             ensureMemoImageCardPreview(
@@ -98,46 +107,14 @@ fun MemoImage(
         if (fallbackPreviewUri != null || liveResource.encryptionMetadata.isNullOrBlank()) {
             return@LaunchedEffect
         }
-
-        val currentAccountKey = currentAccount?.accountKey()
-        val remoteThumbnail = liveResource.thumbnailUri?.trim().orEmpty()
-        if (remoteThumbnail.isHttpUrl()) {
-            MemoResourcePreviewLoader.run("temp-thumb:${liveResource.remoteId ?: liveResource.uri}") {
-                downloadResourceVariantToTemp(
-                    context = context,
-                    okHttpClient = userStateViewModel.okHttpClient,
-                    resource = liveResource,
-                    accountKey = resolveResourceAccountKey(liveResource, currentAccountKey),
-                    url = remoteThumbnail,
-                    filename = liveResource.filename,
-                    variant = EncryptedBlobVariant.THUMBNAIL,
-                    cacheDirName = "thumbnail_cache",
-                    prefix = "thumb_",
-                )?.let { downloaded ->
-                    fallbackPreviewUri = downloaded.toURI().toString()
-                }
-            }
-            return@LaunchedEffect
-        }
-
-        val remoteMain = liveResource.uri.trim()
-        if (!remoteMain.isHttpUrl()) {
-            return@LaunchedEffect
-        }
-        MemoResourcePreviewLoader.run("temp-main:${liveResource.remoteId ?: liveResource.uri}") {
-            downloadResourceVariantToTemp(
-                context = context,
-                okHttpClient = userStateViewModel.okHttpClient,
-                resource = liveResource,
-                accountKey = resolveResourceAccountKey(liveResource, currentAccountKey),
-                url = remoteMain,
-                filename = liveResource.filename,
-                variant = EncryptedBlobVariant.MAIN,
-                cacheDirName = "attachment_cache",
-                prefix = "attachment_",
-            )?.let { downloaded ->
-                fallbackPreviewUri = downloaded.toURI().toString()
-            }
+        val prefetched = MediaPreviewPrefetchCoordinator.prefetchUntrackedResourcePreview(
+            context = context,
+            okHttpClient = userStateViewModel.okHttpClient,
+            resource = liveResource,
+            currentAccountKey = currentAccount?.accountKey(),
+        )
+        if (!prefetched.isNullOrBlank()) {
+            fallbackPreviewUri = prefetched
         }
     }
 
@@ -249,6 +226,9 @@ fun MemoImage(
 }
 
 private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String {
+    MediaPreviewRuntimeCache.resolvePreviewUri(previewCacheKey(resource))?.let { runtimePreview ->
+        return runtimePreview
+    }
     val localThumbnail = resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)
     if (!localThumbnail.isNullOrBlank()) {
         return localThumbnail
@@ -266,12 +246,6 @@ private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String 
         return local
     }
     return resource.uri
-}
-
-private fun String.isHttpUrl(): Boolean {
-    val normalized = trim()
-    return normalized.startsWith("http://", ignoreCase = true) ||
-        normalized.startsWith("https://", ignoreCase = true)
 }
 
 private const val IMAGE_VIEWER_PREFS_FILE = "image_viewer_preferences"

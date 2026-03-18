@@ -33,7 +33,8 @@ fun MemoContent(
     checkboxChange: (checked: Boolean, startOffset: Int, endOffset: Int) -> Unit = { _, _, _ -> },
     onViewMore: (() -> Unit)? = null,
     selectable: Boolean = false,
-    onTagClick: ((String) -> Unit)? = null
+    onTagClick: ((String) -> Unit)? = null,
+    autoPreviewPrefetch: Boolean = true,
 ) {
     val rootNavController = LocalRootNavController.current
     val (text, previewed) = remember(memo.content, previewMode) {
@@ -60,7 +61,10 @@ fun MemoContent(
             onTagClick = handleTagClick
         )
 
-        MemoResourceContent(memo)
+        MemoResourceContent(
+            memo = memo,
+            autoPreviewPrefetch = autoPreviewPrefetch,
+        )
 
         if (previewed && onViewMore != null) {
             Row {
@@ -76,7 +80,10 @@ fun MemoContent(
 }
 
 @Composable
-fun MemoResourceContent(memo: MemoRepresentable) {
+fun MemoResourceContent(
+    memo: MemoRepresentable,
+    autoPreviewPrefetch: Boolean = true,
+) {
     val cols = 3
 
     val mediaList = memo.resources.filter { it.isMediaResource() }
@@ -93,7 +100,8 @@ fun MemoResourceContent(memo: MemoRepresentable) {
                                 modifier = Modifier
                                     .aspectRatio(1f)
                                     .padding(2.dp)
-                                    .clip(RoundedCornerShape(4.dp))
+                                    .clip(RoundedCornerShape(4.dp)),
+                                autoPreviewPrefetch = autoPreviewPrefetch,
                             )
                         }
                     } else {

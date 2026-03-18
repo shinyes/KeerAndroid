@@ -73,6 +73,7 @@ fun MemosCard(
     onClick: (MemoEntity) -> Unit,
     editGesture: MemoEditGesture = MemoEditGesture.NONE,
     previewMode: Boolean = false,
+    autoPreviewPrefetch: Boolean = true,
     showSyncStatus: Boolean = false,
     onTagClick: ((String) -> Unit)? = null,
     authorAvatarUrl: String? = null,
@@ -264,6 +265,7 @@ fun MemosCard(
             MemoContent(
                 memo,
                 previewMode = previewMode,
+                autoPreviewPrefetch = autoPreviewPrefetch,
                 checkboxChange = { checked, startOffset, endOffset ->
                     scope.launch {
                         var text = memo.content.substring(startOffset, endOffset)

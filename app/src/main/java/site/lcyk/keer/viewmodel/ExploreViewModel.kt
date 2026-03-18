@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
@@ -60,7 +61,7 @@ class ExploreViewModel @Inject constructor(
     private val snapshotStore = InteractionSnapshotStore(
         scope = viewModelScope,
         initialState = ExploreUiState(),
-        idleCommitDelayMillis = 180L,
+        idleCommitDelayMillis = SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS,
     )
     private val _mutationErrorMessage = MutableStateFlow<String?>(null)
     val mutationErrorMessage: StateFlow<String?> = _mutationErrorMessage.asStateFlow()
@@ -77,11 +78,7 @@ class ExploreViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val projectionMemos = memoService.memos
-        .debounceWithSyncState(
-            syncing = memoService.syncStatus.map { status -> status.syncing },
-            idleDelayMillis = EXPLORE_PROJECTION_MEMO_DEBOUNCE_IDLE_MILLIS,
-            syncingDelayMillis = EXPLORE_PROJECTION_MEMO_DEBOUNCE_WHILE_SYNCING_MILLIS,
-        )
+        .debounce(EXPLORE_PROJECTION_MEMO_DEBOUNCE_MILLIS)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val liveItems = accountService.currentAccount
@@ -148,11 +145,12 @@ class ExploreViewModel @Inject constructor(
             }
         }
 
-        viewModelScope.launch {
-            uiInteractionGate.observeScopeFrozen(MemoUiScope.EXPLORE).collectLatest { frozen ->
-                snapshotStore.setFrozen(frozen)
-            }
-        }
+        SyncFreezeController(
+            scope = viewModelScope,
+            syncing = memoService.syncStatus.map { status -> status.syncing },
+            interactionFrozen = uiInteractionGate.observeScopeFrozen(MemoUiScope.EXPLORE),
+            onFrozenChanged = snapshotStore::setFrozen,
+        )
     }
 
     suspend fun updateExploreMemo(
@@ -326,8 +324,8 @@ class ExploreViewModel @Inject constructor(
     }
 
     private companion object {
-        private const val EXPLORE_PROJECTION_MEMO_DEBOUNCE_IDLE_MILLIS = 48L
-        private const val EXPLORE_PROJECTION_MEMO_DEBOUNCE_WHILE_SYNCING_MILLIS = 120L
+        private const val EXPLORE_PROJECTION_MEMO_DEBOUNCE_MILLIS = 64L
+        private const val SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS = 300L
     }
 }
 

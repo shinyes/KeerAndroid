@@ -62,6 +62,7 @@ import site.lcyk.keer.ui.component.MemoActionMenuButton
 import site.lcyk.keer.ui.component.MemoMenuAction
 import site.lcyk.keer.ui.component.MemoMenuConfirmation
 import site.lcyk.keer.ui.component.MemosCard
+import site.lcyk.keer.ui.component.MediaPreviewPrefetchEffect
 import site.lcyk.keer.ui.component.PullSyncLineIndicator
 import site.lcyk.keer.ui.component.RefreshableListContainer
 import site.lcyk.keer.ui.component.SyncAlertDialog
@@ -92,7 +93,6 @@ fun GroupChatPage(
     onMenuButtonOpenRequested: (() -> Unit)? = null,
     viewModel: GroupChatViewModel = hiltViewModel()
 ) {
-    val context = navController.context
     val lifecycleOwner = LocalLifecycleOwner.current
     val rootNavController = LocalRootNavController.current
     val scope = rememberCoroutineScope()
@@ -106,6 +106,8 @@ fun GroupChatPage(
     val syncing by memosViewModel.syncStatus
         .map { status -> status.syncing }
         .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = false)
+    val groupFrozen by memosViewModel.observeScopeFrozen(MemoUiScope.GROUP_CHAT)
         .collectAsStateWithLifecycle(initialValue = false)
     val avatarImageLoader = rememberAuthorizedImageLoader()
 
@@ -123,6 +125,14 @@ fun GroupChatPage(
     val group = joinedGroups.firstOrNull { it.id == resolvedGroupId }
 
     val memos by viewModel.memos.collectAsStateWithLifecycle()
+    val prefetchMemoEntities = remember(memos, activeAccountKey, resolvedGroupId) {
+        memos.map { memo ->
+            memo.toGroupMemoEntity(
+                accountKey = activeAccountKey,
+                groupId = resolvedGroupId,
+            )
+        }
+    }
     val resolvedQuoteMap by viewModel.visibleResolvedQuotes.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
@@ -208,6 +218,21 @@ fun GroupChatPage(
             memosViewModel.setInteractionActive(MemoUiScope.GROUP_CHAT, UiInteractionType.PULL_REFRESH, false)
         }
     }
+
+    MediaPreviewPrefetchEffect(
+        listState = listState,
+        memos = prefetchMemoEntities,
+        frozen = groupFrozen,
+        syncing = syncing,
+        currentAccountKey = currentAccount?.accountKey(),
+        okHttpClient = userStateViewModel.okHttpClient,
+        cacheResourceFile = { identifier, downloadedUri ->
+            memosViewModel.cacheResourceFile(identifier, downloadedUri)
+        },
+        cacheResourceThumbnail = { identifier, downloadedUri ->
+            memosViewModel.cacheResourceThumbnail(identifier, downloadedUri)
+        },
+    )
 
     LaunchedEffect(syncing, group?.id) {
         val wasRunning = syncWasRunning
@@ -540,6 +565,7 @@ private fun GroupChatList(
                     onClick = onOpenMemoDetail,
                     editGesture = editGesture,
                     previewMode = true,
+                    autoPreviewPrefetch = false,
                     showSyncStatus = true,
                     authorAvatarUrl = memo.creator?.avatarUrl,
                     authorName = memo.creator?.name,

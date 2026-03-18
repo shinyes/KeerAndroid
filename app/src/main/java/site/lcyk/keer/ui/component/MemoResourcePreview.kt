@@ -24,11 +24,14 @@ internal data class ObservedMemoResource(
 )
 
 @Composable
-internal fun rememberObservedMemoResource(resource: ResourceRepresentable): ObservedMemoResource {
+internal fun rememberObservedMemoResource(
+    resource: ResourceRepresentable,
+    autoPreviewPrefetch: Boolean = true,
+): ObservedMemoResource {
     val memosViewModel = LocalMemos.current
     val identifier = (resource as? ResourceEntity)?.identifier
-    val resourceFlow = remember(identifier) {
-        if (identifier.isNullOrBlank()) {
+    val resourceFlow = remember(identifier, autoPreviewPrefetch) {
+        if (!autoPreviewPrefetch || identifier.isNullOrBlank()) {
             flowOf(null)
         } else {
             memosViewModel.observeResource(identifier)
@@ -75,10 +78,13 @@ internal suspend fun ensureMemoImageCardPreview(
     cacheResourceFile: suspend (String, Uri) -> ApiResponse<Unit>,
     cacheResourceThumbnail: suspend (String, Uri) -> ApiResponse<Unit>,
 ) {
-    if (resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri) != null) {
+    val previewKey = previewCacheKey(resource)
+    resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)?.let { localThumbnail ->
+        MediaPreviewRuntimeCache.rememberPreviewUri(previewKey, localThumbnail)
         return
     }
-    if (resolveExistingLocalFileUri(resource.localUri) != null) {
+    resolveExistingLocalFileUri(resource.localUri)?.let { localMain ->
+        MediaPreviewRuntimeCache.rememberPreviewUri(previewKey, localMain)
         return
     }
 
@@ -138,7 +144,9 @@ internal suspend fun ensureMemoVideoCardPreview(
     currentAccountKey: String?,
     cacheResourceThumbnail: suspend (String, Uri) -> ApiResponse<Unit>,
 ) {
-    if (resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri) != null) {
+    val previewKey = previewCacheKey(resource)
+    resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)?.let { localThumbnail ->
+        MediaPreviewRuntimeCache.rememberPreviewUri(previewKey, localThumbnail)
         return
     }
     val remoteThumbnail = resource.thumbnailUri?.trim().orEmpty()
@@ -176,7 +184,3 @@ private fun resolveExistingLocalFileUri(rawLocalUri: String?): String? {
     return if (file.length() > 0L) local else null
 }
 
-private fun String.isHttpUrl(): Boolean {
-    val uri = toUri()
-    return uri.scheme == "http" || uri.scheme == "https"
-}

@@ -95,11 +95,11 @@ class MemosViewModel @Inject constructor(
     private val transientDetailMemos = linkedMapOf<String, MemoEntity>()
     private val feedProjectionStore = FeedProjectionStore(
         scope = viewModelScope,
-        idleCommitDelayMillis = 180L,
+        idleCommitDelayMillis = SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS,
     )
     private val drawerProjectionStore = DrawerProjectionStore(
         scope = viewModelScope,
-        idleCommitDelayMillis = 180L,
+        idleCommitDelayMillis = SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS,
     )
 
     var errorMessage: String? by mutableStateOf(null)
@@ -166,11 +166,7 @@ class MemosViewModel @Inject constructor(
 
     private val projectionMemos: StateFlow<List<MemoEntity>> =
         memoService.memos
-            .debounceWithSyncState(
-                syncing = syncStatus.map { status -> status.syncing },
-                idleDelayMillis = PROJECTION_MEMO_DEBOUNCE_IDLE_MILLIS,
-                syncingDelayMillis = PROJECTION_MEMO_DEBOUNCE_WHILE_SYNCING_MILLIS,
-            )
+            .debounce(PROJECTION_MEMO_DEBOUNCE_MILLIS)
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val liveHomeMemos: StateFlow<List<HomeMemoItem>> =
@@ -321,17 +317,18 @@ class MemosViewModel @Inject constructor(
                 }
         }
 
-        viewModelScope.launch {
-            uiInteractionGate.observeScopeFrozen(MemoUiScope.FEED).collectLatest { frozen ->
-                feedProjectionStore.setFrozen(frozen)
-            }
-        }
-
-        viewModelScope.launch {
-            uiInteractionGate.observeScopeFrozen(MemoUiScope.DRAWER).collectLatest { frozen ->
-                drawerProjectionStore.setFrozen(frozen)
-            }
-        }
+        SyncFreezeController(
+            scope = viewModelScope,
+            syncing = syncStatus.map { status -> status.syncing },
+            interactionFrozen = uiInteractionGate.observeScopeFrozen(MemoUiScope.FEED),
+            onFrozenChanged = feedProjectionStore::setFrozen,
+        )
+        SyncFreezeController(
+            scope = viewModelScope,
+            syncing = syncStatus.map { status -> status.syncing },
+            interactionFrozen = uiInteractionGate.observeScopeFrozen(MemoUiScope.DRAWER),
+            onFrozenChanged = drawerProjectionStore::setFrozen,
+        )
 
     }
 
@@ -360,11 +357,15 @@ class MemosViewModel @Inject constructor(
     }
 
     suspend fun refreshHomeFeed(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
-        performManualSync(domains = setOf(SyncDomain.MEMOS, SyncDomain.GROUPS))
+        val result = performManualSync(domains = setOf(SyncDomain.MEMOS))
+        requestMaintenanceSync()
+        result
     }
 
     suspend fun refreshExploreFeed(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
-        performManualSync(domains = setOf(SyncDomain.MEMOS, SyncDomain.GROUPS))
+        val result = performManualSync(domains = setOf(SyncDomain.MEMOS))
+        requestMaintenanceSync()
+        result
     }
 
     fun loadTags() = Unit
@@ -495,6 +496,17 @@ class MemosViewModel @Inject constructor(
         return ManualSyncResult.Failed(message)
     }
 
+    private fun requestMaintenanceSync() {
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(MANUAL_SYNC_MAINTENANCE_DELAY_MILLIS)
+            memoService.requestSync(
+                trigger = SyncTrigger.AUTO,
+                force = false,
+                domains = setOf(SyncDomain.GROUPS, SyncDomain.USERS, SyncDomain.PROFILE),
+            )
+        }
+    }
+
     private fun calculateMatrix(sourceMemos: List<MemoEntity>): List<DailyUsageStat> {
         val countMap = HashMap<LocalDate, Int>()
 
@@ -580,8 +592,9 @@ class MemosViewModel @Inject constructor(
     private companion object {
         private const val MAX_TRANSIENT_DETAIL_MEMO_COUNT = 200
         private const val FEED_PROFILE_LOG_THRESHOLD_MILLIS = 12L
-        private const val PROJECTION_MEMO_DEBOUNCE_IDLE_MILLIS = 48L
-        private const val PROJECTION_MEMO_DEBOUNCE_WHILE_SYNCING_MILLIS = 120L
+        private const val PROJECTION_MEMO_DEBOUNCE_MILLIS = 64L
+        private const val SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS = 300L
+        private const val MANUAL_SYNC_MAINTENANCE_DELAY_MILLIS = 1_200L
         private const val FEED_PROFILE_TAG = "FeedProfile"
     }
 }

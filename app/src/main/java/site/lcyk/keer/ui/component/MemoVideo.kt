@@ -64,36 +64,46 @@ import timber.log.Timber
 @Composable
 fun MemoVideo(
     resource: ResourceRepresentable,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    autoPreviewPrefetch: Boolean = true,
 ) {
     val context = LocalContext.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState(initial = null)
     val memosViewModel = LocalMemos.current
-    val observedResource = rememberObservedMemoResource(resource)
+    val observedResource = rememberObservedMemoResource(
+        resource = resource,
+        autoPreviewPrefetch = autoPreviewPrefetch,
+    )
     val liveResource = observedResource.resource
     var fallbackPreviewUri by remember(resource.remoteId, resource.uri) { mutableStateOf<String?>(null) }
     var showPlayerDialog by remember(resource.remoteId, resource.uri, resource.localUri) {
         mutableStateOf(false)
     }
     val imageLoader = rememberAuthorizedImageLoader()
+    val runtimeCachedPreviewUri = MediaPreviewRuntimeCache.resolvePreviewUri(previewCacheKey(liveResource))
     val previewModel = remember(
         fallbackPreviewUri,
+        runtimeCachedPreviewUri,
         liveResource.thumbnailLocalUri,
         liveResource.thumbnailUri,
         liveResource.localUri,
         liveResource.uri
     ) {
-        fallbackPreviewUri ?: resolveMemoVideoPreviewUri(liveResource)
+        fallbackPreviewUri ?: runtimeCachedPreviewUri ?: resolveMemoVideoPreviewUri(liveResource)
     }
 
     LaunchedEffect(
+        autoPreviewPrefetch,
         observedResource.tracked,
         (liveResource as? ResourceEntity)?.identifier,
         liveResource.thumbnailUri,
         liveResource.thumbnailLocalUri,
         currentAccount?.accountKey()
     ) {
+        if (!autoPreviewPrefetch) {
+            return@LaunchedEffect
+        }
         val resourceEntity = liveResource as? ResourceEntity
         if (observedResource.tracked && resourceEntity != null) {
             ensureMemoVideoCardPreview(
@@ -111,24 +121,14 @@ fun MemoVideo(
         if (fallbackPreviewUri != null || liveResource.encryptionMetadata.isNullOrBlank()) {
             return@LaunchedEffect
         }
-        val remoteThumbnail = liveResource.thumbnailUri?.trim().orEmpty()
-        if (!remoteThumbnail.isHttpUrl()) {
-            return@LaunchedEffect
-        }
-        MemoResourcePreviewLoader.run("temp-video-thumb:${liveResource.remoteId ?: liveResource.uri}") {
-            downloadResourceVariantToTemp(
-                context = context,
-                okHttpClient = userStateViewModel.okHttpClient,
-                resource = liveResource,
-                accountKey = resolveResourceAccountKey(liveResource, currentAccount?.accountKey()),
-                url = remoteThumbnail,
-                filename = liveResource.filename,
-                variant = EncryptedBlobVariant.THUMBNAIL,
-                cacheDirName = "thumbnail_cache",
-                prefix = "video_thumb_",
-            )?.let { downloaded ->
-                fallbackPreviewUri = downloaded.toURI().toString()
-            }
+        val prefetched = MediaPreviewPrefetchCoordinator.prefetchUntrackedResourcePreview(
+            context = context,
+            okHttpClient = userStateViewModel.okHttpClient,
+            resource = liveResource,
+            currentAccountKey = currentAccount?.accountKey(),
+        )
+        if (!prefetched.isNullOrBlank()) {
+            fallbackPreviewUri = prefetched
         }
     }
 
@@ -294,6 +294,9 @@ private fun MemoVideoPlayerDialog(
 }
 
 private fun resolveMemoVideoPreviewUri(resource: ResourceRepresentable): String {
+    MediaPreviewRuntimeCache.resolvePreviewUri(previewCacheKey(resource))?.let { runtimePreview ->
+        return runtimePreview
+    }
     val localThumbnail = resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)
     if (!localThumbnail.isNullOrBlank()) {
         return localThumbnail
@@ -314,12 +317,6 @@ private fun resolveMemoVideoPreviewUri(resource: ResourceRepresentable): String 
         return local
     }
     return resource.uri
-}
-
-private fun String.isHttpUrl(): Boolean {
-    val normalized = trim()
-    return normalized.startsWith("http://", ignoreCase = true) ||
-        normalized.startsWith("https://", ignoreCase = true)
 }
 
 @UnstableApi

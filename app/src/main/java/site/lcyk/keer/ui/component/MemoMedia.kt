@@ -43,11 +43,20 @@ fun ResourceRepresentable.isMediaResource(): Boolean {
 @UnstableApi
 fun MemoMedia(
     resource: ResourceRepresentable,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    autoPreviewPrefetch: Boolean = true,
 ) {
     if (resource.isVideoResource()) {
-        MemoVideo(resource = resource, modifier = modifier)
+        MemoVideo(
+            resource = resource,
+            modifier = modifier,
+            autoPreviewPrefetch = autoPreviewPrefetch,
+        )
     } else {
-        MemoImage(resource = resource, modifier = modifier)
+        MemoImage(
+            resource = resource,
+            modifier = modifier,
+            autoPreviewPrefetch = autoPreviewPrefetch,
+        )
     }
 }

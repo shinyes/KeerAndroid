@@ -786,7 +786,10 @@ class SyncingRepository(
 
             val equivalent = memoEquivalent(local, remoteMemo)
             if (equivalent) {
-                queueMarkSynced(local, remoteMemo)
+                val remoteChanged = hasRemoteChanged(local, remoteMemo)
+                if (local.needsSync || local.remoteId == null || remoteChanged) {
+                    queueMarkSynced(local, remoteMemo)
+                }
                 continue
             }
 
@@ -1371,6 +1374,22 @@ class SyncingRepository(
     }
 
     private suspend fun markSyncedInTransaction(local: MemoEntity, remoteMemo: Memo) {
+        val resolvedRemoteUpdatedAt = remoteMemo.updatedAt ?: remoteMemo.date
+        if (
+            !local.needsSync &&
+            !local.isDeleted &&
+            local.remoteId == remoteMemoId(remoteMemo) &&
+            local.archived == remoteMemo.archived &&
+            local.quoteSourceKind == remoteMemo.quoteSourceKind &&
+            local.quoteSource == remoteMemo.quoteSource &&
+            local.quoteStatus == remoteMemo.quoteStatus &&
+            local.quoteContentPreview == remoteMemo.quoteContentPreview &&
+            local.quoteDate == remoteMemo.quoteDate &&
+            local.quoteHasAttachments == remoteMemo.quoteHasAttachments &&
+            local.lastSyncedAt == resolvedRemoteUpdatedAt
+        ) {
+            return
+        }
         memoDao.insertMemo(
             local.copy(
                 remoteId = remoteMemoId(remoteMemo),
@@ -1383,13 +1402,8 @@ class SyncingRepository(
                 quoteContentPreview = remoteMemo.quoteContentPreview,
                 quoteDate = remoteMemo.quoteDate,
                 quoteHasAttachments = remoteMemo.quoteHasAttachments,
-                lastSyncedAt = remoteMemo.updatedAt ?: remoteMemo.date
+                lastSyncedAt = resolvedRemoteUpdatedAt
             )
-        )
-        memoDao.replaceMemoTags(
-            memoId = local.identifier,
-            accountKey = accountKey,
-            tags = remoteMemo.tags,
         )
     }
 
@@ -1802,9 +1816,9 @@ class SyncingRepository(
             "Failed to upload one or more attachments during sync"
         private const val MAX_UPLOADED_THUMBNAIL_BYTES = 2 * 1024 * 1024
         private const val CURRENT_USER_REFRESH_INTERVAL_MILLIS = 5 * 60 * 1000L
-        private const val PULL_SYNC_MEMO_PAGE_SIZE = 400
+        private const val PULL_SYNC_MEMO_PAGE_SIZE = 120
         private const val MAX_PULL_SYNC_PAGES_PER_SESSION = 20
-        private const val SYNC_APPLY_CHUNK_SIZE = 120
+        private const val SYNC_APPLY_CHUNK_SIZE = 24
     }
 
 }

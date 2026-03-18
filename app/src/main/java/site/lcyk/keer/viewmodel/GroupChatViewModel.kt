@@ -59,7 +59,11 @@ class GroupChatViewModel @Inject constructor(
 ) : ViewModel() {
     private val lastGroupSyncAtMillis = mutableMapOf<String, Long>()
     private val lastGroupTagFetchAtMillis = mutableMapOf<String, Long>()
-    private val snapshotStore = InteractionSnapshotStore(viewModelScope, GroupChatUiState())
+    private val snapshotStore = InteractionSnapshotStore(
+        scope = viewModelScope,
+        initialState = GroupChatUiState(),
+        idleCommitDelayMillis = SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS,
+    )
 
     val memos: StateFlow<List<Memo>> =
         snapshotStore.visibleState
@@ -81,11 +85,12 @@ class GroupChatViewModel @Inject constructor(
     val groupTags: StateFlow<List<String>> = _groupTags.asStateFlow()
 
     init {
-        viewModelScope.launch {
-            uiInteractionGate.observeScopeFrozen(MemoUiScope.GROUP_CHAT).collectLatest { frozen ->
-                snapshotStore.setFrozen(frozen)
-            }
-        }
+        SyncFreezeController(
+            scope = viewModelScope,
+            syncing = memoService.syncStatus.map { status -> status.syncing },
+            interactionFrozen = uiInteractionGate.observeScopeFrozen(MemoUiScope.GROUP_CHAT),
+            onFrozenChanged = snapshotStore::setFrozen,
+        )
     }
 
     suspend fun loadGroupMemos(groupId: String, forceSync: Boolean = false) = withContext(viewModelScope.coroutineContext) {
@@ -820,6 +825,7 @@ class GroupChatViewModel @Inject constructor(
         private const val GROUP_AUTO_SYNC_INTERVAL_MILLIS = 120_000L
         private const val GROUP_PENDING_SYNC_INTERVAL_MILLIS = 20_000L
         private const val GROUP_TAG_FETCH_INTERVAL_MILLIS = 120_000L
+        private const val SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS = 300L
     }
 }
 
