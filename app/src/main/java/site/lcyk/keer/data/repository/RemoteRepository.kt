@@ -56,7 +56,8 @@ data class SyncPullUserPatch(
 )
 
 data class SyncPullGroupPatch(
-    val directory: List<MemoGroup> = emptyList(),
+    val upserts: List<MemoGroup> = emptyList(),
+    val deletes: List<String> = emptyList(),
 )
 
 data class SyncPullGroupMessagesPatch(
@@ -65,9 +66,9 @@ data class SyncPullGroupMessagesPatch(
 
 data class SyncPullGroupMessagesGroupPatch(
     val groupId: String,
-    val fullReplace: Boolean,
     val hasUnread: Boolean,
-    val messages: List<Memo>,
+    val upserts: List<Memo>,
+    val deletes: List<String>,
     val tags: List<String>,
 )
 

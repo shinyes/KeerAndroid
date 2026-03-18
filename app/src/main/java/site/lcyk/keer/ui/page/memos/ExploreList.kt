@@ -76,10 +76,6 @@ fun ExploreList(
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
-    val syncing by memosViewModel.syncStatus
-        .map { it.syncing }
-        .distinctUntilChanged()
-        .collectAsStateWithLifecycle(initialValue = false)
     val exploreFrozen by memosViewModel.observeScopeFrozen(MemoUiScope.EXPLORE)
         .collectAsStateWithLifecycle(initialValue = false)
     val mutationErrorMessage by viewModel.mutationErrorMessage.collectAsStateWithLifecycle()
@@ -142,7 +138,6 @@ fun ExploreList(
         listState = listState,
         memos = prefetchMemoEntities,
         frozen = exploreFrozen,
-        syncing = syncing,
         currentAccountKey = currentAccount?.accountKey(),
         okHttpClient = userStateViewModel.okHttpClient,
         cacheResourceFile = { identifier, downloadedUri ->
@@ -158,14 +153,13 @@ fun ExploreList(
         listState = listState,
         refreshState = refreshState,
         contentPadding = contentPadding,
-        syncing = syncing,
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
         accountKey = accountKey,
         resolvedQuoteMap = resolvedQuoteMap,
         currentUserId = currentUserId,
         onRefresh = {
-            if (syncing) {
+            if (memosViewModel.syncStatus.value.syncing) {
                 return@ExploreMemoFeed
             }
             scope.launch {
@@ -293,7 +287,6 @@ private fun ExploreMemoFeed(
     listState: androidx.compose.foundation.lazy.LazyListState,
     refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState,
     contentPadding: PaddingValues,
-    syncing: Boolean,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
     accountKey: String,
@@ -307,15 +300,12 @@ private fun ExploreMemoFeed(
     onRequestQuote: (ExploreMemoItem) -> Unit,
 ) {
     RefreshableListContainer(
-        isRefreshing = syncing,
+        isRefreshing = false,
         pullRefreshActive = false,
         onRefresh = onRefresh,
         state = refreshState,
         indicator = {
-            PullSyncLineIndicator(
-                refreshState = refreshState,
-                syncing = syncing,
-            )
+            ExplorePullSyncIndicator(refreshState = refreshState)
         },
         modifier = Modifier.fillMaxSize(),
     ) {
@@ -362,6 +352,21 @@ private fun ExploreMemoFeed(
             }
         }
     }
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.ExplorePullSyncIndicator(
+    refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState
+) {
+    val memosViewModel = LocalMemos.current
+    val syncing by memosViewModel.syncStatus
+        .map { status -> status.syncing }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = false)
+    PullSyncLineIndicator(
+        refreshState = refreshState,
+        syncing = syncing,
+    )
 }
 
 private fun Memo.toExploreMemoEntity(accountKey: String): MemoEntity {

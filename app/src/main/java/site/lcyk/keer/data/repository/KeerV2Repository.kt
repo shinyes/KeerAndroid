@@ -661,7 +661,7 @@ class KeerV2Repository(
 
         val dto = response.data
         val groupMessageCreators = dto.patches.groupMessages.groups
-            .flatMap { groupPatch -> groupPatch.messages.map { message -> message.creator } }
+            .flatMap { groupPatch -> groupPatch.upserts.map { message -> message.creator } }
             .distinct()
         val userMap = getUsersByIDs(groupMessageCreators)
 
@@ -683,17 +683,30 @@ class KeerV2Repository(
                     upserts = dto.patches.users.upserts.map { user -> convertUser(user) },
                 ),
                 groups = SyncPullGroupPatch(
-                    directory = dto.patches.groups.directory.map { group -> convertGroup(group) },
+                    upserts = dto.patches.groups.upserts.map { group -> convertGroup(group) },
+                    deletes = dto.patches.groups.deletes
+                        .asSequence()
+                        .map(::getName)
+                        .map(::getId)
+                        .filter { groupId -> groupId.isNotBlank() }
+                        .distinct()
+                        .toList(),
                 ),
                 groupMessages = SyncPullGroupMessagesPatch(
                     groups = dto.patches.groupMessages.groups.map { groupPatch ->
                         SyncPullGroupMessagesGroupPatch(
                             groupId = getId(groupPatch.group),
-                            fullReplace = groupPatch.fullReplace,
                             hasUnread = groupPatch.hasUnread,
-                            messages = groupPatch.messages.map { message ->
+                            upserts = groupPatch.upserts.map { message ->
                                 convertGroupMessage(message, userMap)
                             },
+                            deletes = groupPatch.deletes
+                                .asSequence()
+                                .map(::getName)
+                                .map(::getId)
+                                .filter { remoteId -> remoteId.isNotBlank() }
+                                .distinct()
+                                .toList(),
                             tags = normalizeTags(groupPatch.tags),
                         )
                     }

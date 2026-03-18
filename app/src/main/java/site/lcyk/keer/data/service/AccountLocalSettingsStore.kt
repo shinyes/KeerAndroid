@@ -186,6 +186,30 @@ class AccountLocalSettingsStore @Inject constructor(
         }
     }
 
+    suspend fun readGroupSyncCursor(accountKey: String): String? {
+        val raw = userSettings(accountKey)
+            ?.groupSyncCursor
+            .orEmpty()
+            .trim()
+        if (raw.isBlank()) {
+            return null
+        }
+        return if (raw.all(Char::isDigit) && raw.toLongOrNull() != null) {
+            raw
+        } else {
+            null
+        }
+    }
+
+    suspend fun writeGroupSyncCursor(accountKey: String, cursor: String) {
+        val normalizedCursor = cursor.trim()
+            .takeIf { value -> value.isNotEmpty() && value.all(Char::isDigit) && value.toLongOrNull() != null }
+            ?: "0"
+        updateUserData(accountKey) { target ->
+            target.copy(settings = target.settings.copy(groupSyncCursor = normalizedCursor))
+        }
+    }
+
     suspend fun readUserSyncAnchor(accountKey: String): Instant? {
         return userSettings(accountKey)
             ?.userSyncAnchor

@@ -312,7 +312,8 @@ data class SyncPullUserPatch(
 
 @Serializable
 data class SyncPullGroupPatch(
-    val directory: List<KeerV2Group> = emptyList(),
+    val upserts: List<KeerV2Group> = emptyList(),
+    val deletes: List<String> = emptyList(),
 )
 
 @Serializable
@@ -323,10 +324,9 @@ data class SyncPullGroupMessagesPatch(
 @Serializable
 data class SyncPullGroupMessagesGroupPatch(
     val group: String,
-    @EncodeDefault
-    val fullReplace: Boolean = true,
     val hasUnread: Boolean = false,
-    val messages: List<KeerV2GroupMessage> = emptyList(),
+    val upserts: List<KeerV2GroupMessage> = emptyList(),
+    val deletes: List<String> = emptyList(),
     val tags: List<String> = emptyList(),
 )
 

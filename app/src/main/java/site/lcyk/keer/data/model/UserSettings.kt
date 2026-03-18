@@ -10,6 +10,7 @@ data class UserSettings(
     val avatarUri: String = "",
     val avatarSyncPending: Boolean = false,
     val memoSyncAnchor: String = "",
+    val groupSyncCursor: String = "",
     val userSyncAnchor: String = "",
     val syncedUserIds: List<String> = emptyList(),
 )

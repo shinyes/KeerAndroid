@@ -50,6 +50,15 @@ interface OfflineGroupDao {
     )
     suspend fun markGroupRead(accountKey: String, groupId: String)
 
+    @Query(
+        """
+        UPDATE offline_groups
+        SET hasUnreadMessages = :hasUnread
+        WHERE accountKey = :accountKey AND groupId = :groupId AND hasUnreadMessages != :hasUnread
+        """
+    )
+    suspend fun updateGroupUnreadState(accountKey: String, groupId: String, hasUnread: Boolean)
+
     @Query("DELETE FROM offline_groups WHERE accountKey = :accountKey")
     suspend fun deleteGroupsByAccount(accountKey: String)
 
@@ -134,6 +143,15 @@ interface OfflineGroupDao {
     @Query("SELECT * FROM offline_cached_group_memos WHERE accountKey = :accountKey AND groupId = :groupId ORDER BY updatedAtEpochMillis DESC")
     suspend fun getCachedGroupMemos(accountKey: String, groupId: String): List<OfflineCachedGroupMemoEntity>
 
+    @Query(
+        """
+        SELECT * FROM offline_cached_group_memos
+        WHERE accountKey = :accountKey AND groupId = :groupId AND remoteId = :remoteId
+        LIMIT 1
+        """
+    )
+    suspend fun getCachedGroupMemo(accountKey: String, groupId: String, remoteId: String): OfflineCachedGroupMemoEntity?
+
     @Query("SELECT * FROM offline_cached_group_memos WHERE accountKey = :accountKey ORDER BY updatedAtEpochMillis DESC")
     fun observeCachedGroupMemos(accountKey: String): Flow<List<OfflineCachedGroupMemoEntity>>
 
@@ -154,6 +172,15 @@ interface OfflineGroupDao {
 
     @Query("SELECT * FROM offline_cached_group_tags WHERE accountKey = :accountKey")
     suspend fun getCachedGroupTags(accountKey: String): List<OfflineCachedGroupTagEntity>
+
+    @Query(
+        """
+        SELECT * FROM offline_cached_group_tags
+        WHERE accountKey = :accountKey AND groupId = :groupId
+        LIMIT 1
+        """
+    )
+    suspend fun getCachedGroupTag(accountKey: String, groupId: String): OfflineCachedGroupTagEntity?
 
     @Upsert
     suspend fun upsertCachedGroupTag(tagSet: OfflineCachedGroupTagEntity)

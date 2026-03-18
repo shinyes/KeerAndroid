@@ -81,10 +81,6 @@ fun MemosList(
     val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
     val generalSettings by userStateViewModel.generalSettings.collectAsStateWithLifecycle()
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
-    val syncing by viewModel.syncStatus
-        .map { it.syncing }
-        .distinctUntilChanged()
-        .collectAsStateWithLifecycle(initialValue = false)
     val feedFrozen by viewModel.observeScopeFrozen(MemoUiScope.FEED)
         .collectAsStateWithLifecycle(initialValue = false)
     val visibleMemos by viewModel.visibleMemos.collectAsStateWithLifecycle()
@@ -184,7 +180,6 @@ fun MemosList(
         listState = lazyListState,
         memos = prefetchMemos,
         frozen = feedFrozen,
-        syncing = syncing,
         currentAccountKey = currentAccount?.accountKey(),
         okHttpClient = userStateViewModel.okHttpClient,
         cacheResourceFile = { identifier, downloadedUri ->
@@ -200,13 +195,12 @@ fun MemosList(
         lazyListState = lazyListState,
         refreshState = refreshState,
         contentPadding = contentPadding,
-        syncing = syncing,
         showSyncStatus = currentAccount !is Account.Local,
         editGesture = editGesture,
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
         onRefresh = {
-            if (syncing) {
+            if (viewModel.syncStatus.value.syncing) {
                 return@MemoFeedList
             }
             scope.launch {
@@ -247,7 +241,6 @@ private fun MemoFeedList(
     lazyListState: LazyListState,
     refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState,
     contentPadding: PaddingValues,
-    syncing: Boolean,
     showSyncStatus: Boolean,
     editGesture: MemoEditGesture,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
@@ -260,15 +253,12 @@ private fun MemoFeedList(
     actionButton: (@Composable (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)?,
 ) {
     RefreshableListContainer(
-        isRefreshing = syncing,
+        isRefreshing = false,
         pullRefreshActive = false,
         onRefresh = onRefresh,
         state = refreshState,
         indicator = {
-            PullSyncLineIndicator(
-                refreshState = refreshState,
-                syncing = syncing
-            )
+            FeedPullSyncIndicator(refreshState = refreshState)
         },
         modifier = Modifier.fillMaxSize()
     ) {
@@ -301,6 +291,22 @@ private fun MemoFeedList(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.FeedPullSyncIndicator(
+    refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState
+) {
+    val viewModel = LocalMemos.current
+    val syncing by viewModel.syncStatus
+        .map { status -> status.syncing }
+        .distinctUntilChanged()
+        .collectAsStateWithLifecycle(initialValue = false)
+    PullSyncLineIndicator(
+        refreshState = refreshState,
+        syncing = syncing
+    )
 }
 
 @Composable

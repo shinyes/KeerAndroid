@@ -87,7 +87,6 @@ class GroupChatViewModel @Inject constructor(
     init {
         SyncFreezeController(
             scope = viewModelScope,
-            syncing = memoService.syncStatus.map { status -> status.syncing },
             interactionFrozen = uiInteractionGate.observeScopeFrozen(MemoUiScope.GROUP_CHAT),
             onFrozenChanged = snapshotStore::setFrozen,
         )

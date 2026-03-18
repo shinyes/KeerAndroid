@@ -7,96 +7,89 @@ import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-import site.lcyk.keer.data.model.CachedMemoItem
-import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.PendingGroupMemo
-import site.lcyk.keer.data.model.PendingGroupOperation
 import site.lcyk.keer.data.model.PendingGroupOperationType
 import site.lcyk.keer.data.model.toCachedMemoItem
+import site.lcyk.keer.data.repository.SyncPullDomain
 import site.lcyk.keer.data.repository.RemoteRepository
 import site.lcyk.keer.data.repository.ResourceEncryptionScope
 
 @Singleton
 class GroupsSyncRunner @Inject constructor(
     private val accountService: AccountService,
+    private val accountLocalSettingsStore: AccountLocalSettingsStore,
     private val offlineGroupStore: OfflineGroupStore,
 ) {
     suspend fun sync(groupId: String? = null): ApiResponse<Unit> = withContext(Dispatchers.IO) {
         val normalizedGroupId = groupId?.trim().orEmpty()
         val remoteRepository = accountService.getRemoteRepository()
             ?: return@withContext ApiResponse.Success(Unit)
-        return@withContext if (normalizedGroupId.isEmpty()) {
-            refreshAllGroupCaches(remoteRepository)
-        } else {
-            refreshSingleGroupCache(remoteRepository, normalizedGroupId)
-        }
-    }
-
-    private suspend fun refreshSingleGroupCache(
-        remoteRepository: RemoteRepository,
-        groupId: String,
-    ): ApiResponse<Unit> {
         val pendingOperationSync = syncPendingGroupOperations(remoteRepository)
         if (pendingOperationSync !is ApiResponse.Success) {
-            return pendingOperationSync
+            return@withContext pendingOperationSync
         }
-        val pendingMessageSync = syncPendingGroupMemos(remoteRepository, groupId)
+        val pendingMessageSync = syncPendingGroupMemos(
+            remoteRepository,
+            groupId = normalizedGroupId.ifBlank { null }
+        )
         if (pendingMessageSync !is ApiResponse.Success) {
-            return pendingMessageSync
+            return@withContext pendingMessageSync
         }
-        val accountKey = readCurrentAccountKey() ?: return ApiResponse.Success(Unit)
-        when (val directoryRefresh = refreshGroupDirectory(remoteRepository, accountKey)) {
-            is ApiResponse.Success -> Unit
-            is ApiResponse.Failure.Error -> {
-                return ApiResponse.exception(
-                    IllegalStateException("Group cache refresh failed: HTTP ${directoryRefresh.statusCode}")
-                )
-            }
-            is ApiResponse.Failure.Exception -> {
-                return ApiResponse.exception(
-                    IllegalStateException(
-                        directoryRefresh.throwable.message ?: "Group cache refresh failed",
-                        directoryRefresh.throwable
-                    )
-                )
-            }
-        }
-        return refreshGroupCache(remoteRepository, accountKey, groupId)
+        val accountKey = readCurrentAccountKey() ?: return@withContext ApiResponse.Success(Unit)
+        return@withContext runPullSync(
+            remoteRepository = remoteRepository,
+            accountKey = accountKey,
+            scopedGroupId = normalizedGroupId.ifBlank { null },
+        )
     }
 
-    private suspend fun refreshAllGroupCaches(
+    private suspend fun runPullSync(
         remoteRepository: RemoteRepository,
+        accountKey: String,
+        scopedGroupId: String?,
     ): ApiResponse<Unit> {
-        val accountKey = readCurrentAccountKey() ?: return ApiResponse.Success(Unit)
-        val pendingOperationSync = syncPendingGroupOperations(remoteRepository)
-        if (pendingOperationSync !is ApiResponse.Success) {
-            return pendingOperationSync
-        }
-        val pendingMessageSync = syncPendingGroupMemos(remoteRepository, groupId = null)
-        if (pendingMessageSync !is ApiResponse.Success) {
-            return pendingMessageSync
-        }
-        val groups = when (val directoryRefresh = refreshGroupDirectory(remoteRepository, accountKey)) {
-            is ApiResponse.Success -> directoryRefresh.data
-            is ApiResponse.Failure.Error -> {
-                return ApiResponse.exception(
-                    IllegalStateException("Group cache refresh failed: HTTP ${directoryRefresh.statusCode}")
-                )
-            }
-            is ApiResponse.Failure.Exception -> {
-                return ApiResponse.exception(
-                    IllegalStateException(
-                        directoryRefresh.throwable.message ?: "Group cache refresh failed",
-                        directoryRefresh.throwable
+        var cursor = accountLocalSettingsStore.readGroupSyncCursor(accountKey)?.trim().orEmpty()
+            .ifBlank { "0" }
+        var hasMore = true
+        var pageCount = 0
+
+        while (hasMore && pageCount < MAX_PULL_SYNC_PAGES_PER_SESSION) {
+            val pageCursor = cursor
+            val response = remoteRepository.pullSync(
+                cursor = pageCursor,
+                domains = setOf(SyncPullDomain.GROUPS, SyncPullDomain.GROUP_MESSAGES),
+                groupScopes = scopedGroupId?.let { scoped -> listOf("groups/$scoped") }.orEmpty(),
+                limit = PULL_SYNC_GROUP_PAGE_SIZE,
+            )
+            when (response) {
+                is ApiResponse.Success -> {
+                    applyGroupSyncPage(
+                        accountKey = accountKey,
+                        patches = response.data.patches,
                     )
-                )
+                    val nextCursor = response.data.nextCursor.trim()
+                    val stalledCursor = nextCursor.isEmpty() || nextCursor == pageCursor
+                    if (!stalledCursor) {
+                        cursor = nextCursor
+                        accountLocalSettingsStore.writeGroupSyncCursor(accountKey, cursor)
+                    }
+                    hasMore = response.data.hasMore && !stalledCursor
+                }
+                is ApiResponse.Failure.Error -> {
+                    return ApiResponse.exception(
+                        IllegalStateException("Group cache refresh failed: HTTP ${response.statusCode.code}")
+                    )
+                }
+                is ApiResponse.Failure.Exception -> {
+                    return ApiResponse.exception(
+                        IllegalStateException(
+                            response.throwable.message ?: "Group cache refresh failed",
+                            response.throwable
+                        )
+                    )
+                }
             }
-        }
-        for (group in groups) {
-            val refreshed = refreshGroupCache(remoteRepository, accountKey, group.id)
-            if (refreshed !is ApiResponse.Success) {
-                return refreshed
-            }
+            pageCount += 1
         }
         return ApiResponse.Success(Unit)
     }
@@ -307,94 +300,82 @@ class GroupsSyncRunner @Inject constructor(
         }
     }
 
-    private suspend fun refreshGroupCache(
-        remoteRepository: RemoteRepository,
+    private suspend fun applyGroupSyncPage(
         accountKey: String,
-        groupId: String
-    ): ApiResponse<Unit> {
-        val normalizedGroupId = groupId.trim()
-        if (normalizedGroupId.isEmpty()) {
-            return ApiResponse.Success(Unit)
+        patches: site.lcyk.keer.data.repository.SyncPullPatches,
+    ) {
+        if (patches.groups.upserts.isNotEmpty()) {
+            patches.groups.upserts.forEach { group ->
+                offlineGroupStore.upsertGroup(accountKey, group)
+            }
+        }
+        if (patches.groups.deletes.isNotEmpty()) {
+            patches.groups.deletes
+                .asSequence()
+                .map(String::trim)
+                .filter(String::isNotEmpty)
+                .distinct()
+                .forEach { groupId ->
+                    offlineGroupStore.removeGroupReferences(accountKey, groupId)
+                }
         }
 
-        val allMessages = mutableListOf<site.lcyk.keer.data.model.Memo>()
-        var pageToken: String? = null
-        do {
-            when (
-                val response = remoteRepository.listGroupMessages(
-                    groupId = normalizedGroupId,
-                    pageSize = 100,
-                    pageToken = pageToken
-                )
-            ) {
-                is ApiResponse.Success -> {
-                    allMessages += response.data.first
-                    pageToken = response.data.second
-                }
-                is ApiResponse.Failure.Error -> {
-                    return ApiResponse.exception(
-                        IllegalStateException("Group message refresh failed: HTTP ${response.statusCode}")
-                    )
-                }
-                is ApiResponse.Failure.Exception -> {
-                    return ApiResponse.exception(
-                        IllegalStateException(
-                            response.throwable.message ?: "Group message refresh failed",
-                            response.throwable
-                        )
+        for (groupPatch in patches.groupMessages.groups) {
+            val groupId = groupPatch.groupId.trim()
+            if (groupId.isEmpty()) {
+                continue
+            }
+
+            val upserts = groupPatch.upserts
+            if (upserts.isNotEmpty()) {
+                upserts.forEach { memo ->
+                    offlineGroupStore.upsertCachedGroupMemo(
+                        accountKey,
+                        groupId,
+                        memo.toCachedMemoItem(groupId = groupId)
                     )
                 }
             }
-        } while (!pageToken.isNullOrBlank())
 
-        offlineGroupStore.replaceCachedGroupMemos(
-            accountKey = accountKey,
-            groupId = normalizedGroupId,
-            memos = allMessages.map { memo -> memo.toCachedMemoItem(groupId = normalizedGroupId) }
-        )
-        val cachedTags = offlineGroupStore.getCachedGroupTags(accountKey, normalizedGroupId)
-        val pendingTags = offlineGroupStore.getPendingGroupOperations(accountKey)
-            .asSequence()
-            .filter { operation ->
-                operation.type == PendingGroupOperationType.ADD_TAG &&
-                    operation.groupId == normalizedGroupId
-            }
-            .mapNotNull { operation ->
-                operation.tag?.trim()?.takeIf(String::isNotEmpty)
-            }
-            .toList()
-        val messageTags = allMessages.flatMap { memo -> memo.tags }
-        offlineGroupStore.upsertCachedGroupTags(
-            accountKey,
-            normalizedGroupId,
-            normalizeTags(cachedTags + messageTags + pendingTags)
-        )
-
-        return ApiResponse.Success(Unit)
-    }
-
-    private suspend fun refreshGroupDirectory(
-        remoteRepository: RemoteRepository,
-        accountKey: String
-    ): ApiResponse<List<MemoGroup>> {
-        return when (val groupsResponse = remoteRepository.listGroups()) {
-            is ApiResponse.Success -> {
-                offlineGroupStore.replaceGroups(accountKey, groupsResponse.data)
-                ApiResponse.Success(groupsResponse.data)
-            }
-            is ApiResponse.Failure.Error -> {
-                ApiResponse.exception(
-                    IllegalStateException("Group cache refresh failed: HTTP ${groupsResponse.statusCode}")
-                )
-            }
-            is ApiResponse.Failure.Exception -> {
-                ApiResponse.exception(
-                    IllegalStateException(
-                        groupsResponse.throwable.message ?: "Group cache refresh failed",
-                        groupsResponse.throwable
+            groupPatch.deletes
+                .asSequence()
+                .map(String::trim)
+                .filter(String::isNotEmpty)
+                .distinct()
+                .forEach { memoRemoteId ->
+                    offlineGroupStore.removeCachedGroupMemo(accountKey, groupId, memoRemoteId)
+                    offlineGroupStore.setPinnedGroupMemo(
+                        accountKey = accountKey,
+                        groupId = groupId,
+                        memoRemoteId = memoRemoteId,
+                        pinned = false,
                     )
-                )
-            }
+                }
+
+            val pendingTagOps = offlineGroupStore.getPendingGroupOperations(accountKey)
+                .asSequence()
+                .filter { operation ->
+                    operation.type == PendingGroupOperationType.ADD_TAG &&
+                        operation.groupId == groupId
+                }
+                .mapNotNull { operation ->
+                    operation.tag?.trim()?.takeIf(String::isNotEmpty)
+                }
+                .toList()
+
+            val cachedTags = offlineGroupStore.getCachedGroupTags(accountKey, groupId)
+            val upsertTags = upserts.flatMap { memo -> memo.tags }
+            val mergedTags = normalizeTags(cachedTags + groupPatch.tags + upsertTags + pendingTagOps)
+            offlineGroupStore.upsertCachedGroupTags(
+                accountKey = accountKey,
+                groupId = groupId,
+                tags = mergedTags,
+            )
+            offlineGroupStore.setGroupUnreadState(
+                accountKey = accountKey,
+                groupId = groupId,
+                hasUnread = groupPatch.hasUnread,
+            )
         }
     }
 
@@ -438,5 +419,10 @@ class GroupsSyncRunner @Inject constructor(
             }
         }
         return normalized.toList()
+    }
+
+    private companion object {
+        private const val PULL_SYNC_GROUP_PAGE_SIZE = 120
+        private const val MAX_PULL_SYNC_PAGES_PER_SESSION = 20
     }
 }

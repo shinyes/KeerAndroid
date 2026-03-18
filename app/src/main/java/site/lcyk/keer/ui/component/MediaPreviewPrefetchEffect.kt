@@ -16,15 +16,14 @@ internal fun MediaPreviewPrefetchEffect(
     listState: LazyListState,
     memos: List<MemoEntity>,
     frozen: Boolean,
-    syncing: Boolean,
     currentAccountKey: String?,
     okHttpClient: OkHttpClient,
     cacheResourceFile: suspend (String, Uri) -> ApiResponse<Unit>,
     cacheResourceThumbnail: suspend (String, Uri) -> ApiResponse<Unit>,
 ) {
     val context = LocalContext.current
-    LaunchedEffect(memos, frozen, syncing, currentAccountKey, listState, okHttpClient) {
-        if (frozen || syncing || memos.isEmpty()) {
+    LaunchedEffect(memos, frozen, currentAccountKey, listState, okHttpClient) {
+        if (frozen || memos.isEmpty()) {
             return@LaunchedEffect
         }
         snapshotFlow {
@@ -36,7 +35,7 @@ internal fun MediaPreviewPrefetchEffect(
         }
             .distinctUntilChanged()
             .collect { visibleIndices ->
-                if (visibleIndices.isEmpty() || frozen || syncing) {
+                if (visibleIndices.isEmpty() || frozen) {
                     return@collect
                 }
                 MediaPreviewPrefetchCoordinator.prefetchMemoWindowResources(

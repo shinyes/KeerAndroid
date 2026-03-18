@@ -90,6 +90,16 @@ class OfflineGroupStore @Inject constructor(
     suspend fun replaceGroups(accountKey: String, groups: List<MemoGroup>) {
         val normalizedAccountKey = accountKey.trim()
         database.withTransaction {
+            val existingGroupIDs = dao.getGroups(normalizedAccountKey)
+                .map(OfflineGroupEntity::groupId)
+                .toSet()
+            val incomingGroupIDs = groups
+                .map(MemoGroup::id)
+                .map(String::trim)
+                .filter(String::isNotEmpty)
+                .toSet()
+            val removedGroupIDs = (existingGroupIDs - incomingGroupIDs).toList()
+
             dao.deleteGroupsByAccount(normalizedAccountKey)
             dao.deleteGroupMembersByAccount(normalizedAccountKey)
             if (groups.isNotEmpty()) {
@@ -101,6 +111,12 @@ class OfflineGroupStore @Inject constructor(
                         group.members.map { member -> member.toEntity(normalizedAccountKey, group.id) }
                     }
                 )
+            }
+            if (removedGroupIDs.isNotEmpty()) {
+                dao.deleteCachedGroupMemosByGroups(normalizedAccountKey, removedGroupIDs)
+                dao.deleteCachedGroupTagsByGroups(normalizedAccountKey, removedGroupIDs)
+                dao.deletePinnedGroupMemosByGroups(normalizedAccountKey, removedGroupIDs)
+                dao.deleteGroupAliasesByGroupIds(normalizedAccountKey, removedGroupIDs)
             }
         }
     }
@@ -125,6 +141,15 @@ class OfflineGroupStore @Inject constructor(
             return
         }
         dao.markGroupRead(normalizedAccountKey, normalizedGroupId)
+    }
+
+    suspend fun setGroupUnreadState(accountKey: String, groupId: String, hasUnread: Boolean) {
+        val normalizedAccountKey = accountKey.trim()
+        val normalizedGroupId = groupId.trim()
+        if (normalizedAccountKey.isEmpty() || normalizedGroupId.isEmpty()) {
+            return
+        }
+        dao.updateGroupUnreadState(normalizedAccountKey, normalizedGroupId, hasUnread)
     }
 
     suspend fun getGroupAliases(accountKey: String): List<GroupIdAlias> {
@@ -213,14 +238,30 @@ class OfflineGroupStore @Inject constructor(
     }
 
     suspend fun upsertCachedGroupMemo(accountKey: String, groupId: String, memo: CachedMemoItem) {
+        val normalizedAccountKey = accountKey.trim()
+        val normalizedGroupId = groupId.trim()
+        val payloadJson = json.encodeToString(CachedMemoItem.serializer(), memo)
+        val updatedAtEpochMillis = memo.updatedAtEpochMillis ?: memo.dateEpochMillis
+        val existing = dao.getCachedGroupMemo(
+            accountKey = normalizedAccountKey,
+            groupId = normalizedGroupId,
+            remoteId = memo.remoteId,
+        )
+        if (
+            existing != null &&
+            existing.payloadJson == payloadJson &&
+            existing.updatedAtEpochMillis == updatedAtEpochMillis
+        ) {
+            return
+        }
         dao.upsertCachedGroupMemos(
             listOf(
                 OfflineCachedGroupMemoEntity(
-                    accountKey = accountKey.trim(),
-                    groupId = groupId.trim(),
+                    accountKey = normalizedAccountKey,
+                    groupId = normalizedGroupId,
                     remoteId = memo.remoteId,
-                    payloadJson = json.encodeToString(CachedMemoItem.serializer(), memo),
-                    updatedAtEpochMillis = memo.updatedAtEpochMillis ?: memo.dateEpochMillis,
+                    payloadJson = payloadJson,
+                    updatedAtEpochMillis = updatedAtEpochMillis,
                 )
             )
         )
@@ -239,13 +280,33 @@ class OfflineGroupStore @Inject constructor(
     }
 
     suspend fun upsertCachedGroupTags(accountKey: String, groupId: String, tags: List<String>) {
+        val normalizedAccountKey = accountKey.trim()
+        val normalizedGroupId = groupId.trim()
+        val normalizedTags = tags
+            .asSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+            .toList()
+        val existing = dao.getCachedGroupTag(normalizedAccountKey, normalizedGroupId)
+        if (existing != null) {
+            val existingTags = existing.toModel(json).tags
+                .asSequence()
+                .map(String::trim)
+                .filter(String::isNotEmpty)
+                .distinct()
+                .toList()
+            if (existingTags == normalizedTags) {
+                return
+            }
+        }
         dao.upsertCachedGroupTag(
             OfflineCachedGroupTagEntity(
-                accountKey = accountKey.trim(),
-                groupId = groupId.trim(),
+                accountKey = normalizedAccountKey,
+                groupId = normalizedGroupId,
                 tagsJson = json.encodeToString(
                     CachedGroupTagSet.serializer(),
-                    CachedGroupTagSet(groupId = groupId.trim(), tags = tags)
+                    CachedGroupTagSet(groupId = normalizedGroupId, tags = normalizedTags)
                 ),
                 updatedAtEpochMillis = System.currentTimeMillis(),
             )

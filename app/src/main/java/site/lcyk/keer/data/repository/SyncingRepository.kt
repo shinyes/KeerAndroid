@@ -669,41 +669,57 @@ class SyncingRepository(
     }
 
     private suspend fun syncInternal(): ApiResponse<Unit> {
-        val currentUserSync = refreshCurrentUserFromRemoteIfNeeded()
-        if (currentUserSync !is ApiResponse.Success) {
-            return currentUserSync
-        }
-
         val initialCursor = readMemoSyncCursor()?.trim().orEmpty().ifEmpty { "0" }
         var nextSyncCursor = initialCursor
-        val pulledMemosByRemoteID = linkedMapOf<String, Memo>()
-        val pulledDeletedRemoteIDs = linkedSetOf<String>()
+        val isInitialPull = initialCursor == "0"
+        val seenRemoteIDs = linkedSetOf<String>()
+        val deletedRemoteIDs = linkedSetOf<String>()
         var hasMore = true
         var pageCount = 0
 
         while (hasMore && pageCount < MAX_PULL_SYNC_PAGES_PER_SESSION) {
+            val pageCursor = nextSyncCursor
             val syncPullResponse = remoteRepository.pullSync(
-                cursor = nextSyncCursor,
+                cursor = pageCursor,
                 domains = setOf(SyncPullDomain.MEMOS),
                 limit = PULL_SYNC_MEMO_PAGE_SIZE,
             )
             when (syncPullResponse) {
                 is ApiResponse.Success -> {
+                    val pageRemoteByID = linkedMapOf<String, Memo>()
                     syncPullResponse.data.patches.memos.upserts.forEach { memo ->
-                        val remoteID = remoteMemoId(memo).trim()
-                        if (remoteID.isNotEmpty()) {
-                            pulledMemosByRemoteID[remoteID] = memo
+                        val remoteId = remoteMemoId(memo).trim()
+                        if (remoteId.isNotEmpty()) {
+                            pageRemoteByID[remoteId] = memo
                         }
                     }
+                    val pageDeletedRemoteIDs = linkedSetOf<String>()
                     syncPullResponse.data.patches.memos.deletes.forEach { rawIdentifier ->
                         normalizeDeletedMemoRemoteID(rawIdentifier)
                             .takeIf { remoteID -> remoteID.isNotEmpty() }
-                            ?.let { remoteID -> pulledDeletedRemoteIDs += remoteID }
+                            ?.let { remoteID -> pageDeletedRemoteIDs += remoteID }
                     }
+
+                    seenRemoteIDs += pageRemoteByID.keys
+                    deletedRemoteIDs += pageDeletedRemoteIDs
+
+                    val pageApplyResult = applyPulledMemoPage(
+                        remoteMemos = pageRemoteByID.values.toList(),
+                        remoteDeletedIDs = pageDeletedRemoteIDs,
+                    )
+                    if (pageApplyResult !is ApiResponse.Success) {
+                        return pageApplyResult
+                    }
+
                     val nextCursor = syncPullResponse.data.nextCursor.trim()
-                    val stalledCursor = nextCursor.isEmpty() || nextCursor == nextSyncCursor
-                    if (nextCursor.isNotEmpty()) {
+                    val stalledCursor = nextCursor.isEmpty() || nextCursor == pageCursor
+                    if (!stalledCursor) {
                         nextSyncCursor = nextCursor
+                        try {
+                            writeMemoSyncCursor(nextSyncCursor)
+                        } catch (e: Throwable) {
+                            return ApiResponse.Failure.Exception(e)
+                        }
                     }
                     hasMore = syncPullResponse.data.hasMore && !stalledCursor
                 }
@@ -717,11 +733,33 @@ class SyncingRepository(
             pageCount += 1
         }
 
-        val remoteMemos = pulledMemosByRemoteID.values.toList()
-        val remoteDeletedIds = pulledDeletedRemoteIDs.toSet()
-        val treatMissingRemoteAsDeleted = initialCursor == "0"
-        val remoteById = remoteMemos.associateBy { remoteMemoId(it) }
+        if (
+            !isInitialPull &&
+            seenRemoteIDs.isEmpty() &&
+            deletedRemoteIDs.isEmpty() &&
+            memoDao.countUnsyncedMemos(accountKey) <= 0
+        ) {
+            return ApiResponse.Success(Unit)
+        }
 
+        val reconcileResult = reconcileLocalAfterPull(
+            seenRemoteIDs = seenRemoteIDs,
+            deletedRemoteIDs = deletedRemoteIDs,
+            treatMissingRemoteAsDeleted = isInitialPull,
+        )
+        if (reconcileResult !is ApiResponse.Success) {
+            return reconcileResult
+        }
+        return ApiResponse.Success(Unit)
+    }
+
+    private suspend fun applyPulledMemoPage(
+        remoteMemos: List<Memo>,
+        remoteDeletedIDs: Set<String>,
+    ): ApiResponse<Unit> {
+        if (remoteMemos.isEmpty() && remoteDeletedIDs.isEmpty()) {
+            return ApiResponse.Success(Unit)
+        }
         var hadErrors = false
         var firstErrorMessage: String? = null
         fun recordFailure() {
@@ -811,7 +849,7 @@ class SyncingRepository(
             }
         }
 
-        for (deletedRemoteID in remoteDeletedIds) {
+        for (deletedRemoteID in remoteDeletedIDs) {
             val local = localByRemoteId[deletedRemoteID] ?: continue
             when {
                 local.isDeleted -> pendingDeleteMemoIdentifiers += local.identifier
@@ -824,11 +862,11 @@ class SyncingRepository(
             }
         }
 
-        remoteDeletedIds.forEach { deletedRemoteId ->
+        remoteDeletedIDs.forEach { deletedRemoteId ->
             pendingRemoteAppliesByRemoteId.remove(deletedRemoteId)
         }
         pendingMarkSyncedByLocalIdentifier.entries.removeAll { entry ->
-            entry.value.local.remoteId?.let(remoteDeletedIds::contains) == true
+            entry.value.local.remoteId?.let(remoteDeletedIDs::contains) == true
         }
         if (
             pendingRemoteAppliesByRemoteId.isNotEmpty() ||
@@ -842,17 +880,51 @@ class SyncingRepository(
             )
         }
 
+        return if (hadErrors) {
+            ApiResponse.Failure.Exception(
+                Exception(firstErrorMessage ?: "Sync finished with partial failures")
+            )
+        } else {
+            ApiResponse.Success(Unit)
+        }
+    }
+
+    private suspend fun reconcileLocalAfterPull(
+        seenRemoteIDs: Set<String>,
+        deletedRemoteIDs: Set<String>,
+        treatMissingRemoteAsDeleted: Boolean,
+    ): ApiResponse<Unit> {
+        var hadErrors = false
+        var firstErrorMessage: String? = null
+        fun recordFailure() {
+            hadErrors = true
+            if (firstErrorMessage == null) {
+                firstErrorMessage = consumeDetailedSyncError()
+            }
+        }
+
         val latestLocals = memoDao.getAllMemosForSync(accountKey)
         val pendingFinalDeleteMemoIdentifiers = linkedSetOf<String>()
         for (local in latestLocals) {
-            if (local.remoteId != null && remoteById.containsKey(local.remoteId)) {
+            val localRemoteID = local.remoteId
+            if (localRemoteID != null && seenRemoteIDs.contains(localRemoteID)) {
                 continue
             }
 
-            if (local.remoteId != null && !remoteById.containsKey(local.remoteId)) {
-                if (local.remoteId.let { remoteId -> remoteDeletedIds.contains(remoteId) }) {
-                    continue
+            if (localRemoteID != null && deletedRemoteIDs.contains(localRemoteID)) {
+                if (local.isDeleted) {
+                    pendingFinalDeleteMemoIdentifiers += local.identifier
+                } else if (local.needsSync) {
+                    if (!pushLocalMemo(local.identifier, forceCreate = true)) {
+                        recordFailure()
+                    }
+                } else {
+                    pendingFinalDeleteMemoIdentifiers += local.identifier
                 }
+                continue
+            }
+
+            if (localRemoteID != null && !seenRemoteIDs.contains(localRemoteID)) {
                 if (treatMissingRemoteAsDeleted) {
                     if (local.isDeleted) {
                         pendingFinalDeleteMemoIdentifiers += local.identifier
@@ -873,7 +945,7 @@ class SyncingRepository(
                 continue
             }
 
-            if (local.remoteId == null) {
+            if (localRemoteID == null) {
                 if (local.isDeleted) {
                     pendingFinalDeleteMemoIdentifiers += local.identifier
                 } else if (local.needsSync) {
@@ -887,18 +959,12 @@ class SyncingRepository(
         if (pendingFinalDeleteMemoIdentifiers.isNotEmpty()) {
             permanentlyDeleteMemosBatch(pendingFinalDeleteMemoIdentifiers)
         }
-        memoDao.pruneUnusedTags(accountKey)
 
         return if (hadErrors) {
             ApiResponse.Failure.Exception(
                 Exception(firstErrorMessage ?: "Sync finished with partial failures")
             )
         } else {
-            try {
-                writeMemoSyncCursor(nextSyncCursor)
-            } catch (e: Throwable) {
-                return ApiResponse.Failure.Exception(e)
-            }
             ApiResponse.Success(Unit)
         }
     }
@@ -915,17 +981,22 @@ class SyncingRepository(
         ) {
             return
         }
-        val staleResources = mutableListOf<ResourceEntity>()
-        database.withTransaction {
-            val deleteChunks = syncApplyPipeline.split(deleteMemoIdentifiers.toList())
-            for (chunk in deleteChunks) {
+        val deleteChunks = syncApplyPipeline.split(deleteMemoIdentifiers.toList())
+        for (chunk in deleteChunks) {
+            val staleResources = mutableListOf<ResourceEntity>()
+            database.withTransaction {
                 chunk.forEach { identifier ->
                     permanentlyDeleteMemoInTransaction(identifier, staleResources)
                 }
+                memoDao.pruneUnusedTags(accountKey)
             }
+            staleResources.forEach(::deleteLocalFile)
+        }
 
-            val applyChunks = syncApplyPipeline.split(remoteApplies)
-            for (chunk in applyChunks) {
+        val applyChunks = syncApplyPipeline.split(remoteApplies)
+        for (chunk in applyChunks) {
+            val staleResources = mutableListOf<ResourceEntity>()
+            database.withTransaction {
                 chunk.forEach { pending ->
                     applyRemoteMemoInTransaction(
                         remoteMemo = pending.remoteMemo,
@@ -933,20 +1004,23 @@ class SyncingRepository(
                         staleResources = staleResources,
                     )
                 }
+                memoDao.pruneUnusedTags(accountKey)
             }
+            staleResources.forEach(::deleteLocalFile)
+        }
 
-            val markChunks = syncApplyPipeline.split(markSyncedEntries)
-            for (chunk in markChunks) {
+        val markChunks = syncApplyPipeline.split(markSyncedEntries)
+        for (chunk in markChunks) {
+            database.withTransaction {
                 chunk.forEach { pending ->
                     markSyncedInTransaction(
                         local = pending.local,
                         remoteMemo = pending.remoteMemo,
                     )
                 }
+                memoDao.pruneUnusedTags(accountKey)
             }
-            memoDao.pruneUnusedTags(accountKey)
         }
-        staleResources.forEach(::deleteLocalFile)
     }
 
     private suspend fun refreshCurrentUserFromRemoteIfNeeded(): ApiResponse<Unit> {
@@ -1294,6 +1368,28 @@ class SyncingRepository(
 
         val localIdentifier = current?.identifier ?: UUID.randomUUID().toString()
         val remoteUpdatedAt = remoteMemo.updatedAt ?: remoteMemo.date
+        if (current != null) {
+            val unchanged = !current.needsSync &&
+                !current.isDeleted &&
+                current.remoteId == remoteId &&
+                current.content == remoteMemo.content &&
+                current.visibility == remoteMemo.visibility &&
+                current.pinned == remoteMemo.pinned &&
+                current.archived == remoteMemo.archived &&
+                current.latitude == remoteMemo.latitude &&
+                current.longitude == remoteMemo.longitude &&
+                current.quoteSourceKind == remoteMemo.quoteSourceKind &&
+                current.quoteSource == remoteMemo.quoteSource &&
+                current.quoteStatus == remoteMemo.quoteStatus &&
+                current.quoteContentPreview == remoteMemo.quoteContentPreview &&
+                current.quoteDate == remoteMemo.quoteDate &&
+                current.quoteHasAttachments == remoteMemo.quoteHasAttachments &&
+                current.lastSyncedAt == remoteUpdatedAt &&
+                memoEquivalent(current, remoteMemo)
+            if (unchanged) {
+                return
+            }
+        }
 
         memoDao.insertMemo(
             MemoEntity(

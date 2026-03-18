@@ -319,13 +319,11 @@ class MemosViewModel @Inject constructor(
 
         SyncFreezeController(
             scope = viewModelScope,
-            syncing = syncStatus.map { status -> status.syncing },
             interactionFrozen = uiInteractionGate.observeScopeFrozen(MemoUiScope.FEED),
             onFrozenChanged = feedProjectionStore::setFrozen,
         )
         SyncFreezeController(
             scope = viewModelScope,
-            syncing = syncStatus.map { status -> status.syncing },
             interactionFrozen = uiInteractionGate.observeScopeFrozen(MemoUiScope.DRAWER),
             onFrozenChanged = drawerProjectionStore::setFrozen,
         )
@@ -357,15 +355,11 @@ class MemosViewModel @Inject constructor(
     }
 
     suspend fun refreshHomeFeed(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
-        val result = performManualSync(domains = setOf(SyncDomain.MEMOS))
-        requestMaintenanceSync()
-        result
+        performManualSync(domains = setOf(SyncDomain.MEMOS))
     }
 
     suspend fun refreshExploreFeed(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {
-        val result = performManualSync(domains = setOf(SyncDomain.MEMOS))
-        requestMaintenanceSync()
-        result
+        performManualSync(domains = setOf(SyncDomain.MEMOS))
     }
 
     fun loadTags() = Unit
@@ -496,17 +490,6 @@ class MemosViewModel @Inject constructor(
         return ManualSyncResult.Failed(message)
     }
 
-    private fun requestMaintenanceSync() {
-        viewModelScope.launch {
-            kotlinx.coroutines.delay(MANUAL_SYNC_MAINTENANCE_DELAY_MILLIS)
-            memoService.requestSync(
-                trigger = SyncTrigger.AUTO,
-                force = false,
-                domains = setOf(SyncDomain.GROUPS, SyncDomain.USERS, SyncDomain.PROFILE),
-            )
-        }
-    }
-
     private fun calculateMatrix(sourceMemos: List<MemoEntity>): List<DailyUsageStat> {
         val countMap = HashMap<LocalDate, Int>()
 
@@ -594,7 +577,6 @@ class MemosViewModel @Inject constructor(
         private const val FEED_PROFILE_LOG_THRESHOLD_MILLIS = 12L
         private const val PROJECTION_MEMO_DEBOUNCE_MILLIS = 64L
         private const val SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS = 300L
-        private const val MANUAL_SYNC_MAINTENANCE_DELAY_MILLIS = 1_200L
         private const val FEED_PROFILE_TAG = "FeedProfile"
     }
 }

@@ -147,7 +147,6 @@ class ExploreViewModel @Inject constructor(
 
         SyncFreezeController(
             scope = viewModelScope,
-            syncing = memoService.syncStatus.map { status -> status.syncing },
             interactionFrozen = uiInteractionGate.observeScopeFrozen(MemoUiScope.EXPLORE),
             onFrozenChanged = snapshotStore::setFrozen,
         )
