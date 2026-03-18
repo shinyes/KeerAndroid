@@ -639,7 +639,17 @@ class SyncingRepository(
     }
 
     override suspend fun getCurrentUser(): ApiResponse<User> {
-        return ApiResponse.Success(currentUser)
+        return when (val refresh = refreshCurrentUserFromRemoteIfNeeded()) {
+            is ApiResponse.Success -> ApiResponse.Success(currentUser)
+            is ApiResponse.Failure.Error -> ApiResponse.Failure.Error(refresh.payload)
+            is ApiResponse.Failure.Exception -> {
+                if (refresh.throwable == KeerException.accessTokenInvalid) {
+                    ApiResponse.Failure.Exception(KeerException.notLogin)
+                } else {
+                    ApiResponse.Failure.Exception(refresh.throwable)
+                }
+            }
+        }
     }
 
     override suspend fun sync(): ApiResponse<Unit> {
