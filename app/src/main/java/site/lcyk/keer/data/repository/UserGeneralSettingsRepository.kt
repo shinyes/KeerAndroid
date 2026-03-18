@@ -3,6 +3,7 @@ package site.lcyk.keer.data.repository
 import com.skydoves.sandwich.ApiResponse
 import kotlinx.coroutines.flow.Flow
 import site.lcyk.keer.R
+import site.lcyk.keer.data.model.ExploreDrawerEntryConfig
 import site.lcyk.keer.data.model.UserGeneralSettings
 import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.service.AccountService
@@ -47,6 +48,15 @@ class UserGeneralSettingsRepository @Inject constructor(
         val current = readCurrentCachedGeneralSettings()
         return updateCurrentUserGeneralSettings(
             current.copy(memoColumns = columns)
+        )
+    }
+
+    suspend fun updateExploreDrawerEntries(
+        entries: List<ExploreDrawerEntryConfig>
+    ): ApiResponse<UserGeneralSettings> {
+        val current = readCurrentCachedGeneralSettings()
+        return updateCurrentUserGeneralSettings(
+            current.copy(exploreDrawerEntries = entries)
         )
     }
 

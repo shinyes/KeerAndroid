@@ -28,6 +28,8 @@
     <string name="column_tags">Required tags</string>
     <string name="select_column_tags">Select the tags this column must include</string>
     <string name="show_in_drawer">Show in drawer</string>
+    <string name="show_in_explore_list">Show in Explore list</string>
+    <string name="show_in_explore_list_hint_private">Applies after a private chat is created.</string>
     <string name="delete_column">Delete column</string>
     <string name="delete_column_confirm">Delete \"%1$s\"?</string>
     <string name="column_name_required">Column name is required.</string>

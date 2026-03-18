@@ -27,6 +27,7 @@ import site.lcyk.keer.data.model.SyncDomain
 import site.lcyk.keer.data.model.StorageCleanupSummary
 import site.lcyk.keer.data.model.User
 import site.lcyk.keer.data.model.UserGeneralSettings
+import site.lcyk.keer.data.model.withExploreEntryVisibility
 import site.lcyk.keer.data.repository.JoinedGroupRepository
 import site.lcyk.keer.data.repository.UserDirectoryRepository
 import site.lcyk.keer.data.service.AccountLocalSettingsStore
@@ -203,6 +204,19 @@ class UserStateViewModel @Inject constructor(
         columns: List<site.lcyk.keer.data.model.MemoColumnConfig>
     ): ApiResponse<UserGeneralSettings> = withContext(viewModelScope.coroutineContext) {
         userGeneralSettingsRepository.updateMemoColumns(columns)
+    }
+
+    suspend fun updateExploreEntryVisibility(
+        entryId: String,
+        visibleInExplore: Boolean,
+    ): ApiResponse<UserGeneralSettings> = withContext(viewModelScope.coroutineContext) {
+        val current = generalSettings.value
+        userGeneralSettingsRepository.updateCurrentUserGeneralSettings(
+            current.withExploreEntryVisibility(
+                entryId = entryId,
+                visibleInExplore = visibleInExplore,
+            )
+        )
     }
 
     suspend fun cleanupOrphanFiles(): ApiResponse<StorageCleanupSummary> = withContext(viewModelScope.coroutineContext) {

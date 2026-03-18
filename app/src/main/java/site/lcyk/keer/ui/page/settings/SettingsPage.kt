@@ -66,7 +66,7 @@ import site.lcyk.keer.ui.page.common.navigateToAccountPage
 import site.lcyk.keer.ui.page.common.navigateToAddAccountPage
 import site.lcyk.keer.ui.page.common.navigateToColumnConfigPage
 import site.lcyk.keer.ui.page.common.navigateToDebugLogsPage
-import site.lcyk.keer.ui.page.common.navigateToTopLevel
+import site.lcyk.keer.ui.page.common.navigateSingleTop
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.resolveAvatarUrl
 import site.lcyk.keer.viewmodel.LocalUserState
@@ -182,7 +182,7 @@ fun SettingsPage(
                     icon = Icons.Outlined.PersonAdd,
                     text = R.string.friends.string
                 ) {
-                    navController.navigateToTopLevel(RouteName.FRIENDS)
+                    navController.navigateSingleTop(RouteName.FRIENDS)
                 }
             }
 
@@ -208,7 +208,7 @@ fun SettingsPage(
                     icon = Icons.Outlined.Group,
                     text = R.string.group_management.string
                 ) {
-                    navController.navigateToTopLevel(RouteName.GROUP_MANAGEMENT)
+                    navController.navigateSingleTop(RouteName.GROUP_MANAGEMENT)
                 }
             }
 
@@ -217,7 +217,7 @@ fun SettingsPage(
                     icon = Icons.Outlined.PhotoLibrary,
                     text = R.string.resources.string
                 ) {
-                    navController.navigateToTopLevel(RouteName.RESOURCE)
+                    navController.navigateSingleTop(RouteName.RESOURCE)
                 }
             }
 
@@ -226,7 +226,7 @@ fun SettingsPage(
                     icon = Icons.Outlined.Inventory2,
                     text = R.string.archived.string
                 ) {
-                    navController.navigateToTopLevel(RouteName.ARCHIVED)
+                    navController.navigateSingleTop(RouteName.ARCHIVED)
                 }
             }
 

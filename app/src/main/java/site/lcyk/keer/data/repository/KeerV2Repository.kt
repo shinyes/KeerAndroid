@@ -26,6 +26,7 @@ import site.lcyk.keer.data.api.CreateGroupRequest
 import site.lcyk.keer.data.api.KeerV2Group
 import site.lcyk.keer.data.api.KeerV2GroupMessage
 import site.lcyk.keer.data.api.KeerV2MemoColumnConfig
+import site.lcyk.keer.data.api.KeerV2ExploreDrawerEntryConfig
 import site.lcyk.keer.data.api.KeerV2CreateMemoRequest
 import site.lcyk.keer.data.api.KeerV2Memo
 import site.lcyk.keer.data.api.KeerV2PayloadEnvelope
@@ -49,6 +50,7 @@ import site.lcyk.keer.data.model.MemoEditGesture
 import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.MemoGroupType
 import site.lcyk.keer.data.model.MemoVisibility
+import site.lcyk.keer.data.model.ExploreDrawerEntryConfig
 import site.lcyk.keer.data.model.Resource
 import site.lcyk.keer.data.model.StorageCleanupSummary
 import site.lcyk.keer.data.model.User
@@ -759,7 +761,13 @@ class KeerV2Repository(
                             visibleInDrawer = column.visibleInDrawer,
                             pinnedMemoRemoteIds = column.pinnedMemoRemoteIds,
                         )
-                    }
+                    },
+                    exploreDrawerEntries = settings.exploreDrawerEntries.map { entry ->
+                        KeerV2ExploreDrawerEntryConfig(
+                            entryId = entry.entryId,
+                            visibleInExplore = entry.visibleInExplore,
+                        )
+                    },
                 )
             )
         ).mapSuccess {
@@ -1850,7 +1858,20 @@ class KeerV2Repository(
                     visibleInDrawer = column.visibleInDrawer,
                     pinnedMemoRemoteIds = column.pinnedMemoRemoteIds,
                 )
-            }
+            },
+            exploreDrawerEntries = exploreDrawerEntries
+                .mapNotNull { entry ->
+                    val normalizedEntryId = entry.entryId.trim()
+                    if (normalizedEntryId.isEmpty()) {
+                        null
+                    } else {
+                        ExploreDrawerEntryConfig(
+                            entryId = normalizedEntryId,
+                            visibleInExplore = entry.visibleInExplore,
+                        )
+                    }
+                }
+                .distinctBy { entry -> entry.entryId },
         )
     }
 

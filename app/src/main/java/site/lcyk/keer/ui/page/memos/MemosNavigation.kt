@@ -54,6 +54,7 @@ fun MemosNavigation(
         ) {
             ArchivedMemoPage(
                 drawerState = drawerState,
+                navController = navController,
                 onMenuButtonOpenRequested = onMenuButtonOpenRequested
             )
         }

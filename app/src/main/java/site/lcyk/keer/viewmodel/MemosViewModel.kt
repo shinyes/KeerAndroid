@@ -38,6 +38,7 @@ import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.SyncDomain
 import site.lcyk.keer.data.model.SyncStatus
+import site.lcyk.keer.data.model.isExploreEntryVisible
 import site.lcyk.keer.data.model.toMemo
 import site.lcyk.keer.data.repository.JoinedGroupRepository
 import site.lcyk.keer.data.repository.UserGeneralSettingsRepository
@@ -50,6 +51,7 @@ import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.util.buildResolvedMemoQuoteMap
 import site.lcyk.keer.util.normalizeCollaboratorId
+import site.lcyk.keer.util.resolveMemoGroupExploreEntryId
 import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.widget.WidgetUpdater
 import java.time.LocalDate
@@ -187,8 +189,25 @@ class MemosViewModel @Inject constructor(
                 }
             }
 
-        val liveVisibleColumns = userGeneralSettingsRepository.observeCurrentGeneralSettings()
-            .map { settings -> settings.memoColumns.filter { it.visibleInDrawer } }
+        val liveGeneralSettings = userGeneralSettingsRepository.observeCurrentGeneralSettings()
+        val currentUserIdentifier = accountService.currentAccount.map { account ->
+            (account as? Account.KeerV2)?.info?.id?.toString()
+        }
+        val liveDrawerBaseState = combine(
+            memoService.tags,
+            liveMatrix,
+            joinedGroupRepository.observeJoinedGroups(),
+            liveGeneralSettings,
+            joinedGroupRepository.observeGroupIdAliases(),
+        ) { latestTags, latestMatrix, latestDrawerGroups, generalSettings, groupIdAliases ->
+            DrawerBaseState(
+                tags = latestTags,
+                matrix = latestMatrix,
+                groups = latestDrawerGroups,
+                generalSettings = generalSettings,
+                groupIdAliases = groupIdAliases,
+            )
+        }
 
         viewModelScope.launch {
             combine(
@@ -217,18 +236,25 @@ class MemosViewModel @Inject constructor(
 
         viewModelScope.launch {
             combine(
-                memoService.tags,
-                liveMatrix,
-                joinedGroupRepository.observeJoinedGroups(),
-                liveVisibleColumns,
-                joinedGroupRepository.observeGroupIdAliases(),
-            ) { latestTags, latestMatrix, latestDrawerGroups, visibleColumns, groupIdAliases ->
+                liveDrawerBaseState,
+                currentUserIdentifier,
+            ) { baseState, currentUserId ->
+                val visibleDrawerGroups = baseState.groups.filter { group ->
+                    val exploreEntryId = resolveMemoGroupExploreEntryId(
+                        group = group,
+                        currentUserIdentifier = currentUserId,
+                    )
+                    baseState.generalSettings.isExploreEntryVisible(exploreEntryId)
+                }
+                val visibleColumns = baseState.generalSettings.memoColumns.filter { column ->
+                    column.visibleInDrawer
+                }
                 DrawerUiState(
-                    tags = latestTags,
-                    matrix = latestMatrix,
-                    drawerGroups = latestDrawerGroups,
+                    tags = baseState.tags,
+                    matrix = baseState.matrix,
+                    drawerGroups = visibleDrawerGroups,
                     visibleColumns = visibleColumns,
-                    groupIdAliases = groupIdAliases,
+                    groupIdAliases = baseState.groupIdAliases,
                 )
             }.collectLatest { latestDrawerState ->
                 drawerSnapshotStore.updateLiveState(latestDrawerState)
@@ -492,6 +518,14 @@ class MemosViewModel @Inject constructor(
         private const val FEED_PROFILE_TAG = "FeedProfile"
     }
 }
+
+private data class DrawerBaseState(
+    val tags: List<String>,
+    val matrix: List<DailyUsageStat>,
+    val groups: List<MemoGroup>,
+    val generalSettings: site.lcyk.keer.data.model.UserGeneralSettings,
+    val groupIdAliases: List<site.lcyk.keer.data.model.GroupIdAlias>,
+)
 
 val LocalMemos =
     compositionLocalOf<MemosViewModel> { error(site.lcyk.keer.R.string.memos_view_model_not_found.string) }

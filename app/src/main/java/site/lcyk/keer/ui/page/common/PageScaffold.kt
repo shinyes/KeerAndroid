@@ -37,6 +37,15 @@ fun PageScaffold(
                 title = { Text(text = title) },
                 navigationIcon = {
                     when {
+                        onBack != null -> {
+                            IconButton(onClick = onBack) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = R.string.back.string
+                                )
+                            }
+                        }
+
                         drawerState != null -> {
                             IconButton(
                                 onClick = {
@@ -51,14 +60,6 @@ fun PageScaffold(
                             }
                         }
 
-                        onBack != null -> {
-                            IconButton(onClick = onBack) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = R.string.back.string
-                                )
-                            }
-                        }
                     }
                 },
                 actions = actions

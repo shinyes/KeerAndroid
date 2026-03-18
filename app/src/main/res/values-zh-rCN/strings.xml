@@ -28,6 +28,8 @@
     <string name="column_tags">筛选标签</string>
     <string name="select_column_tags">选择这个专栏要求包含的标签</string>
     <string name="show_in_drawer">显示在抽屉中</string>
+    <string name="show_in_explore_list">显示在发现列表中</string>
+    <string name="show_in_explore_list_hint_private">创建私聊后生效。</string>
     <string name="delete_column">删除专栏</string>
     <string name="delete_column_confirm">确认删除“%1$s”吗？</string>
     <string name="column_name_required">专栏名称不能为空。</string>

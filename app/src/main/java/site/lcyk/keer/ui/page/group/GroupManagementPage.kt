@@ -2,6 +2,8 @@ package site.lcyk.keer.ui.page.group
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,24 +17,27 @@ import androidx.compose.material.icons.outlined.GroupAdd
 import androidx.compose.material.icons.outlined.ModeEdit
 import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DrawerState
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -43,14 +48,16 @@ import site.lcyk.keer.R
 import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.MemoGroupType
 import site.lcyk.keer.data.model.User
+import site.lcyk.keer.data.model.isExploreEntryVisible
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.PageScaffold
 import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
+import site.lcyk.keer.util.exploreGroupEntryId
 import site.lcyk.keer.viewmodel.GroupManagementViewModel
 import site.lcyk.keer.viewmodel.LocalUserState
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun GroupManagementPage(
     drawerState: DrawerState? = null,
@@ -63,6 +70,8 @@ fun GroupManagementPage(
     val userStateViewModel = LocalUserState.current
     val currentUser = userStateViewModel.currentUser
     val friends by userStateViewModel.friends.collectAsState()
+    val generalSettings by userStateViewModel.generalSettings.collectAsState()
+    val pendingVisibilityOverrides = remember { mutableStateMapOf<String, Boolean>() }
 
     val groups by viewModel.groups.collectAsState()
     val loading by viewModel.loading.collectAsState()
@@ -85,11 +94,7 @@ fun GroupManagementPage(
         title = R.string.group_management.string,
         drawerState = drawerState,
         onMenuButtonOpenRequested = onMenuButtonOpenRequested,
-        onBack = if (drawerState == null) {
-            { navController.popBackStackIfLifecycleIsResumed(lifecycleOwner) }
-        } else {
-            null
-        },
+        onBack = { navController.popBackStackIfLifecycleIsResumed(lifecycleOwner) },
         actions = {
             IconButton(onClick = { createDialogVisible = true }) {
                 Icon(Icons.Outlined.Add, contentDescription = R.string.create_group.string)
@@ -144,12 +149,16 @@ fun GroupManagementPage(
 
             items(managedGroups, key = { it.id }) { group ->
                 val isCreator = normalizeUserIdentifier(group.creatorId) == currentUser?.identifier
-                Card(
+                val exploreEntryId = remember(group.id) { exploreGroupEntryId(group.id) }
+                val switchPending = pendingVisibilityOverrides.containsKey(exploreEntryId)
+                val visibleInExplore = pendingVisibilityOverrides[exploreEntryId]
+                    ?: generalSettings.isExploreEntryVisible(exploreEntryId)
+                ElevatedCard(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -194,7 +203,36 @@ fun GroupManagementPage(
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = R.string.show_in_explore_list.string,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                            Switch(
+                                checked = visibleInExplore,
+                                enabled = !switchPending,
+                                onCheckedChange = { checked ->
+                                    pendingVisibilityOverrides[exploreEntryId] = checked
+                                    scope.launch {
+                                        val response = userStateViewModel.updateExploreEntryVisibility(
+                                            entryId = exploreEntryId,
+                                            visibleInExplore = checked,
+                                        )
+                                        pendingVisibilityOverrides.remove(exploreEntryId)
+                                        if (response !is com.skydoves.sandwich.ApiResponse.Success) {
+                                            viewModel.refreshGroups()
+                                        }
+                                    }
+                                }
+                            )
+                        }
+
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             TextButton(
                                 onClick = {
@@ -209,21 +247,21 @@ fun GroupManagementPage(
                             }
 
                             TextButton(
-                                onClick = { inviteTargetGroup = group }
-                            ) {
-                                Icon(Icons.Outlined.GroupAdd, contentDescription = null)
-                                Text(
-                                    text = R.string.invite_friend.string,
-                                    modifier = Modifier.padding(start = 4.dp)
-                                )
-                            }
-
-                            TextButton(
                                 onClick = { editTargetGroup = group }
                             ) {
                                 Icon(Icons.Outlined.ModeEdit, contentDescription = null)
                                 Text(
                                     text = R.string.edit.string,
+                                    modifier = Modifier.padding(start = 4.dp)
+                                )
+                            }
+
+                            TextButton(
+                                onClick = { inviteTargetGroup = group }
+                            ) {
+                                Icon(Icons.Outlined.GroupAdd, contentDescription = null)
+                                Text(
+                                    text = R.string.invite_friend.string,
                                     modifier = Modifier.padding(start = 4.dp)
                                 )
                             }

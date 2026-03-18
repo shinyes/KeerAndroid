@@ -61,11 +61,7 @@ fun ResourceListPage(
         title = R.string.resources.string,
         drawerState = drawerState,
         onMenuButtonOpenRequested = onMenuButtonOpenRequested,
-        onBack = if (drawerState == null) {
-            { navController.popBackStackIfLifecycleIsResumed(lifecycleOwner) }
-        } else {
-            null
-        }
+        onBack = { navController.popBackStackIfLifecycleIsResumed(lifecycleOwner) }
     ) { innerPadding ->
         Column(
             modifier = Modifier

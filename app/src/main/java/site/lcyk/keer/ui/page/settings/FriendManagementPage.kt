@@ -2,6 +2,8 @@ package site.lcyk.keer.ui.page.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -11,23 +13,26 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
 import androidx.compose.material3.DrawerState
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -40,11 +45,15 @@ import site.lcyk.keer.data.model.User
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.data.model.MemoGroupType
+import site.lcyk.keer.data.model.isExploreEntryVisible
 import site.lcyk.keer.ui.page.common.PageScaffold
 import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
+import site.lcyk.keer.util.exploreDirectEntryId
+import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.viewmodel.LocalUserState
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun FriendManagementPage(
     drawerState: DrawerState? = null,
@@ -56,6 +65,10 @@ fun FriendManagementPage(
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val friends by userStateViewModel.friends.collectAsState()
+    val generalSettings by userStateViewModel.generalSettings.collectAsState()
+    val joinedGroups by userStateViewModel.joinedGroups.collectAsState()
+    val currentUserIdentifier = normalizeCollaboratorId(userStateViewModel.currentUser?.identifier.orEmpty())
+    val pendingVisibilityOverrides = remember { mutableStateMapOf<String, Boolean>() }
     var showAddDialog by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<User?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -74,11 +87,7 @@ fun FriendManagementPage(
         title = R.string.friends.string,
         drawerState = drawerState,
         onMenuButtonOpenRequested = onMenuButtonOpenRequested,
-        onBack = if (drawerState == null) {
-            { navController.popBackStackIfLifecycleIsResumed(lifecycleOwner) }
-        } else {
-            null
-        },
+        onBack = { navController.popBackStackIfLifecycleIsResumed(lifecycleOwner) },
         actions = {
             if (currentAccount is Account.KeerV2) {
                 IconButton(onClick = { showAddDialog = true }) {
@@ -133,12 +142,29 @@ fun FriendManagementPage(
                 }
 
                 items(friends, key = { friend -> friend.identifier }) { friend ->
-                    Card(
+                    val exploreEntryId = remember(friend.identifier) {
+                        exploreDirectEntryId(friend.identifier)
+                    }
+                    val switchPending = pendingVisibilityOverrides.containsKey(exploreEntryId)
+                    val visibleInExplore = pendingVisibilityOverrides[exploreEntryId]
+                        ?: generalSettings.isExploreEntryVisible(exploreEntryId)
+                    val hasLinkedDirectChat = remember(joinedGroups, friend.identifier, currentUserIdentifier) {
+                        joinedGroups.any { group ->
+                            group.type == MemoGroupType.DIRECT &&
+                                group.members.any { member ->
+                                    val normalizedMemberId = normalizeCollaboratorId(member.userId)
+                                    normalizedMemberId.isNotEmpty() &&
+                                        normalizedMemberId != currentUserIdentifier &&
+                                        normalizedMemberId == normalizeCollaboratorId(friend.identifier)
+                                }
+                        }
+                    }
+                    ElevatedCard(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Text(
                                 text = friend.name,
@@ -151,7 +177,49 @@ fun FriendManagementPage(
                             )
                             androidx.compose.foundation.layout.Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = R.string.show_in_explore_list.string,
+                                        style = MaterialTheme.typography.labelLarge
+                                    )
+                                    if (!hasLinkedDirectChat) {
+                                        Text(
+                                            text = R.string.show_in_explore_list_hint_private.string,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Switch(
+                                    checked = visibleInExplore,
+                                    enabled = currentAccount is Account.KeerV2 && !switchPending,
+                                    onCheckedChange = { checked ->
+                                        pendingVisibilityOverrides[exploreEntryId] = checked
+                                        scope.launch {
+                                            when (val response = userStateViewModel.updateExploreEntryVisibility(exploreEntryId, checked)) {
+                                                is ApiResponse.Success -> {
+                                                    errorMessage = null
+                                                    pendingVisibilityOverrides.remove(exploreEntryId)
+                                                }
+                                                else -> {
+                                                    pendingVisibilityOverrides.remove(exploreEntryId)
+                                                    errorMessage = response.getErrorMessage()
+                                                }
+                                            }
+                                        }
+                                    },
+                                )
+                            }
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
                                 TextButton(
                                     onClick = {

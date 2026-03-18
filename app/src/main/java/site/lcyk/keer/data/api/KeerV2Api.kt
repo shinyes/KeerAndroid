@@ -536,6 +536,7 @@ data class KeerV2UserSettingGeneralSetting(
     val memoVisibility: MemosVisibility? = null,
     val memoEditGesture: String? = null,
     val memoColumns: List<KeerV2MemoColumnConfig> = emptyList(),
+    val exploreDrawerEntries: List<KeerV2ExploreDrawerEntryConfig> = emptyList(),
     val theme: String? = null
 )
 
@@ -564,6 +565,14 @@ data class UpdateUserSettingBody(
     val memoVisibility: MemosVisibility,
     val memoEditGesture: String,
     val memoColumns: List<KeerV2MemoColumnConfig> = emptyList(),
+    val exploreDrawerEntries: List<KeerV2ExploreDrawerEntryConfig> = emptyList(),
+)
+
+@Serializable
+data class KeerV2ExploreDrawerEntryConfig(
+    val entryId: String,
+    @EncodeDefault
+    val visibleInExplore: Boolean = true,
 )
 
 @Serializable

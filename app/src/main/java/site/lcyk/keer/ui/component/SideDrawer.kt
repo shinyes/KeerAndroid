@@ -117,7 +117,7 @@ fun SideDrawer(
     val drawerTitle = remember(currentAccount) {
         currentAccount?.toUser()?.name?.ifBlank { R.string.keer.string } ?: R.string.keer.string
     }
-    var exploreExpanded by rememberSaveable { mutableStateOf(true) }
+    var exploreExpanded by rememberSaveable { mutableStateOf(false) }
     val expandedTagNodes = remember { mutableStateMapOf<String, Boolean>() }
     var activeTagActionTarget by remember { mutableStateOf<String?>(null) }
     var renameTargetTag by remember { mutableStateOf<String?>(null) }
