@@ -1930,7 +1930,8 @@ class KeerV2Repository(
                 user.name,
                 user.username,
                 user.createTime ?: Instant.now(),
-                avatarUrl = user.avatarUrl
+                avatarUrl = user.avatarUrl,
+                role = user.role.toRoleName(),
             )
         }
         if (resp !is ApiResponse.Success) {
