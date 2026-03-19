@@ -220,6 +220,14 @@
     <string name="export_local_only">只有本地帳戶支援匯出。</string>
     <string name="local_export_success">本地資料已匯出</string>
     <string name="local_export_failed">匯出本地資料失敗</string>
+    <string name="personal_memos_transfer">個人 memo 匯入匯出</string>
+    <string name="personal_memos_transfer_menu_title">個人 memo 匯入匯出</string>
+    <string name="export_personal_memos">匯出個人 memo</string>
+    <string name="import_personal_memos">匯入個人 memo</string>
+    <string name="personal_memos_export_success">已匯出 %1$d 則 memo 與 %2$d 個附件。</string>
+    <string name="personal_memos_export_failed">匯出個人 memo 失敗。</string>
+    <string name="personal_memos_import_result">匯入完成。已匯入 %1$d 則 memo，已上傳 %2$d 個附件，失敗 %3$d 則，略過 %4$d 則。</string>
+    <string name="personal_memos_import_failed">匯入個人 memo 失敗。</string>
     <string name="resource_not_found">找不到資源</string>
     <string name="tag_name_empty">標籤名稱不能為空</string>
     <string name="current_account_no_avatar_sync">目前帳戶不支援頭像同步。</string>

@@ -73,12 +73,22 @@ class MemoTransferService @Inject constructor(
         runCatching {
             val remoteRepository = requireRemoteRepository()
             val account = requireCurrentRemoteAccount()
+            val currentUserId = requireCurrentUserId(remoteRepository)
+            val source = buildTransferSource(currentUserId)
+            val existingMemoDedupKeys = loadPersonalMemos(remoteRepository, currentUserId)
+                .asSequence()
+                .flatMap { memo ->
+                    buildExistingMemoDedupKeys(source, memo).asSequence()
+                }
+                .toSet()
             val dedupStore = buildMemoImportDedupStore(account.accountKey())
             val dedupKeys = dedupStore.readKeys(
                 nowMillis = System.currentTimeMillis(),
                 ttlMillis = memoImportDedupEntryTtlMillis,
                 maxEntries = memoImportDedupMaxEntries,
-            ).toMutableSet()
+            ).toMutableSet().apply {
+                addAll(existingMemoDedupKeys)
+            }
             if (isZipDocument(sourceUri)) {
                 importFromZip(
                     sourceUri = sourceUri,
@@ -573,6 +583,16 @@ class MemoTransferService @Inject constructor(
         return "fp:${buildImportEntryFingerprint(entry)}"
     }
 
+    private fun buildExistingMemoDedupKeys(
+        source: MemoTransferSource,
+        memo: Memo,
+    ): Set<String> {
+        return linkedSetOf(
+            "id:${buildExportImportId(source, memo)}",
+            "fp:${buildMemoFingerprint(memo)}",
+        )
+    }
+
     private fun buildImportEntryFingerprint(entry: MemoImportEntry): String {
         val createdAt = entry.createdAt?.toEpochMilli()?.toString().orEmpty()
         val tags = normalizeTagList(entry.tags).sorted().joinToString("\u001f")
@@ -593,6 +613,28 @@ class MemoTransferService @Inject constructor(
             longitude,
             if (entry.pinned) "1" else "0",
             if (entry.archived) "1" else "0",
+            attachments,
+        ).joinToString("\u001e")
+        return sha256(raw)
+    }
+
+    private fun buildMemoFingerprint(memo: Memo): String {
+        val tags = normalizeTagList(memo.tags).sorted().joinToString("\u001f")
+        val latitude = canonicalizeCoordinate(memo.latitude)
+        val longitude = canonicalizeCoordinate(memo.longitude)
+        val attachments = memo.resources
+            .map { resource -> "${resource.filename.trim()}|${resource.mimeType?.trim().orEmpty()}" }
+            .sorted()
+            .joinToString("\u001f")
+        val raw = listOf(
+            memo.content.replace("\r\n", "\n"),
+            memo.date.toEpochMilli().toString(),
+            memo.visibility.name,
+            tags,
+            latitude,
+            longitude,
+            if (memo.pinned) "1" else "0",
+            if (memo.archived) "1" else "0",
             attachments,
         ).joinToString("\u001e")
         return sha256(raw)

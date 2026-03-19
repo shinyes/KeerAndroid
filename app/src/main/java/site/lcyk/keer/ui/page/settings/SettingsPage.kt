@@ -19,6 +19,7 @@ import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.ImportExport
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PersonAdd
@@ -176,6 +177,7 @@ fun SettingsPage(
         }
     }
     var showChangePasswordDialog by remember { mutableStateOf(false) }
+    var showPersonalMemosTransferDialog by remember { mutableStateOf(false) }
     var currentPassword by rememberSaveable { mutableStateOf("") }
     var newPassword by rememberSaveable { mutableStateOf("") }
     var confirmNewPassword by rememberSaveable { mutableStateOf("") }
@@ -212,6 +214,17 @@ fun SettingsPage(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.outline
                 )
+            }
+
+            if (currentAccount is Account.KeerV2) {
+                item {
+                    SettingItem(
+                        icon = Icons.Outlined.ImportExport,
+                        text = R.string.personal_memos_transfer.string
+                    ) {
+                        showPersonalMemosTransferDialog = true
+                    }
+                }
             }
 
             item {
@@ -284,34 +297,6 @@ fun SettingsPage(
                     text = R.string.resources.string
                 ) {
                     navController.navigateSingleTop(RouteName.RESOURCE)
-                }
-            }
-
-            if (currentAccount is Account.KeerV2) {
-                item {
-                    SettingItem(
-                        icon = Icons.Outlined.Inventory2,
-                        text = R.string.export_personal_memos.string
-                    ) {
-                        exportPersonalMemosLauncher.launch("keer-personal-memos-${System.currentTimeMillis()}.zip")
-                    }
-                }
-
-                item {
-                    SettingItem(
-                        icon = Icons.Outlined.Edit,
-                        text = R.string.import_personal_memos.string
-                    ) {
-                        importPersonalMemosLauncher.launch(
-                            arrayOf(
-                                "application/zip",
-                                "application/x-zip-compressed",
-                                "application/json",
-                                "text/plain",
-                                "*/*"
-                            )
-                        )
-                    }
                 }
             }
 
@@ -426,6 +411,54 @@ fun SettingsPage(
             }
 
         }
+    }
+
+    if (showPersonalMemosTransferDialog) {
+        AlertDialog(
+            onDismissRequest = { showPersonalMemosTransferDialog = false },
+            title = { Text(R.string.personal_memos_transfer_menu_title.string) },
+            text = {
+                Column {
+                    TextButton(
+                        onClick = {
+                            showPersonalMemosTransferDialog = false
+                            exportPersonalMemosLauncher.launch("keer-personal-memos-${System.currentTimeMillis()}.zip")
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = R.string.export_personal_memos.string,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    TextButton(
+                        onClick = {
+                            showPersonalMemosTransferDialog = false
+                            importPersonalMemosLauncher.launch(
+                                arrayOf(
+                                    "application/zip",
+                                    "application/x-zip-compressed",
+                                    "application/json",
+                                    "text/plain",
+                                    "*/*"
+                                )
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = R.string.import_personal_memos.string,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPersonalMemosTransferDialog = false }) {
+                    Text(R.string.close.string)
+                }
+            }
+        )
     }
 
     if (showEditGestureDialog) {

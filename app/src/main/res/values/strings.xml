@@ -223,6 +223,8 @@
     <string name="export_local_only">Export is available for local account only.</string>
     <string name="local_export_success">Local data exported</string>
     <string name="local_export_failed">Failed to export local data</string>
+    <string name="personal_memos_transfer">Personal memo import/export</string>
+    <string name="personal_memos_transfer_menu_title">Personal memo import/export</string>
     <string name="export_personal_memos">Export personal memos</string>
     <string name="import_personal_memos">Import personal memos</string>
     <string name="personal_memos_export_success">Exported %1$d memos and %2$d attachments.</string>
