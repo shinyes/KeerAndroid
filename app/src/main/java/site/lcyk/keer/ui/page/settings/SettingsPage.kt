@@ -226,17 +226,6 @@ fun SettingsPage(
                 )
             }
 
-            if (currentAccount is Account.KeerV2) {
-                item {
-                    SettingItem(
-                        icon = Icons.Outlined.ImportExport,
-                        text = R.string.personal_memos_transfer.string
-                    ) {
-                        showPersonalMemosTransferDialog = true
-                    }
-                }
-            }
-
             item {
                 SettingItem(
                     icon = Icons.Outlined.AccountCircle,
@@ -319,18 +308,6 @@ fun SettingsPage(
                 }
             }
 
-            if (currentAccount is Account.KeerV2) {
-                item {
-                    SettingItem(
-                        icon = Icons.Outlined.Lock,
-                        text = R.string.change_password.string
-                    ) {
-                        passwordChangeError = null
-                        showChangePasswordDialog = true
-                    }
-                }
-            }
-
             item {
                 SettingItem(
                     icon = Icons.Outlined.Edit,
@@ -343,6 +320,29 @@ fun SettingsPage(
                     }
                 ) {
                     showEditGestureDialog = true
+                }
+            }
+
+            if (currentAccount is Account.KeerV2) {
+                item {
+                    SettingItem(
+                        icon = Icons.Outlined.ImportExport,
+                        text = R.string.personal_memos_transfer.string
+                    ) {
+                        showPersonalMemosTransferDialog = true
+                    }
+                }
+            }
+
+            if (currentAccount is Account.KeerV2) {
+                item {
+                    SettingItem(
+                        icon = Icons.Outlined.Lock,
+                        text = R.string.change_password.string
+                    ) {
+                        passwordChangeError = null
+                        showChangePasswordDialog = true
+                    }
                 }
             }
 
