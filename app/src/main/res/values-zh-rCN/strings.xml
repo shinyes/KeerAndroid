@@ -227,6 +227,7 @@
     <string name="export_personal_memos">导出个人 memo</string>
     <string name="import_personal_memos">导入个人 memo</string>
     <string name="personal_memos_export_success">已导出 %1$d 条 memo 和 %2$d 个附件。</string>
+    <string name="personal_memos_export_result_with_failed">导出完成。已导出 %1$d 条 memo 和 %2$d 个附件，失败 %3$d 条。</string>
     <string name="personal_memos_export_failed">导出个人 memo 失败。</string>
     <string name="personal_memos_import_result">导入完成。已导入 %1$d 条 memo，已上传 %2$d 个附件，失败 %3$d 条，跳过 %4$d 条。</string>
     <string name="personal_memos_import_failed">导入个人 memo 失败。</string>

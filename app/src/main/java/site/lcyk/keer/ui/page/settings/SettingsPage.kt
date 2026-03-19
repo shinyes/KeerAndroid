@@ -123,13 +123,23 @@ fun SettingsPage(
         scope.launch {
             userStateViewModel.exportPersonalMemos(uri)
                 .onSuccess { summary ->
-                    Toast.makeText(
-                        context,
+                    val message = if (summary.failedCount > 0) {
+                        resources.getString(
+                            R.string.personal_memos_export_result_with_failed,
+                            summary.exportedCount,
+                            summary.exportedAttachmentCount,
+                            summary.failedCount,
+                        )
+                    } else {
                         resources.getString(
                             R.string.personal_memos_export_success,
                             summary.exportedCount,
                             summary.exportedAttachmentCount,
-                        ),
+                        )
+                    }
+                    Toast.makeText(
+                        context,
+                        message,
                         Toast.LENGTH_LONG
                     ).show()
                 }

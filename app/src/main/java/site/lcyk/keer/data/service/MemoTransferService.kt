@@ -38,6 +38,7 @@ import kotlinx.coroutines.withContext
 data class MemoExportResult(
     val exportedCount: Int,
     val exportedAttachmentCount: Int,
+    val failedCount: Int,
 )
 
 data class MemoImportResult(
@@ -176,13 +177,15 @@ class MemoTransferService @Inject constructor(
         memos: List<Memo>,
         localRepository: AbstractMemoRepository,
     ): MemoExportResult {
+        val exportableMemos = memos.filterNot(::isDecryptUnavailableMemo)
+        val failedCount = (memos.size - exportableMemos.size).coerceAtLeast(0)
         val output = context.contentResolver.openOutputStream(destinationUri)
             ?: throw IllegalStateException("Cannot open destination file")
         var attachmentCount = 0
         output.use { outputStream ->
             ZipOutputStream(BufferedOutputStream(outputStream)).use { zip ->
                 val exportMemos = mutableListOf<MemoTransferMemo>()
-                memos.forEachIndexed { memoIndex, memo ->
+                exportableMemos.forEachIndexed { memoIndex, memo ->
                     val attachments = mutableListOf<MemoTransferAttachment>()
                     memo.resources.forEachIndexed { attachmentIndex, resource ->
                         val filename = resolveAttachmentFilename(resource.filename, attachmentIndex)
@@ -225,8 +228,9 @@ class MemoTransferService @Inject constructor(
             }
         }
         return MemoExportResult(
-            exportedCount = memos.size,
+            exportedCount = exportableMemos.size,
             exportedAttachmentCount = attachmentCount,
+            failedCount = failedCount,
         )
     }
 
@@ -561,6 +565,10 @@ class MemoTransferService @Inject constructor(
             .trim()
     }
 
+    private fun isDecryptUnavailableMemo(memo: Memo): Boolean {
+        return memo.content.trim() == encryptedContentUnavailablePlaceholder
+    }
+
     private fun buildExportImportId(
         source: MemoTransferSource,
         memo: Memo,
@@ -672,6 +680,7 @@ class MemoTransferService @Inject constructor(
         private const val memoImportDedupMaxEntries = 20_000
         private const val memoImportDedupEntryTtlMillis = 180L * 24L * 60L * 60L * 1000L
         private const val memoTransferImportIdVersion = "v1"
+        private const val encryptedContentUnavailablePlaceholder = "[Encrypted content unavailable]"
         private const val hex = "0123456789abcdef"
     }
 }

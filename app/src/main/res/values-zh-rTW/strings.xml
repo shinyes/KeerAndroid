@@ -225,6 +225,7 @@
     <string name="export_personal_memos">匯出個人 memo</string>
     <string name="import_personal_memos">匯入個人 memo</string>
     <string name="personal_memos_export_success">已匯出 %1$d 則 memo 與 %2$d 個附件。</string>
+    <string name="personal_memos_export_result_with_failed">匯出完成。已匯出 %1$d 則 memo 與 %2$d 個附件，失敗 %3$d 則。</string>
     <string name="personal_memos_export_failed">匯出個人 memo 失敗。</string>
     <string name="personal_memos_import_result">匯入完成。已匯入 %1$d 則 memo，已上傳 %2$d 個附件，失敗 %3$d 則，略過 %4$d 則。</string>
     <string name="personal_memos_import_failed">匯入個人 memo 失敗。</string>
