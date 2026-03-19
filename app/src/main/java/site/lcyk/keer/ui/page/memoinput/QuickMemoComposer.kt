@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Icon
@@ -63,6 +64,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
@@ -105,14 +107,12 @@ private val quickComposerEditorPadding = PaddingValues(
 private val quickComposerSurfaceVerticalPadding = 20.dp
 private val quickComposerCompactContainerHeight = 152.dp
 private val quickComposerDefaultMinContainerHeight = 196.dp
-private val quickComposerMaxContainerHeight = 360.dp
 private val quickComposerCompactEditorHeight = 96.dp
 private val quickComposerDefaultMinEditorHeight = 132.dp
-private val quickComposerDefaultMaxEditorHeight = 216.dp
 private val quickComposerBottomBarHeight = 60.dp
 private val quickComposerFallbackLineHeight = 20.dp
 private const val quickComposerMinEditorLines = 4
-private const val quickComposerMaxEditorLines = 10
+private val quickComposerShape = RoundedCornerShape(16.dp)
 
 data class QuickMemoSubmitRequest(
     val content: String,
@@ -481,7 +481,6 @@ fun QuickMemoComposer(
             val availableContainerHeight = maxHeight - quickComposerSurfaceVerticalPadding
             val composerMaxHeight = availableContainerHeight
                 .coerceAtLeast(quickComposerCompactContainerHeight)
-                .coerceAtMost(quickComposerMaxContainerHeight)
             val composerMinHeight = minOf(quickComposerDefaultMinContainerHeight, composerMaxHeight)
 
             val editorVerticalPadding = quickComposerEditorPadding.calculateTopPadding() +
@@ -489,7 +488,6 @@ fun QuickMemoComposer(
             val editorHeightBudget = composerMaxHeight - quickComposerBottomBarHeight - editorVerticalPadding
             val editorMaxHeight = editorHeightBudget
                 .coerceAtLeast(quickComposerCompactEditorHeight)
-                .coerceAtMost(quickComposerDefaultMaxEditorHeight)
             val editorMinHeight = minOf(quickComposerDefaultMinEditorHeight, editorMaxHeight)
 
             val lineHeight = MaterialTheme.typography.bodyLarge.lineHeight
@@ -500,25 +498,26 @@ fun QuickMemoComposer(
             }.coerceAtLeast(quickComposerFallbackLineHeight)
             val maxEditorLines = (editorMaxHeight / editorLineHeight)
                 .toInt()
-                .coerceIn(quickComposerMinEditorLines, quickComposerMaxEditorLines)
+                .coerceAtLeast(quickComposerMinEditorLines)
 
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 10.dp)
-                    .navigationBarsPadding()
-                    .animateContentSize(
-                        animationSpec = tween(durationMillis = 150, easing = quickComposerEasing)
-                    ),
-                shape = MaterialTheme.shapes.medium,
+                    .navigationBarsPadding(),
+                shape = quickComposerShape,
                 tonalElevation = 6.dp,
                 shadowElevation = 16.dp,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
                 Column(
                     modifier = Modifier
+                        .animateContentSize(
+                            animationSpec = tween(durationMillis = 150, easing = quickComposerEasing)
+                        )
                         .fillMaxWidth()
                         .heightIn(min = composerMinHeight, max = composerMaxHeight)
+                        .clip(quickComposerShape)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
