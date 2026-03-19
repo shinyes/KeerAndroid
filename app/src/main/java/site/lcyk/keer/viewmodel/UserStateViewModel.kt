@@ -10,14 +10,18 @@ import androidx.lifecycle.viewModelScope
 import com.skydoves.sandwich.ApiResponse
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
@@ -35,12 +39,22 @@ import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.data.service.MemoExportResult
 import site.lcyk.keer.data.service.MemoImportResult
 import site.lcyk.keer.data.service.MemoService
+import site.lcyk.keer.data.service.MemoTransferOperation
+import site.lcyk.keer.data.service.MemoTransferStage
 import site.lcyk.keer.data.service.MemoTransferService
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.data.repository.UserGeneralSettingsRepository
 import site.lcyk.keer.ext.string
 import okhttp3.OkHttpClient
 import javax.inject.Inject
+
+data class MemoTransferTaskState(
+    val running: Boolean = false,
+    val operation: MemoTransferOperation? = null,
+    val stage: MemoTransferStage? = null,
+    val completed: Int? = null,
+    val total: Int? = null,
+)
 
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -72,6 +86,9 @@ class UserStateViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
     val groupIdAliases: StateFlow<List<GroupIdAlias>> = joinedGroupRepository.observeGroupIdAliases()
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    private val memoTransferMutex = Mutex()
+    private val _memoTransferTaskState = MutableStateFlow(MemoTransferTaskState())
+    val memoTransferTaskState: StateFlow<MemoTransferTaskState> = _memoTransferTaskState.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -230,20 +247,58 @@ class UserStateViewModel @Inject constructor(
     }
 
     suspend fun exportPersonalMemos(destinationUri: Uri): Result<MemoExportResult> = withContext(viewModelScope.coroutineContext) {
-        memoTransferService.exportPersonalMemos(destinationUri)
+        memoTransferMutex.withLock {
+            _memoTransferTaskState.value = MemoTransferTaskState(
+                running = true,
+                operation = MemoTransferOperation.EXPORT,
+                stage = MemoTransferStage.PREPARING,
+            )
+            try {
+                memoTransferService.exportPersonalMemos(destinationUri) { progress ->
+                    _memoTransferTaskState.value = MemoTransferTaskState(
+                        running = true,
+                        operation = progress.operation,
+                        stage = progress.stage,
+                        completed = progress.completed,
+                        total = progress.total,
+                    )
+                }
+            } finally {
+                _memoTransferTaskState.value = MemoTransferTaskState()
+            }
+        }
     }
 
     suspend fun importPersonalMemos(sourceUri: Uri): Result<MemoImportResult> = withContext(viewModelScope.coroutineContext) {
-        val result = memoTransferService.importPersonalMemos(sourceUri)
-        val summary = result.getOrNull() ?: return@withContext result
-        if (summary.imported > 0) {
-            memoService.requestSync(
-                trigger = SyncTrigger.MUTATION,
-                force = true,
-                domains = setOf(SyncDomain.MEMOS)
+        memoTransferMutex.withLock {
+            _memoTransferTaskState.value = MemoTransferTaskState(
+                running = true,
+                operation = MemoTransferOperation.IMPORT,
+                stage = MemoTransferStage.PREPARING,
             )
+            try {
+                val result = memoTransferService.importPersonalMemos(sourceUri) { progress ->
+                    _memoTransferTaskState.value = MemoTransferTaskState(
+                        running = true,
+                        operation = progress.operation,
+                        stage = progress.stage,
+                        completed = progress.completed,
+                        total = progress.total,
+                    )
+                }
+                val summary = result.getOrNull() ?: return@withContext result
+                if (summary.imported > 0) {
+                    memoService.requestSync(
+                        trigger = SyncTrigger.MUTATION,
+                        force = true,
+                        domains = setOf(SyncDomain.MEMOS)
+                    )
+                }
+                result
+            } finally {
+                _memoTransferTaskState.value = MemoTransferTaskState()
+            }
         }
-        result
     }
 
     fun observeAccountAvatarUri(accountKey: String) =

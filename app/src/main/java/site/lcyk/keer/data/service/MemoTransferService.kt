@@ -49,13 +49,43 @@ data class MemoImportResult(
     val importedAttachmentCount: Int,
 )
 
+enum class MemoTransferOperation {
+    EXPORT,
+    IMPORT,
+}
+
+enum class MemoTransferStage {
+    PREPARING,
+    READING_PACKAGE,
+    PROCESSING_MEMOS,
+    PROCESSING_ATTACHMENTS,
+    WRITING_MANIFEST,
+    COMPLETED,
+}
+
+data class MemoTransferProgress(
+    val operation: MemoTransferOperation,
+    val stage: MemoTransferStage,
+    val completed: Int? = null,
+    val total: Int? = null,
+)
+
 @Singleton
 class MemoTransferService @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val accountService: AccountService,
 ) {
-    suspend fun exportPersonalMemos(destinationUri: Uri): Result<MemoExportResult> = withContext(Dispatchers.IO) {
+    suspend fun exportPersonalMemos(
+        destinationUri: Uri,
+        onProgress: ((MemoTransferProgress) -> Unit)? = null,
+    ): Result<MemoExportResult> = withContext(Dispatchers.IO) {
         runCatching {
+            onProgress?.invoke(
+                MemoTransferProgress(
+                    operation = MemoTransferOperation.EXPORT,
+                    stage = MemoTransferStage.PREPARING,
+                )
+            )
             val remoteRepository = requireRemoteRepository()
             val currentUserId = requireCurrentUserId(remoteRepository)
             val personalMemos = loadPersonalMemos(remoteRepository, currentUserId)
@@ -66,12 +96,22 @@ class MemoTransferService @Inject constructor(
                 source = source,
                 memos = personalMemos,
                 localRepository = localRepository,
+                onProgress = onProgress,
             )
         }
     }
 
-    suspend fun importPersonalMemos(sourceUri: Uri): Result<MemoImportResult> = withContext(Dispatchers.IO) {
+    suspend fun importPersonalMemos(
+        sourceUri: Uri,
+        onProgress: ((MemoTransferProgress) -> Unit)? = null,
+    ): Result<MemoImportResult> = withContext(Dispatchers.IO) {
         runCatching {
+            onProgress?.invoke(
+                MemoTransferProgress(
+                    operation = MemoTransferOperation.IMPORT,
+                    stage = MemoTransferStage.PREPARING,
+                )
+            )
             val remoteRepository = requireRemoteRepository()
             val account = requireCurrentRemoteAccount()
             val currentUserId = requireCurrentUserId(remoteRepository)
@@ -96,6 +136,7 @@ class MemoTransferService @Inject constructor(
                     remoteRepository = remoteRepository,
                     dedupStore = dedupStore,
                     dedupKeys = dedupKeys,
+                    onProgress = onProgress,
                 )
             } else {
                 importFromJson(
@@ -103,6 +144,7 @@ class MemoTransferService @Inject constructor(
                     remoteRepository = remoteRepository,
                     dedupStore = dedupStore,
                     dedupKeys = dedupKeys,
+                    onProgress = onProgress,
                 )
             }
         }
@@ -176,12 +218,31 @@ class MemoTransferService @Inject constructor(
         source: MemoTransferSource,
         memos: List<Memo>,
         localRepository: AbstractMemoRepository,
+        onProgress: ((MemoTransferProgress) -> Unit)?,
     ): MemoExportResult {
         val exportableMemos = memos.filterNot(::isDecryptUnavailableMemo)
         val failedCount = (memos.size - exportableMemos.size).coerceAtLeast(0)
+        val totalAttachmentCount = exportableMemos.sumOf { memo -> memo.resources.size }
         val output = context.contentResolver.openOutputStream(destinationUri)
             ?: throw IllegalStateException("Cannot open destination file")
         var attachmentCount = 0
+        var memoCount = 0
+        onProgress?.invoke(
+            MemoTransferProgress(
+                operation = MemoTransferOperation.EXPORT,
+                stage = MemoTransferStage.PROCESSING_MEMOS,
+                completed = 0,
+                total = exportableMemos.size,
+            )
+        )
+        onProgress?.invoke(
+            MemoTransferProgress(
+                operation = MemoTransferOperation.EXPORT,
+                stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
+                completed = 0,
+                total = totalAttachmentCount,
+            )
+        )
         output.use { outputStream ->
             ZipOutputStream(BufferedOutputStream(outputStream)).use { zip ->
                 val exportMemos = mutableListOf<MemoTransferMemo>()
@@ -202,6 +263,14 @@ class MemoTransferService @Inject constructor(
                             mimeType = resource.mimeType
                         )
                         attachmentCount += 1
+                        onProgress?.invoke(
+                            MemoTransferProgress(
+                                operation = MemoTransferOperation.EXPORT,
+                                stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
+                                completed = attachmentCount,
+                                total = totalAttachmentCount,
+                            )
+                        )
                     }
                     exportMemos += MemoTransferMemo(
                         importId = buildExportImportId(source, memo),
@@ -215,7 +284,22 @@ class MemoTransferService @Inject constructor(
                         archived = memo.archived,
                         attachments = attachments,
                     )
+                    memoCount += 1
+                    onProgress?.invoke(
+                        MemoTransferProgress(
+                            operation = MemoTransferOperation.EXPORT,
+                            stage = MemoTransferStage.PROCESSING_MEMOS,
+                            completed = memoCount,
+                            total = exportableMemos.size,
+                        )
+                    )
                 }
+                onProgress?.invoke(
+                    MemoTransferProgress(
+                        operation = MemoTransferOperation.EXPORT,
+                        stage = MemoTransferStage.WRITING_MANIFEST,
+                    )
+                )
                 val document = MemoTransferDocument(
                     exportedAt = Instant.now().toString(),
                     source = source,
@@ -227,6 +311,14 @@ class MemoTransferService @Inject constructor(
                 zip.closeEntry()
             }
         }
+        onProgress?.invoke(
+            MemoTransferProgress(
+                operation = MemoTransferOperation.EXPORT,
+                stage = MemoTransferStage.COMPLETED,
+                completed = exportableMemos.size,
+                total = exportableMemos.size,
+            )
+        )
         return MemoExportResult(
             exportedCount = exportableMemos.size,
             exportedAttachmentCount = attachmentCount,
@@ -305,7 +397,14 @@ class MemoTransferService @Inject constructor(
         remoteRepository: RemoteRepository,
         dedupStore: MemoImportDedupStore,
         dedupKeys: MutableSet<String>,
+        onProgress: ((MemoTransferProgress) -> Unit)?,
     ): MemoImportResult {
+        onProgress?.invoke(
+            MemoTransferProgress(
+                operation = MemoTransferOperation.IMPORT,
+                stage = MemoTransferStage.READING_PACKAGE,
+            )
+        )
         val payload = readTextFromUri(sourceUri)
         val entries = MemoTransferCodec.decodeImportEntries(payload)
             .map { entry -> entry.copy(attachments = emptyList()) }
@@ -315,6 +414,7 @@ class MemoTransferService @Inject constructor(
             remoteRepository = remoteRepository,
             dedupStore = dedupStore,
             dedupKeys = dedupKeys,
+            onProgress = onProgress,
         )
     }
 
@@ -323,12 +423,19 @@ class MemoTransferService @Inject constructor(
         remoteRepository: RemoteRepository,
         dedupStore: MemoImportDedupStore,
         dedupKeys: MutableSet<String>,
+        onProgress: ((MemoTransferProgress) -> Unit)?,
     ): MemoImportResult {
         val extractionDir = File(context.cacheDir, "memo-transfer-${UUID.randomUUID()}")
         if (!extractionDir.exists() && !extractionDir.mkdirs()) {
             throw IllegalStateException("Cannot create temp directory for import")
         }
         return try {
+            onProgress?.invoke(
+                MemoTransferProgress(
+                    operation = MemoTransferOperation.IMPORT,
+                    stage = MemoTransferStage.READING_PACKAGE,
+                )
+            )
             val extractedAttachments = linkedMapOf<String, File>()
             var manifestRaw: String? = null
             val input = context.contentResolver.openInputStream(sourceUri)
@@ -372,6 +479,7 @@ class MemoTransferService @Inject constructor(
                 remoteRepository = remoteRepository,
                 dedupStore = dedupStore,
                 dedupKeys = dedupKeys,
+                onProgress = onProgress,
             )
         } finally {
             extractionDir.deleteRecursively()
@@ -384,22 +492,61 @@ class MemoTransferService @Inject constructor(
         remoteRepository: RemoteRepository,
         dedupStore: MemoImportDedupStore,
         dedupKeys: MutableSet<String>,
+        onProgress: ((MemoTransferProgress) -> Unit)?,
     ): MemoImportResult {
         var imported = 0
         var failed = 0
         var skipped = 0
         var importedAttachmentCount = 0
+        var processedEntryCount = 0
+        var processedAttachmentCount = 0
         val nowMillis = System.currentTimeMillis()
         val importedDedupKeys = linkedSetOf<String>()
+        val totalEntries = entries.size
+        val totalAttachmentCount = entries.sumOf { entry -> entry.attachments.size }
+        onProgress?.invoke(
+            MemoTransferProgress(
+                operation = MemoTransferOperation.IMPORT,
+                stage = MemoTransferStage.PROCESSING_MEMOS,
+                completed = 0,
+                total = totalEntries,
+            )
+        )
+        onProgress?.invoke(
+            MemoTransferProgress(
+                operation = MemoTransferOperation.IMPORT,
+                stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
+                completed = 0,
+                total = totalAttachmentCount,
+            )
+        )
 
         for (entry in entries) {
             if (entry.content.isBlank()) {
                 skipped += 1
+                processedEntryCount += 1
+                onProgress?.invoke(
+                    MemoTransferProgress(
+                        operation = MemoTransferOperation.IMPORT,
+                        stage = MemoTransferStage.PROCESSING_MEMOS,
+                        completed = processedEntryCount,
+                        total = totalEntries,
+                    )
+                )
                 continue
             }
             val dedupKey = buildImportDedupKey(entry)
             if (dedupKey in dedupKeys) {
                 skipped += 1
+                processedEntryCount += 1
+                onProgress?.invoke(
+                    MemoTransferProgress(
+                        operation = MemoTransferOperation.IMPORT,
+                        stage = MemoTransferStage.PROCESSING_MEMOS,
+                        completed = processedEntryCount,
+                        total = totalEntries,
+                    )
+                )
                 continue
             }
 
@@ -428,10 +575,28 @@ class MemoTransferService @Inject constructor(
                 }
                 remoteResourceIds += uploadedResource.remoteId
                 uploadedAttachmentCountForMemo += 1
+                processedAttachmentCount += 1
+                onProgress?.invoke(
+                    MemoTransferProgress(
+                        operation = MemoTransferOperation.IMPORT,
+                        stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
+                        completed = processedAttachmentCount,
+                        total = totalAttachmentCount,
+                    )
+                )
             }
             if (resourceUploadFailed) {
                 cleanupUploadedResources(remoteRepository, remoteResourceIds)
                 failed += 1
+                processedEntryCount += 1
+                onProgress?.invoke(
+                    MemoTransferProgress(
+                        operation = MemoTransferOperation.IMPORT,
+                        stage = MemoTransferStage.PROCESSING_MEMOS,
+                        completed = processedEntryCount,
+                        total = totalEntries,
+                    )
+                )
                 continue
             }
 
@@ -448,6 +613,15 @@ class MemoTransferService @Inject constructor(
             if (createdMemo == null) {
                 cleanupUploadedResources(remoteRepository, remoteResourceIds)
                 failed += 1
+                processedEntryCount += 1
+                onProgress?.invoke(
+                    MemoTransferProgress(
+                        operation = MemoTransferOperation.IMPORT,
+                        stage = MemoTransferStage.PROCESSING_MEMOS,
+                        completed = processedEntryCount,
+                        total = totalEntries,
+                    )
+                )
                 continue
             }
 
@@ -462,6 +636,15 @@ class MemoTransferService @Inject constructor(
             importedDedupKeys += dedupKey
             importedAttachmentCount += uploadedAttachmentCountForMemo
             imported += 1
+            processedEntryCount += 1
+            onProgress?.invoke(
+                MemoTransferProgress(
+                    operation = MemoTransferOperation.IMPORT,
+                    stage = MemoTransferStage.PROCESSING_MEMOS,
+                    completed = processedEntryCount,
+                    total = totalEntries,
+                )
+            )
         }
 
         dedupStore.upsertImported(
@@ -469,6 +652,14 @@ class MemoTransferService @Inject constructor(
             nowMillis = nowMillis,
             ttlMillis = memoImportDedupEntryTtlMillis,
             maxEntries = memoImportDedupMaxEntries,
+        )
+        onProgress?.invoke(
+            MemoTransferProgress(
+                operation = MemoTransferOperation.IMPORT,
+                stage = MemoTransferStage.COMPLETED,
+                completed = totalEntries,
+                total = totalEntries,
+            )
         )
 
         return MemoImportResult(

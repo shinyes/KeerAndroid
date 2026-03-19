@@ -231,6 +231,15 @@
     <string name="personal_memos_export_failed">导出个人 memo 失败。</string>
     <string name="personal_memos_import_result">导入完成。已导入 %1$d 条 memo，已上传 %2$d 个附件，失败 %3$d 条，跳过 %4$d 条。</string>
     <string name="personal_memos_import_failed">导入个人 memo 失败。</string>
+    <string name="personal_memos_transfer_in_progress_title">个人 memo 导入导出进行中</string>
+    <string name="personal_memos_transfer_exporting">正在导出个人 memo</string>
+    <string name="personal_memos_transfer_importing">正在导入个人 memo</string>
+    <string name="personal_memos_transfer_stage_preparing">正在准备</string>
+    <string name="personal_memos_transfer_stage_reading_package">正在读取文件包</string>
+    <string name="personal_memos_transfer_stage_processing_memos">正在处理 memo</string>
+    <string name="personal_memos_transfer_stage_processing_attachments">正在处理附件</string>
+    <string name="personal_memos_transfer_stage_writing_manifest">正在写入清单</string>
+    <string name="personal_memos_transfer_stage_completed">已完成</string>
     <string name="resource_not_found">未找到资源</string>
     <string name="tag_name_empty">标签名不能为空</string>
     <string name="current_account_no_avatar_sync">当前账号不支持头像同步。</string>

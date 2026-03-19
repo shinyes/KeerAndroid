@@ -30,6 +30,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,6 +52,8 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import coil3.compose.AsyncImage
@@ -73,6 +77,10 @@ import site.lcyk.keer.ui.page.common.navigateSingleTop
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.resolveAvatarUrl
 import site.lcyk.keer.viewmodel.LocalUserState
+import site.lcyk.keer.viewmodel.MemoTransferTaskState
+import site.lcyk.keer.data.service.MemoTransferOperation
+import site.lcyk.keer.data.service.MemoTransferStage
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,6 +97,7 @@ fun SettingsPage(
     val scope = rememberCoroutineScope()
     val accounts by userStateViewModel.accounts.collectAsState()
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val memoTransferTaskState by userStateViewModel.memoTransferTaskState.collectAsState()
     val generalSettings by userStateViewModel.generalSettings.collectAsState()
     val currentAvatarUri by userStateViewModel.currentAvatarUri.collectAsState()
     val currentAccountKey = currentAccount?.accountKey()
@@ -690,6 +699,76 @@ fun SettingsPage(
                 }
             }
         )
+    }
+
+    if (memoTransferTaskState.running) {
+        MemoTransferProgressDialog(taskState = memoTransferTaskState)
+    }
+}
+
+@Composable
+private fun MemoTransferProgressDialog(taskState: MemoTransferTaskState) {
+    val operationText = when (taskState.operation) {
+        MemoTransferOperation.EXPORT -> stringResource(R.string.personal_memos_transfer_exporting)
+        MemoTransferOperation.IMPORT -> stringResource(R.string.personal_memos_transfer_importing)
+        null -> stringResource(R.string.personal_memos_transfer_in_progress_title)
+    }
+    val stageText = when (taskState.stage) {
+        MemoTransferStage.PREPARING -> stringResource(R.string.personal_memos_transfer_stage_preparing)
+        MemoTransferStage.READING_PACKAGE -> stringResource(R.string.personal_memos_transfer_stage_reading_package)
+        MemoTransferStage.PROCESSING_MEMOS -> stringResource(R.string.personal_memos_transfer_stage_processing_memos)
+        MemoTransferStage.PROCESSING_ATTACHMENTS -> stringResource(R.string.personal_memos_transfer_stage_processing_attachments)
+        MemoTransferStage.WRITING_MANIFEST -> stringResource(R.string.personal_memos_transfer_stage_writing_manifest)
+        MemoTransferStage.COMPLETED -> stringResource(R.string.personal_memos_transfer_stage_completed)
+        null -> stringResource(R.string.loading)
+    }
+    val progress = taskState.total?.takeIf { it > 0 }?.let { total ->
+        val current = (taskState.completed ?: 0).coerceIn(0, total)
+        current.toFloat() / total.toFloat()
+    }
+
+    Dialog(
+        onDismissRequest = {},
+        properties = DialogProperties(
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false
+        )
+    ) {
+        androidx.compose.material3.Card {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+            ) {
+                Text(
+                    text = operationText,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+                Text(
+                    text = stageText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 14.dp)
+                )
+                if (progress != null) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        text = "${(progress * 100f).roundToInt()}%",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                } else {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+        }
     }
 }
 

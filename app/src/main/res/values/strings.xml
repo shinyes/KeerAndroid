@@ -232,6 +232,15 @@
     <string name="personal_memos_export_failed">Failed to export personal memos.</string>
     <string name="personal_memos_import_result">Import finished. Imported %1$d memos, uploaded %2$d attachments, failed %3$d, skipped %4$d.</string>
     <string name="personal_memos_import_failed">Failed to import personal memos.</string>
+    <string name="personal_memos_transfer_in_progress_title">Personal memo transfer in progress</string>
+    <string name="personal_memos_transfer_exporting">Exporting personal memos</string>
+    <string name="personal_memos_transfer_importing">Importing personal memos</string>
+    <string name="personal_memos_transfer_stage_preparing">Preparing</string>
+    <string name="personal_memos_transfer_stage_reading_package">Reading package</string>
+    <string name="personal_memos_transfer_stage_processing_memos">Processing memos</string>
+    <string name="personal_memos_transfer_stage_processing_attachments">Processing attachments</string>
+    <string name="personal_memos_transfer_stage_writing_manifest">Writing manifest</string>
+    <string name="personal_memos_transfer_stage_completed">Completed</string>
     <string name="resource_not_found">Resource not found</string>
     <string name="tag_name_empty">Tag name cannot be empty</string>
     <string name="current_account_no_avatar_sync">Current account does not support avatar sync.</string>
