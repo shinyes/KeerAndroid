@@ -2,13 +2,10 @@ package site.lcyk.keer.ui.component
 
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.Icons
@@ -18,6 +15,7 @@ import androidx.compose.material3.DrawerState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -70,62 +68,67 @@ fun TagDrawerItem(
         onLongPress(tag)
     }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Start
-    ) {
-        if (expandable && onToggleExpand != null) {
-            IconButton(
-                onClick = onToggleExpand,
-                modifier = Modifier.size(30.dp)
+    NavigationDrawerItem(
+        label = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = if (expanded) Icons.Filled.ExpandMore else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = null
+                Text(
+                    text = displayName,
+                    modifier = Modifier.weight(1f)
                 )
-            }
-        } else {
-            Spacer(modifier = Modifier.width(30.dp))
-        }
-
-        NavigationDrawerItem(
-            label = { Text(displayName) },
-            icon = { Icon(Icons.Outlined.Tag, contentDescription = null) },
-            selected = selected,
-            onClick = {
-                if (suppressNextClick) {
-                    suppressNextClick = false
-                    return@NavigationDrawerItem
-                }
-                handleItemClick()
-            },
-            modifier = Modifier
-                .weight(1f)
-                .padding(end = 8.dp)
-                .pointerInput(tag, enabled, onLongPress) {
-                    if (!enabled || onLongPress == null) {
-                        return@pointerInput
-                    }
-                    awaitEachGesture {
-                        awaitFirstDown(requireUnconsumed = false)
-                        val result = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                            if (waitForUpOrCancellation() == null) {
-                                PressResult.CANCELED
+                if (expandable && onToggleExpand != null) {
+                    IconButton(
+                        onClick = onToggleExpand,
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (expanded) {
+                                Icons.Filled.ExpandMore
                             } else {
-                                PressResult.UP
-                            }
-                        } ?: PressResult.TIMEOUT
-                        if (result == PressResult.TIMEOUT) {
-                            suppressNextClick = true
-                            handleItemLongPress()
-                            waitForUpOrCancellation()
-                        }
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight
+                            },
+                            contentDescription = null
+                        )
                     }
-                },
-        )
-    }
+                }
+            }
+        },
+        icon = { Icon(Icons.Outlined.Tag, contentDescription = null) },
+        selected = selected,
+        onClick = {
+            if (suppressNextClick) {
+                suppressNextClick = false
+                return@NavigationDrawerItem
+            }
+            handleItemClick()
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(NavigationDrawerItemDefaults.ItemPadding)
+            .padding(start = (depth.coerceAtLeast(0) * 10).dp)
+            .pointerInput(tag, enabled, onLongPress) {
+                if (!enabled || onLongPress == null) {
+                    return@pointerInput
+                }
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    val result = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                        if (waitForUpOrCancellation() == null) {
+                            PressResult.CANCELED
+                        } else {
+                            PressResult.UP
+                        }
+                    } ?: PressResult.TIMEOUT
+                    if (result == PressResult.TIMEOUT) {
+                        suppressNextClick = true
+                        handleItemLongPress()
+                        waitForUpOrCancellation()
+                    }
+                }
+            }
+    )
 }
 
 private enum class PressResult {
