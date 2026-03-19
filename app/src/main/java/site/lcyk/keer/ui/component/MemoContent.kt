@@ -17,8 +17,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import site.lcyk.keer.ui.page.common.LocalRootNavController
-import site.lcyk.keer.ui.page.common.navigateToTagPage
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.MemoRepresentable
 import site.lcyk.keer.ext.string
@@ -36,17 +34,11 @@ fun MemoContent(
     onTagClick: ((String) -> Unit)? = null,
     autoPreviewPrefetch: Boolean = true,
 ) {
-    val rootNavController = LocalRootNavController.current
     val (text, previewed) = remember(memo.content, previewMode) {
         if (previewMode) {
             extractPreviewContent(markdownText = memo.content)
         } else {
             Pair(memo.content, false)
-        }
-    }
-    val handleTagClick = remember(rootNavController, onTagClick) {
-        onTagClick ?: { tag ->
-            rootNavController.navigateToTagPage(tag)
         }
     }
 
@@ -58,7 +50,8 @@ fun MemoContent(
             imageBaseUrl = LocalUserState.current.host,
             checkboxChange = checkboxChange,
             selectable = selectable,
-            onTagClick = handleTagClick
+            // Inline #tags in memo text no longer trigger navigation.
+            onTagClick = null
         )
 
         MemoResourceContent(

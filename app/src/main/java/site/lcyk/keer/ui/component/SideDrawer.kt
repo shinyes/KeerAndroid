@@ -418,7 +418,7 @@ fun SideDrawer(
                     tag = entry.fullPath,
                     displayName = entry.displayName,
                     selected = isTagSelected(entry.fullPath),
-                    enabled = entry.selectable,
+                    enabled = true,
                     depth = entry.depth,
                     expandable = entry.expandable,
                     expanded = entry.expanded,
