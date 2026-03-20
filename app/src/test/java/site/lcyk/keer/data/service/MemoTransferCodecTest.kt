@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import site.lcyk.keer.data.model.MemoVisibility
 import java.time.Instant
+import kotlinx.coroutines.runBlocking
 
 class MemoTransferCodecTest {
     @Test
@@ -115,5 +116,52 @@ class MemoTransferCodecTest {
         assertEquals("attachments/memo-0001/001-image.png", entry.attachments.first().path)
         assertEquals("image.png", entry.attachments.first().filename)
         assertEquals("image/png", entry.attachments.first().mimeType)
+    }
+
+    @Test
+    fun writeDocument_streamingWriterProducesValidImportPayload() {
+        val payload = runBlocking {
+            StringBuilder().also { builder ->
+                MemoTransferCodec.writeDocument(
+                    appendable = builder,
+                    exportedAt = "2026-03-20T00:00:00Z",
+                    source = MemoTransferSource(
+                        host = "https://demo.example.com",
+                        userId = "u-1",
+                        username = "tester",
+                    ),
+                ) { appendMemo ->
+                    appendMemo(
+                        MemoTransferMemo(
+                            importId = "keer:v1:abc",
+                            content = "first",
+                            createdAt = "2026-03-19T00:00:00Z",
+                            tags = listOf("one"),
+                            attachments = listOf(
+                                MemoTransferAttachment(
+                                    path = "attachments/memo-0001/001-file.bin",
+                                    filename = "file.bin",
+                                )
+                            ),
+                        )
+                    )
+                    appendMemo(
+                        MemoTransferMemo(
+                            content = "second",
+                            visibility = "PUBLIC",
+                        )
+                    )
+                }
+            }.toString()
+        }
+
+        val entries = MemoTransferCodec.decodeImportEntries(payload)
+
+        assertTrue(payload.contains("\"format\":\"keer.memo.transfer.v2\""))
+        assertEquals(2, entries.size)
+        assertEquals("first", entries[0].content)
+        assertEquals(1, entries[0].attachments.size)
+        assertEquals("second", entries[1].content)
+        assertEquals(MemoVisibility.PUBLIC, entries[1].visibility)
     }
 }

@@ -17,9 +17,7 @@ import site.lcyk.keer.data.repository.ResourceEncryptionScope
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.util.normalizeTagList
-import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.math.BigDecimal
 import java.security.MessageDigest
@@ -27,7 +25,7 @@ import java.time.Instant
 import java.util.LinkedHashMap
 import java.util.UUID
 import java.util.zip.ZipEntry
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -225,6 +223,10 @@ class MemoTransferService @Inject constructor(
         val totalAttachmentCount = exportableMemos.sumOf { memo -> memo.resources.size }
         val output = context.contentResolver.openOutputStream(destinationUri)
             ?: throw IllegalStateException("Cannot open destination file")
+        val tempManifestFile = File(
+            context.cacheDir,
+            "memo-transfer-manifest-${UUID.randomUUID()}.json"
+        )
         var attachmentCount = 0
         var memoCount = 0
         onProgress?.invoke(
@@ -243,73 +245,82 @@ class MemoTransferService @Inject constructor(
                 total = totalAttachmentCount,
             )
         )
-        output.use { outputStream ->
-            ZipOutputStream(BufferedOutputStream(outputStream)).use { zip ->
-                val exportMemos = mutableListOf<MemoTransferMemo>()
-                exportableMemos.forEachIndexed { memoIndex, memo ->
-                    val attachments = mutableListOf<MemoTransferAttachment>()
-                    memo.resources.forEachIndexed { attachmentIndex, resource ->
-                        val filename = resolveAttachmentFilename(resource.filename, attachmentIndex)
-                        val entryPath = buildAttachmentEntryPath(memoIndex, attachmentIndex, filename)
-                        writeAttachmentToZip(
-                            zip = zip,
-                            entryPath = entryPath,
-                            resource = resource,
-                            localRepository = localRepository,
-                        )
-                        attachments += MemoTransferAttachment(
-                            path = entryPath,
-                            filename = filename,
-                            mimeType = resource.mimeType
-                        )
-                        attachmentCount += 1
-                        onProgress?.invoke(
-                            MemoTransferProgress(
-                                operation = MemoTransferOperation.EXPORT,
-                                stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
-                                completed = attachmentCount,
-                                total = totalAttachmentCount,
-                            )
-                        )
+        try {
+            output.use { outputStream ->
+                ZipOutputStream(BufferedOutputStream(outputStream, ioBufferSizeBytes)).use { zip ->
+                    tempManifestFile.outputStream().bufferedWriter(Charsets.UTF_8).use { manifestWriter ->
+                        MemoTransferCodec.writeDocument(
+                            appendable = manifestWriter,
+                            exportedAt = Instant.now().toString(),
+                            source = source,
+                        ) { appendMemo ->
+                            exportableMemos.forEachIndexed { memoIndex, memo ->
+                                val attachments = mutableListOf<MemoTransferAttachment>()
+                                memo.resources.forEachIndexed { attachmentIndex, resource ->
+                                    val filename = resolveAttachmentFilename(resource.filename, attachmentIndex)
+                                    val entryPath = buildAttachmentEntryPath(memoIndex, attachmentIndex, filename)
+                                    writeAttachmentToZip(
+                                        zip = zip,
+                                        entryPath = entryPath,
+                                        resource = resource,
+                                        localRepository = localRepository,
+                                    )
+                                    attachments += MemoTransferAttachment(
+                                        path = entryPath,
+                                        filename = filename,
+                                        mimeType = resource.mimeType
+                                    )
+                                    attachmentCount += 1
+                                    onProgress?.invoke(
+                                        MemoTransferProgress(
+                                            operation = MemoTransferOperation.EXPORT,
+                                            stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
+                                            completed = attachmentCount,
+                                            total = totalAttachmentCount,
+                                        )
+                                    )
+                                }
+                                appendMemo(
+                                    MemoTransferMemo(
+                                        importId = buildExportImportId(source, memo),
+                                        content = memo.content,
+                                        createdAt = memo.date.toString(),
+                                        visibility = memo.visibility.name,
+                                        tags = memo.tags,
+                                        latitude = memo.latitude,
+                                        longitude = memo.longitude,
+                                        pinned = memo.pinned,
+                                        archived = memo.archived,
+                                        attachments = attachments,
+                                    )
+                                )
+                                memoCount += 1
+                                onProgress?.invoke(
+                                    MemoTransferProgress(
+                                        operation = MemoTransferOperation.EXPORT,
+                                        stage = MemoTransferStage.PROCESSING_MEMOS,
+                                        completed = memoCount,
+                                        total = exportableMemos.size,
+                                    )
+                                )
+                            }
+                        }
                     }
-                    exportMemos += MemoTransferMemo(
-                        importId = buildExportImportId(source, memo),
-                        content = memo.content,
-                        createdAt = memo.date.toString(),
-                        visibility = memo.visibility.name,
-                        tags = memo.tags,
-                        latitude = memo.latitude,
-                        longitude = memo.longitude,
-                        pinned = memo.pinned,
-                        archived = memo.archived,
-                        attachments = attachments,
-                    )
-                    memoCount += 1
                     onProgress?.invoke(
                         MemoTransferProgress(
                             operation = MemoTransferOperation.EXPORT,
-                            stage = MemoTransferStage.PROCESSING_MEMOS,
-                            completed = memoCount,
-                            total = exportableMemos.size,
+                            stage = MemoTransferStage.WRITING_MANIFEST,
                         )
                     )
+                    zip.putNextEntry(ZipEntry(transferManifestEntryName))
+                    tempManifestFile.inputStream().buffered().use { input ->
+                        input.copyTo(zip, ioBufferSizeBytes)
+                    }
+                    zip.closeEntry()
                 }
-                onProgress?.invoke(
-                    MemoTransferProgress(
-                        operation = MemoTransferOperation.EXPORT,
-                        stage = MemoTransferStage.WRITING_MANIFEST,
-                    )
-                )
-                val document = MemoTransferDocument(
-                    exportedAt = Instant.now().toString(),
-                    source = source,
-                    memos = exportMemos,
-                )
-                val payload = MemoTransferCodec.encode(document)
-                zip.putNextEntry(ZipEntry(transferManifestEntryName))
-                zip.write(payload.toByteArray(Charsets.UTF_8))
-                zip.closeEntry()
             }
+        } finally {
+            runCatching { tempManifestFile.delete() }
         }
         onProgress?.invoke(
             MemoTransferProgress(
@@ -362,7 +373,7 @@ class MemoTransferService @Inject constructor(
             }
             zip.putNextEntry(ZipEntry(entryPath))
             localFile.inputStream().buffered().use { input ->
-                input.copyTo(zip)
+                input.copyTo(zip, ioBufferSizeBytes)
             }
             zip.closeEntry()
             return true
@@ -384,9 +395,10 @@ class MemoTransferService @Inject constructor(
                 throw IllegalStateException("Failed to download attachment (${response.code}): ${resource.filename}")
             }
             val body = response.body
+                ?: throw IllegalStateException("Empty attachment response body: ${resource.filename}")
             zip.putNextEntry(ZipEntry(entryPath))
             body.byteStream().use { input ->
-                input.copyTo(zip)
+                input.copyTo(zip, ioBufferSizeBytes)
             }
             zip.closeEntry()
         }
@@ -410,7 +422,7 @@ class MemoTransferService @Inject constructor(
             .map { entry -> entry.copy(attachments = emptyList()) }
         return importEntries(
             entries = entries,
-            extractedAttachments = emptyMap(),
+            resolveAttachmentFile = { null },
             remoteRepository = remoteRepository,
             dedupStore = dedupStore,
             dedupKeys = dedupKeys,
@@ -429,6 +441,7 @@ class MemoTransferService @Inject constructor(
         if (!extractionDir.exists() && !extractionDir.mkdirs()) {
             throw IllegalStateException("Cannot create temp directory for import")
         }
+        val tempZipFile = File(extractionDir, "import.zip")
         return try {
             onProgress?.invoke(
                 MemoTransferProgress(
@@ -436,51 +449,52 @@ class MemoTransferService @Inject constructor(
                     stage = MemoTransferStage.READING_PACKAGE,
                 )
             )
-            val extractedAttachments = linkedMapOf<String, File>()
-            var manifestRaw: String? = null
             val input = context.contentResolver.openInputStream(sourceUri)
                 ?: throw IllegalStateException("Cannot open import file")
             input.use { stream ->
-                ZipInputStream(BufferedInputStream(stream)).use { zip ->
-                    while (true) {
-                        val entry = zip.nextEntry ?: break
-                        val entryName = runCatching { normalizeZipEntryName(entry.name.orEmpty()) }
-                            .getOrNull()
-                            .orEmpty()
-                        if (entryName.isEmpty() || entry.isDirectory) {
-                            zip.closeEntry()
-                            continue
-                        }
-                        when {
-                            entryName == transferManifestEntryName -> {
-                                manifestRaw = readCurrentZipEntryAsText(zip)
-                            }
-                            entryName.startsWith("$transferAttachmentsPrefix/") -> {
-                                val localFile = File(
-                                    extractionDir,
-                                    "${extractedAttachments.size}_${entryName.substringAfterLast('/').sanitizeFilename()}"
-                                )
-                                localFile.outputStream().buffered().use { output ->
-                                    zip.copyTo(output)
-                                }
-                                extractedAttachments[entryName] = localFile
-                            }
-                        }
-                        zip.closeEntry()
-                    }
+                tempZipFile.outputStream().buffered().use { output ->
+                    stream.copyTo(output, ioBufferSizeBytes)
                 }
             }
-            val payload = manifestRaw?.takeIf { it.isNotBlank() }
-                ?: throw IllegalStateException("Missing $transferManifestEntryName in import package")
-            val entries = MemoTransferCodec.decodeImportEntries(payload)
-            importEntries(
-                entries = entries,
-                extractedAttachments = extractedAttachments,
-                remoteRepository = remoteRepository,
-                dedupStore = dedupStore,
-                dedupKeys = dedupKeys,
-                onProgress = onProgress,
-            )
+            ZipFile(tempZipFile).use { zipFile ->
+                val entriesByPath = linkedMapOf<String, ZipEntry>()
+                val zipEntries = zipFile.entries()
+                while (zipEntries.hasMoreElements()) {
+                    val zipEntry = zipEntries.nextElement()
+                    if (zipEntry.isDirectory) {
+                        continue
+                    }
+                    val normalizedName = runCatching { normalizeZipEntryName(zipEntry.name) }
+                        .getOrNull()
+                        .orEmpty()
+                    if (normalizedName.isEmpty()) {
+                        continue
+                    }
+                    entriesByPath[normalizedName] = zipEntry
+                }
+                val manifestEntry = entriesByPath[transferManifestEntryName]
+                    ?: throw IllegalStateException("Missing $transferManifestEntryName in import package")
+                val payload = zipFile.getInputStream(manifestEntry).bufferedReader(Charsets.UTF_8).use { reader ->
+                    reader.readText()
+                }.takeIf { it.isNotBlank() }
+                    ?: throw IllegalStateException("Missing $transferManifestEntryName in import package")
+                val entries = MemoTransferCodec.decodeImportEntries(payload)
+                importEntries(
+                    entries = entries,
+                    resolveAttachmentFile = { attachment ->
+                        extractAttachmentFromZip(
+                            zipFile = zipFile,
+                            entriesByPath = entriesByPath,
+                            extractionDir = extractionDir,
+                            attachment = attachment,
+                        )
+                    },
+                    remoteRepository = remoteRepository,
+                    dedupStore = dedupStore,
+                    dedupKeys = dedupKeys,
+                    onProgress = onProgress,
+                )
+            }
         } finally {
             extractionDir.deleteRecursively()
         }
@@ -488,7 +502,7 @@ class MemoTransferService @Inject constructor(
 
     private suspend fun importEntries(
         entries: List<MemoImportEntry>,
-        extractedAttachments: Map<String, File>,
+        resolveAttachmentFile: suspend (MemoImportAttachment) -> File?,
         remoteRepository: RemoteRepository,
         dedupStore: MemoImportDedupStore,
         dedupKeys: MutableSet<String>,
@@ -524,6 +538,17 @@ class MemoTransferService @Inject constructor(
         for (entry in entries) {
             if (entry.content.isBlank()) {
                 skipped += 1
+                if (entry.attachments.isNotEmpty()) {
+                    processedAttachmentCount += entry.attachments.size
+                    onProgress?.invoke(
+                        MemoTransferProgress(
+                            operation = MemoTransferOperation.IMPORT,
+                            stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
+                            completed = processedAttachmentCount,
+                            total = totalAttachmentCount,
+                        )
+                    )
+                }
                 processedEntryCount += 1
                 onProgress?.invoke(
                     MemoTransferProgress(
@@ -538,6 +563,17 @@ class MemoTransferService @Inject constructor(
             val dedupKey = buildImportDedupKey(entry)
             if (dedupKey in dedupKeys) {
                 skipped += 1
+                if (entry.attachments.isNotEmpty()) {
+                    processedAttachmentCount += entry.attachments.size
+                    onProgress?.invoke(
+                        MemoTransferProgress(
+                            operation = MemoTransferOperation.IMPORT,
+                            stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
+                            completed = processedAttachmentCount,
+                            total = totalAttachmentCount,
+                        )
+                    )
+                }
                 processedEntryCount += 1
                 onProgress?.invoke(
                     MemoTransferProgress(
@@ -553,28 +589,43 @@ class MemoTransferService @Inject constructor(
             val remoteResourceIds = mutableListOf<String>()
             var resourceUploadFailed = false
             var uploadedAttachmentCountForMemo = 0
+            var processedAttachmentCountForMemo = 0
             for (attachment in entry.attachments) {
-                val normalizedPath = runCatching { normalizeZipEntryName(attachment.path) }.getOrNull()
-                val localFile = normalizedPath?.let(extractedAttachments::get)
+                val localFile = resolveAttachmentFile(attachment)
                 if (localFile == null || !localFile.exists() || localFile.length() <= 0L) {
                     resourceUploadFailed = true
+                    processedAttachmentCountForMemo += 1
+                    processedAttachmentCount += 1
+                    onProgress?.invoke(
+                        MemoTransferProgress(
+                            operation = MemoTransferOperation.IMPORT,
+                            stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
+                            completed = processedAttachmentCount,
+                            total = totalAttachmentCount,
+                        )
+                    )
                     break
                 }
-                val uploadResponse = remoteRepository.createResource(
-                    filename = attachment.filename.ifBlank { localFile.name },
-                    type = attachment.mimeType?.toMediaTypeOrNull(),
-                    file = localFile,
-                    memoRemoteId = null,
-                    encryptionScope = ResourceEncryptionScope.Account,
-                    thumbnail = null,
-                )
-                val uploadedResource = (uploadResponse as? ApiResponse.Success)?.data
-                if (uploadedResource?.remoteId.isNullOrBlank()) {
-                    resourceUploadFailed = true
-                    break
+                try {
+                    val uploadResponse = remoteRepository.createResource(
+                        filename = attachment.filename.ifBlank { localFile.name },
+                        type = attachment.mimeType?.toMediaTypeOrNull(),
+                        file = localFile,
+                        memoRemoteId = null,
+                        encryptionScope = ResourceEncryptionScope.Account,
+                        thumbnail = null,
+                    )
+                    val uploadedResource = (uploadResponse as? ApiResponse.Success)?.data
+                    if (uploadedResource?.remoteId.isNullOrBlank()) {
+                        resourceUploadFailed = true
+                        break
+                    }
+                    remoteResourceIds += uploadedResource.remoteId
+                    uploadedAttachmentCountForMemo += 1
+                } finally {
+                    runCatching { localFile.delete() }
                 }
-                remoteResourceIds += uploadedResource.remoteId
-                uploadedAttachmentCountForMemo += 1
+                processedAttachmentCountForMemo += 1
                 processedAttachmentCount += 1
                 onProgress?.invoke(
                     MemoTransferProgress(
@@ -586,6 +637,18 @@ class MemoTransferService @Inject constructor(
                 )
             }
             if (resourceUploadFailed) {
+                val remainingAttachmentCount = (entry.attachments.size - processedAttachmentCountForMemo).coerceAtLeast(0)
+                if (remainingAttachmentCount > 0) {
+                    processedAttachmentCount += remainingAttachmentCount
+                    onProgress?.invoke(
+                        MemoTransferProgress(
+                            operation = MemoTransferOperation.IMPORT,
+                            stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
+                            completed = processedAttachmentCount,
+                            total = totalAttachmentCount,
+                        )
+                    )
+                }
                 cleanupUploadedResources(remoteRepository, remoteResourceIds)
                 failed += 1
                 processedEntryCount += 1
@@ -682,6 +745,32 @@ class MemoTransferService @Inject constructor(
         }
     }
 
+    private fun extractAttachmentFromZip(
+        zipFile: ZipFile,
+        entriesByPath: Map<String, ZipEntry>,
+        extractionDir: File,
+        attachment: MemoImportAttachment,
+    ): File? {
+        val normalizedPath = runCatching { normalizeZipEntryName(attachment.path) }
+            .getOrNull()
+            ?: return null
+        val zipEntry = entriesByPath[normalizedPath] ?: return null
+        val outputFile = File(
+            extractionDir,
+            "attachment-${UUID.randomUUID()}-${attachment.filename.sanitizeFilename()}"
+        )
+        zipFile.getInputStream(zipEntry).buffered().use { input ->
+            outputFile.outputStream().buffered().use { output ->
+                input.copyTo(output, ioBufferSizeBytes)
+            }
+        }
+        if (!outputFile.exists() || outputFile.length() <= 0L) {
+            runCatching { outputFile.delete() }
+            return null
+        }
+        return outputFile
+    }
+
     private fun isZipDocument(sourceUri: Uri): Boolean {
         val input = context.contentResolver.openInputStream(sourceUri)
             ?: throw IllegalStateException("Cannot open import file")
@@ -694,12 +783,6 @@ class MemoTransferService @Inject constructor(
                 signature[2] in setOf(0x03, 0x05, 0x07).map(Int::toByte) &&
                 signature[3] in setOf(0x04, 0x06, 0x08).map(Int::toByte)
         }
-    }
-
-    private fun readCurrentZipEntryAsText(zip: ZipInputStream): String {
-        val output = ByteArrayOutputStream()
-        zip.copyTo(output)
-        return output.toString(Charsets.UTF_8.name())
     }
 
     private fun readTextFromUri(sourceUri: Uri): String {
@@ -872,6 +955,7 @@ class MemoTransferService @Inject constructor(
         private const val memoImportDedupEntryTtlMillis = 180L * 24L * 60L * 60L * 1000L
         private const val memoTransferImportIdVersion = "v1"
         private const val encryptedContentUnavailablePlaceholder = "[Encrypted content unavailable]"
+        private const val ioBufferSizeBytes = 64 * 1024
         private const val hex = "0123456789abcdef"
     }
 }

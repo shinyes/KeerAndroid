@@ -81,6 +81,33 @@ internal object MemoTransferCodec {
         return json.encodeToString(MemoTransferDocument.serializer(), document)
     }
 
+    suspend fun writeDocument(
+        appendable: Appendable,
+        exportedAt: String,
+        source: MemoTransferSource? = null,
+        writeMemos: suspend ((MemoTransferMemo) -> Unit) -> Unit,
+    ) {
+        appendable.append("{")
+        appendable.append("\"format\":")
+        appendable.append(json.encodeToString(memoTransferFormatV2))
+        appendable.append(",\"exportedAt\":")
+        appendable.append(json.encodeToString(exportedAt))
+        if (source != null) {
+            appendable.append(",\"source\":")
+            appendable.append(json.encodeToString(MemoTransferSource.serializer(), source))
+        }
+        appendable.append(",\"memos\":[")
+        var wroteMemo = false
+        writeMemos { memo ->
+            if (wroteMemo) {
+                appendable.append(",")
+            }
+            appendable.append(json.encodeToString(MemoTransferMemo.serializer(), memo))
+            wroteMemo = true
+        }
+        appendable.append("]}")
+    }
+
     fun decodeImportEntries(raw: String): List<MemoImportEntry> {
         val root = json.parseToJsonElement(raw)
         val memoArray = when (root) {
