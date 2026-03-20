@@ -515,7 +515,8 @@ class MemoTransferService @Inject constructor(
         var processedEntryCount = 0
         var processedAttachmentCount = 0
         val nowMillis = System.currentTimeMillis()
-        val importedDedupKeys = linkedSetOf<String>()
+        val pendingPersistDedupKeys = linkedSetOf<String>()
+        var lastPersistAtMillis = nowMillis
         val totalEntries = entries.size
         val totalAttachmentCount = entries.sumOf { entry -> entry.attachments.size }
         onProgress?.invoke(
@@ -560,8 +561,8 @@ class MemoTransferService @Inject constructor(
                 )
                 continue
             }
-            val dedupKey = buildImportDedupKey(entry)
-            if (dedupKey in dedupKeys) {
+            val entryDedupKeys = buildImportDedupKeys(entry)
+            if (entryDedupKeys.any { candidate -> candidate in dedupKeys }) {
                 skipped += 1
                 if (entry.attachments.isNotEmpty()) {
                     processedAttachmentCount += entry.attachments.size
@@ -695,8 +696,22 @@ class MemoTransferService @Inject constructor(
                     archived = if (entry.archived) true else null,
                 )
             }
-            dedupKeys += dedupKey
-            importedDedupKeys += dedupKey
+            dedupKeys.addAll(entryDedupKeys)
+            pendingPersistDedupKeys.addAll(entryDedupKeys)
+            val now = System.currentTimeMillis()
+            val shouldPersistCheckpoint =
+                pendingPersistDedupKeys.size >= memoImportDedupPersistBatchSize ||
+                    now - lastPersistAtMillis >= memoImportDedupPersistIntervalMillis
+            if (shouldPersistCheckpoint) {
+                dedupStore.upsertImported(
+                    keys = pendingPersistDedupKeys,
+                    nowMillis = now,
+                    ttlMillis = memoImportDedupEntryTtlMillis,
+                    maxEntries = memoImportDedupMaxEntries,
+                )
+                pendingPersistDedupKeys.clear()
+                lastPersistAtMillis = now
+            }
             importedAttachmentCount += uploadedAttachmentCountForMemo
             imported += 1
             processedEntryCount += 1
@@ -710,9 +725,10 @@ class MemoTransferService @Inject constructor(
             )
         }
 
+        val finalPersistNowMillis = System.currentTimeMillis()
         dedupStore.upsertImported(
-            keys = importedDedupKeys,
-            nowMillis = nowMillis,
+            keys = pendingPersistDedupKeys,
+            nowMillis = finalPersistNowMillis,
             ttlMillis = memoImportDedupEntryTtlMillis,
             maxEntries = memoImportDedupMaxEntries,
         )
@@ -855,14 +871,16 @@ class MemoTransferService @Inject constructor(
         return "keer:$memoTransferImportIdVersion:${sha256(raw)}"
     }
 
-    private fun buildImportDedupKey(entry: MemoImportEntry): String {
-        val importId = entry.importId
+    private fun buildImportDedupKeys(entry: MemoImportEntry): Set<String> {
+        val keys = linkedSetOf<String>()
+        entry.importId
             ?.trim()
             ?.takeIf { value -> value.isNotEmpty() }
-        if (importId != null) {
-            return "id:$importId"
-        }
-        return "fp:${buildImportEntryFingerprint(entry)}"
+            ?.let { importId ->
+                keys += "id:$importId"
+            }
+        keys += "fp:${buildImportEntryFingerprint(entry)}"
+        return keys
     }
 
     private fun buildExistingMemoDedupKeys(
@@ -876,7 +894,7 @@ class MemoTransferService @Inject constructor(
     }
 
     private fun buildImportEntryFingerprint(entry: MemoImportEntry): String {
-        val createdAt = entry.createdAt?.toEpochMilli()?.toString().orEmpty()
+        val createdAt = entry.createdAt?.epochSecond?.toString().orEmpty()
         val tags = normalizeTagList(entry.tags).sorted().joinToString("\u001f")
         val latitude = canonicalizeCoordinate(entry.latitude)
         val longitude = canonicalizeCoordinate(entry.longitude)
@@ -910,7 +928,7 @@ class MemoTransferService @Inject constructor(
             .joinToString("\u001f")
         val raw = listOf(
             memo.content.replace("\r\n", "\n"),
-            memo.date.toEpochMilli().toString(),
+            memo.date.epochSecond.toString(),
             memo.visibility.name,
             tags,
             latitude,
@@ -953,6 +971,8 @@ class MemoTransferService @Inject constructor(
         private const val memoImportDedupDirectory = "memo_import_dedup"
         private const val memoImportDedupMaxEntries = 20_000
         private const val memoImportDedupEntryTtlMillis = 180L * 24L * 60L * 60L * 1000L
+        private const val memoImportDedupPersistBatchSize = 24
+        private const val memoImportDedupPersistIntervalMillis = 2_500L
         private const val memoTransferImportIdVersion = "v1"
         private const val encryptedContentUnavailablePlaceholder = "[Encrypted content unavailable]"
         private const val ioBufferSizeBytes = 64 * 1024
