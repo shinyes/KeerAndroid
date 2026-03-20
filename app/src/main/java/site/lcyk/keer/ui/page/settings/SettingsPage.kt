@@ -80,6 +80,7 @@ import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.MemoTransferTaskState
 import site.lcyk.keer.data.service.MemoTransferOperation
 import site.lcyk.keer.data.service.MemoTransferStage
+import site.lcyk.keer.data.service.MemoImportPreviewResult
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -111,6 +112,44 @@ fun SettingsPage(
     val imageLoader = rememberAuthorizedImageLoader()
     val currentEditGesture = generalSettings.memoEditGesture
     val currentColumnsCount = generalSettings.memoColumns.size
+    var showImportPreviewDialog by remember { mutableStateOf(false) }
+    var importPreviewLoading by remember { mutableStateOf(false) }
+    var importPreviewResult by remember { mutableStateOf<MemoImportPreviewResult?>(null) }
+    var importPreviewErrorMessage by remember { mutableStateOf<String?>(null) }
+    var importPreviewUri by remember { mutableStateOf<Uri?>(null) }
+
+    val resetImportPreviewDialogState = {
+        showImportPreviewDialog = false
+        importPreviewLoading = false
+        importPreviewResult = null
+        importPreviewErrorMessage = null
+        importPreviewUri = null
+    }
+    val runPersonalMemoImport: (Uri) -> Unit = { uri ->
+        scope.launch {
+            userStateViewModel.importPersonalMemos(uri)
+                .onSuccess { summary ->
+                    Toast.makeText(
+                        context,
+                        resources.getString(
+                            R.string.personal_memos_import_result,
+                            summary.imported,
+                            summary.importedAttachmentCount,
+                            summary.failed,
+                            summary.skipped,
+                        ),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                .onFailure { throwable ->
+                    Toast.makeText(
+                        context,
+                        throwable.localizedMessage ?: R.string.personal_memos_import_failed.string,
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+        }
+    }
     val avatarPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
@@ -171,28 +210,21 @@ fun SettingsPage(
                 Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
         }
+        importPreviewUri = uri
+        importPreviewLoading = true
+        importPreviewResult = null
+        importPreviewErrorMessage = null
+        showImportPreviewDialog = true
         scope.launch {
-            userStateViewModel.importPersonalMemos(uri)
-                .onSuccess { summary ->
-                    Toast.makeText(
-                        context,
-                        resources.getString(
-                            R.string.personal_memos_import_result,
-                            summary.imported,
-                            summary.importedAttachmentCount,
-                            summary.failed,
-                            summary.skipped,
-                        ),
-                        Toast.LENGTH_LONG
-                    ).show()
+            userStateViewModel.previewPersonalMemoImport(uri)
+                .onSuccess { preview ->
+                    importPreviewResult = preview
                 }
                 .onFailure { throwable ->
-                    Toast.makeText(
-                        context,
-                        throwable.localizedMessage ?: R.string.personal_memos_import_failed.string,
-                        Toast.LENGTH_LONG
-                    ).show()
+                    importPreviewErrorMessage = throwable.localizedMessage
+                        ?: R.string.personal_memos_import_preview_failed.string
                 }
+            importPreviewLoading = false
         }
     }
     var showChangePasswordDialog by remember { mutableStateOf(false) }
@@ -475,6 +507,67 @@ fun SettingsPage(
             confirmButton = {
                 TextButton(onClick = { showPersonalMemosTransferDialog = false }) {
                     Text(R.string.close.string)
+                }
+            }
+        )
+    }
+
+    if (showImportPreviewDialog) {
+        val previewSummary = importPreviewResult?.let { preview ->
+            resources.getString(
+                R.string.personal_memos_import_preview_summary,
+                preview.total,
+                preview.estimatedImportable,
+                preview.estimatedSkipped,
+            )
+        }
+        AlertDialog(
+            onDismissRequest = {
+                if (!importPreviewLoading) {
+                    resetImportPreviewDialogState()
+                }
+            },
+            title = { Text(R.string.import_personal_memos.string) },
+            text = {
+                when {
+                    importPreviewLoading -> {
+                        Column {
+                            CircularProgressIndicator(modifier = Modifier.size(28.dp))
+                            Text(
+                                text = R.string.personal_memos_import_preview_loading.string,
+                                modifier = Modifier.padding(top = 12.dp),
+                            )
+                        }
+                    }
+                    previewSummary != null -> {
+                        Text(previewSummary)
+                    }
+                    else -> {
+                        Text(
+                            importPreviewErrorMessage
+                                ?: R.string.personal_memos_import_preview_failed.string
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !importPreviewLoading && importPreviewUri != null,
+                    onClick = {
+                        val uri = importPreviewUri ?: return@TextButton
+                        resetImportPreviewDialogState()
+                        runPersonalMemoImport(uri)
+                    }
+                ) {
+                    Text(R.string.confirm.string)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !importPreviewLoading,
+                    onClick = { resetImportPreviewDialogState() }
+                ) {
+                    Text(R.string.cancel.string)
                 }
             }
         )

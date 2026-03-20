@@ -229,6 +229,9 @@
     <string name="personal_memos_export_failed">匯出個人 memo 失敗。</string>
     <string name="personal_memos_import_result">匯入完成。已匯入 %1$d 則 memo，已上傳 %2$d 個附件，失敗 %3$d 則，略過 %4$d 則。</string>
     <string name="personal_memos_import_failed">匯入個人 memo 失敗。</string>
+    <string name="personal_memos_import_preview_loading">正在掃描匯入檔案…</string>
+    <string name="personal_memos_import_preview_summary">偵測到 %1$d 則 memo。預計匯入 %2$d 則，預計略過重複 %3$d 則。</string>
+    <string name="personal_memos_import_preview_failed">掃描匯入檔案失敗，你仍可繼續匯入。</string>
     <string name="personal_memos_transfer_in_progress_title">個人 memo 匯入匯出進行中</string>
     <string name="personal_memos_transfer_exporting">正在匯出個人 memo</string>
     <string name="personal_memos_transfer_importing">正在匯入個人 memo</string>

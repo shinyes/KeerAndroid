@@ -26,6 +26,7 @@ import java.util.LinkedHashMap
 import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -45,6 +46,12 @@ data class MemoImportResult(
     val failed: Int,
     val skipped: Int,
     val importedAttachmentCount: Int,
+)
+
+data class MemoImportPreviewResult(
+    val total: Int,
+    val estimatedImportable: Int,
+    val estimatedSkipped: Int,
 )
 
 enum class MemoTransferOperation {
@@ -110,43 +117,45 @@ class MemoTransferService @Inject constructor(
                     stage = MemoTransferStage.PREPARING,
                 )
             )
-            val remoteRepository = requireRemoteRepository()
-            val account = requireCurrentRemoteAccount()
-            val currentUserId = requireCurrentUserId(remoteRepository)
-            val source = buildTransferSource(currentUserId)
-            val existingMemoDedupKeys = loadPersonalMemos(remoteRepository, currentUserId)
-                .asSequence()
-                .flatMap { memo ->
-                    buildExistingMemoDedupKeys(source, memo).asSequence()
-                }
-                .toSet()
-            val dedupStore = buildMemoImportDedupStore(account.accountKey())
-            val dedupKeys = dedupStore.readKeys(
-                nowMillis = System.currentTimeMillis(),
-                ttlMillis = memoImportDedupEntryTtlMillis,
-                maxEntries = memoImportDedupMaxEntries,
-            ).toMutableSet().apply {
-                addAll(existingMemoDedupKeys)
-            }
+            val importContext = prepareImportContext()
             if (isZipDocument(sourceUri)) {
                 importFromZip(
                     sourceUri = sourceUri,
-                    remoteRepository = remoteRepository,
-                    dedupStore = dedupStore,
-                    dedupKeys = dedupKeys,
+                    remoteRepository = importContext.remoteRepository,
+                    dedupStore = importContext.dedupStore,
+                    dedupKeys = importContext.dedupKeys,
                     onProgress = onProgress,
                 )
             } else {
                 importFromJson(
                     sourceUri = sourceUri,
-                    remoteRepository = remoteRepository,
-                    dedupStore = dedupStore,
-                    dedupKeys = dedupKeys,
+                    remoteRepository = importContext.remoteRepository,
+                    dedupStore = importContext.dedupStore,
+                    dedupKeys = importContext.dedupKeys,
                     onProgress = onProgress,
                 )
             }
         }
     }
+
+    suspend fun previewPersonalMemoImport(sourceUri: Uri): Result<MemoImportPreviewResult> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val importContext = prepareImportContext()
+                val entries = if (isZipDocument(sourceUri)) {
+                    val payload = readManifestFromZip(sourceUri)
+                    MemoTransferCodec.decodeImportEntries(payload)
+                } else {
+                    val payload = readTextFromUri(sourceUri)
+                    MemoTransferCodec.decodeImportEntries(payload)
+                        .map { entry -> entry.copy(attachments = emptyList()) }
+                }
+                estimateImportPreview(
+                    entries = entries,
+                    dedupKeys = importContext.dedupKeys,
+                )
+            }
+        }
 
     private suspend fun requireRemoteRepository() = accountService.getRemoteRepository()
         ?: throw IllegalStateException(R.string.current_account_no_remote_memo_operations.string)
@@ -209,6 +218,32 @@ class MemoTransferService @Inject constructor(
             .map { (memo, _) -> memo }
             .sortedByDescending(Memo::date)
             .toList()
+    }
+
+    private suspend fun prepareImportContext(): MemoImportContext {
+        val remoteRepository = requireRemoteRepository()
+        val account = requireCurrentRemoteAccount()
+        val currentUserId = requireCurrentUserId(remoteRepository)
+        val source = buildTransferSource(currentUserId)
+        val existingMemoDedupKeys = loadPersonalMemos(remoteRepository, currentUserId)
+            .asSequence()
+            .flatMap { memo ->
+                buildExistingMemoDedupKeys(source, memo).asSequence()
+            }
+            .toSet()
+        val dedupStore = buildMemoImportDedupStore(account.accountKey())
+        val dedupKeys = dedupStore.readKeys(
+            nowMillis = System.currentTimeMillis(),
+            ttlMillis = memoImportDedupEntryTtlMillis,
+            maxEntries = memoImportDedupMaxEntries,
+        ).toMutableSet().apply {
+            addAll(existingMemoDedupKeys)
+        }
+        return MemoImportContext(
+            remoteRepository = remoteRepository,
+            dedupStore = dedupStore,
+            dedupKeys = dedupKeys,
+        )
     }
 
     private suspend fun exportAsZip(
@@ -809,6 +844,72 @@ class MemoTransferService @Inject constructor(
         }
     }
 
+    private fun readManifestFromZip(sourceUri: Uri): String {
+        val input = context.contentResolver.openInputStream(sourceUri)
+            ?: throw IllegalStateException("Cannot open import file")
+        input.use { stream ->
+            ZipInputStream(stream.buffered(ioBufferSizeBytes)).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    val entryName = runCatching { normalizeZipEntryName(entry.name.orEmpty()) }
+                        .getOrNull()
+                        .orEmpty()
+                    if (entry.isDirectory || entryName.isEmpty()) {
+                        zip.closeEntry()
+                        continue
+                    }
+                    if (entryName == transferManifestEntryName) {
+                        val payload = readCurrentZipEntryAsText(zip)
+                        zip.closeEntry()
+                        return payload
+                    }
+                    zip.closeEntry()
+                }
+            }
+        }
+        throw IllegalStateException("Missing $transferManifestEntryName in import package")
+    }
+
+    private fun readCurrentZipEntryAsText(zip: ZipInputStream): String {
+        val reader = zip.reader(Charsets.UTF_8)
+        val buffer = CharArray(ioTextBufferSizeChars)
+        val builder = StringBuilder()
+        while (true) {
+            val read = reader.read(buffer)
+            if (read <= 0) {
+                break
+            }
+            builder.append(buffer, 0, read)
+        }
+        return builder.toString()
+    }
+
+    private fun estimateImportPreview(
+        entries: List<MemoImportEntry>,
+        dedupKeys: MutableSet<String>,
+    ): MemoImportPreviewResult {
+        var estimatedSkipped = 0
+        var estimatedImportable = 0
+        entries.forEach { entry ->
+            if (entry.content.isBlank()) {
+                estimatedSkipped += 1
+                return@forEach
+            }
+            val entryDedupKeys = buildImportDedupKeys(entry)
+            if (entryDedupKeys.any { candidate -> candidate in dedupKeys }) {
+                estimatedSkipped += 1
+                return@forEach
+            }
+            estimatedImportable += 1
+            dedupKeys.addAll(entryDedupKeys)
+        }
+        return MemoImportPreviewResult(
+            total = entries.size,
+            estimatedImportable = estimatedImportable,
+            estimatedSkipped = estimatedSkipped,
+        )
+    }
+
     private fun normalizeZipEntryName(raw: String): String {
         val normalized = raw
             .replace('\\', '/')
@@ -965,17 +1066,24 @@ class MemoTransferService @Inject constructor(
         }
     }
 
+    private data class MemoImportContext(
+        val remoteRepository: RemoteRepository,
+        val dedupStore: MemoImportDedupStore,
+        val dedupKeys: MutableSet<String>,
+    )
+
     companion object {
         private const val transferManifestEntryName = "manifest.json"
         private const val transferAttachmentsPrefix = "attachments"
         private const val memoImportDedupDirectory = "memo_import_dedup"
         private const val memoImportDedupMaxEntries = 20_000
-        private const val memoImportDedupEntryTtlMillis = 180L * 24L * 60L * 60L * 1000L
+        private const val memoImportDedupEntryTtlMillis = 7L * 24L * 60L * 60L * 1000L
         private const val memoImportDedupPersistBatchSize = 24
         private const val memoImportDedupPersistIntervalMillis = 2_500L
         private const val memoTransferImportIdVersion = "v1"
         private const val encryptedContentUnavailablePlaceholder = "[Encrypted content unavailable]"
         private const val ioBufferSizeBytes = 64 * 1024
+        private const val ioTextBufferSizeChars = 8 * 1024
         private const val hex = "0123456789abcdef"
     }
 }
