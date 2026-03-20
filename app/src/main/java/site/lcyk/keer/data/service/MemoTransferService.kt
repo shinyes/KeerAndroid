@@ -256,6 +256,7 @@ class MemoTransferService @Inject constructor(
         val exportableMemos = memos.filterNot(::isDecryptUnavailableMemo)
         val failedCount = (memos.size - exportableMemos.size).coerceAtLeast(0)
         val totalAttachmentCount = exportableMemos.sumOf { memo -> memo.resources.size }
+        val totalWorkCount = exportableMemos.size + totalAttachmentCount
         val output = context.contentResolver.openOutputStream(destinationUri)
             ?: throw IllegalStateException("Cannot open destination file")
         val tempManifestFile = File(
@@ -264,22 +265,17 @@ class MemoTransferService @Inject constructor(
         )
         var attachmentCount = 0
         var memoCount = 0
-        onProgress?.invoke(
-            MemoTransferProgress(
-                operation = MemoTransferOperation.EXPORT,
-                stage = MemoTransferStage.PROCESSING_MEMOS,
-                completed = 0,
-                total = exportableMemos.size,
+        fun emitExportProgress(stage: MemoTransferStage) {
+            onProgress?.invoke(
+                MemoTransferProgress(
+                    operation = MemoTransferOperation.EXPORT,
+                    stage = stage,
+                    completed = memoCount + attachmentCount,
+                    total = totalWorkCount,
+                )
             )
-        )
-        onProgress?.invoke(
-            MemoTransferProgress(
-                operation = MemoTransferOperation.EXPORT,
-                stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
-                completed = 0,
-                total = totalAttachmentCount,
-            )
-        )
+        }
+        emitExportProgress(MemoTransferStage.PROCESSING_MEMOS)
         try {
             output.use { outputStream ->
                 ZipOutputStream(BufferedOutputStream(outputStream, ioBufferSizeBytes)).use { zip ->
@@ -306,14 +302,7 @@ class MemoTransferService @Inject constructor(
                                         mimeType = resource.mimeType
                                     )
                                     attachmentCount += 1
-                                    onProgress?.invoke(
-                                        MemoTransferProgress(
-                                            operation = MemoTransferOperation.EXPORT,
-                                            stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
-                                            completed = attachmentCount,
-                                            total = totalAttachmentCount,
-                                        )
-                                    )
+                                    emitExportProgress(MemoTransferStage.PROCESSING_ATTACHMENTS)
                                 }
                                 appendMemo(
                                     MemoTransferMemo(
@@ -330,14 +319,7 @@ class MemoTransferService @Inject constructor(
                                     )
                                 )
                                 memoCount += 1
-                                onProgress?.invoke(
-                                    MemoTransferProgress(
-                                        operation = MemoTransferOperation.EXPORT,
-                                        stage = MemoTransferStage.PROCESSING_MEMOS,
-                                        completed = memoCount,
-                                        total = exportableMemos.size,
-                                    )
-                                )
+                                emitExportProgress(MemoTransferStage.PROCESSING_MEMOS)
                             }
                         }
                     }
@@ -361,8 +343,8 @@ class MemoTransferService @Inject constructor(
             MemoTransferProgress(
                 operation = MemoTransferOperation.EXPORT,
                 stage = MemoTransferStage.COMPLETED,
-                completed = exportableMemos.size,
-                total = exportableMemos.size,
+                completed = totalWorkCount,
+                total = totalWorkCount,
             )
         )
         return MemoExportResult(
@@ -554,46 +536,28 @@ class MemoTransferService @Inject constructor(
         var lastPersistAtMillis = nowMillis
         val totalEntries = entries.size
         val totalAttachmentCount = entries.sumOf { entry -> entry.attachments.size }
-        onProgress?.invoke(
-            MemoTransferProgress(
-                operation = MemoTransferOperation.IMPORT,
-                stage = MemoTransferStage.PROCESSING_MEMOS,
-                completed = 0,
-                total = totalEntries,
+        val totalWorkCount = totalEntries + totalAttachmentCount
+        fun emitImportProgress(stage: MemoTransferStage) {
+            onProgress?.invoke(
+                MemoTransferProgress(
+                    operation = MemoTransferOperation.IMPORT,
+                    stage = stage,
+                    completed = processedEntryCount + processedAttachmentCount,
+                    total = totalWorkCount,
+                )
             )
-        )
-        onProgress?.invoke(
-            MemoTransferProgress(
-                operation = MemoTransferOperation.IMPORT,
-                stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
-                completed = 0,
-                total = totalAttachmentCount,
-            )
-        )
+        }
+        emitImportProgress(MemoTransferStage.PROCESSING_MEMOS)
 
         for (entry in entries) {
             if (entry.content.isBlank()) {
                 skipped += 1
                 if (entry.attachments.isNotEmpty()) {
                     processedAttachmentCount += entry.attachments.size
-                    onProgress?.invoke(
-                        MemoTransferProgress(
-                            operation = MemoTransferOperation.IMPORT,
-                            stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
-                            completed = processedAttachmentCount,
-                            total = totalAttachmentCount,
-                        )
-                    )
+                    emitImportProgress(MemoTransferStage.PROCESSING_ATTACHMENTS)
                 }
                 processedEntryCount += 1
-                onProgress?.invoke(
-                    MemoTransferProgress(
-                        operation = MemoTransferOperation.IMPORT,
-                        stage = MemoTransferStage.PROCESSING_MEMOS,
-                        completed = processedEntryCount,
-                        total = totalEntries,
-                    )
-                )
+                emitImportProgress(MemoTransferStage.PROCESSING_MEMOS)
                 continue
             }
             val entryDedupKeys = buildImportDedupKeys(entry)
@@ -601,24 +565,10 @@ class MemoTransferService @Inject constructor(
                 skipped += 1
                 if (entry.attachments.isNotEmpty()) {
                     processedAttachmentCount += entry.attachments.size
-                    onProgress?.invoke(
-                        MemoTransferProgress(
-                            operation = MemoTransferOperation.IMPORT,
-                            stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
-                            completed = processedAttachmentCount,
-                            total = totalAttachmentCount,
-                        )
-                    )
+                    emitImportProgress(MemoTransferStage.PROCESSING_ATTACHMENTS)
                 }
                 processedEntryCount += 1
-                onProgress?.invoke(
-                    MemoTransferProgress(
-                        operation = MemoTransferOperation.IMPORT,
-                        stage = MemoTransferStage.PROCESSING_MEMOS,
-                        completed = processedEntryCount,
-                        total = totalEntries,
-                    )
-                )
+                emitImportProgress(MemoTransferStage.PROCESSING_MEMOS)
                 continue
             }
 
@@ -632,14 +582,7 @@ class MemoTransferService @Inject constructor(
                     resourceUploadFailed = true
                     processedAttachmentCountForMemo += 1
                     processedAttachmentCount += 1
-                    onProgress?.invoke(
-                        MemoTransferProgress(
-                            operation = MemoTransferOperation.IMPORT,
-                            stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
-                            completed = processedAttachmentCount,
-                            total = totalAttachmentCount,
-                        )
-                    )
+                    emitImportProgress(MemoTransferStage.PROCESSING_ATTACHMENTS)
                     break
                 }
                 try {
@@ -663,39 +606,18 @@ class MemoTransferService @Inject constructor(
                 }
                 processedAttachmentCountForMemo += 1
                 processedAttachmentCount += 1
-                onProgress?.invoke(
-                    MemoTransferProgress(
-                        operation = MemoTransferOperation.IMPORT,
-                        stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
-                        completed = processedAttachmentCount,
-                        total = totalAttachmentCount,
-                    )
-                )
+                emitImportProgress(MemoTransferStage.PROCESSING_ATTACHMENTS)
             }
             if (resourceUploadFailed) {
                 val remainingAttachmentCount = (entry.attachments.size - processedAttachmentCountForMemo).coerceAtLeast(0)
                 if (remainingAttachmentCount > 0) {
                     processedAttachmentCount += remainingAttachmentCount
-                    onProgress?.invoke(
-                        MemoTransferProgress(
-                            operation = MemoTransferOperation.IMPORT,
-                            stage = MemoTransferStage.PROCESSING_ATTACHMENTS,
-                            completed = processedAttachmentCount,
-                            total = totalAttachmentCount,
-                        )
-                    )
+                    emitImportProgress(MemoTransferStage.PROCESSING_ATTACHMENTS)
                 }
                 cleanupUploadedResources(remoteRepository, remoteResourceIds)
                 failed += 1
                 processedEntryCount += 1
-                onProgress?.invoke(
-                    MemoTransferProgress(
-                        operation = MemoTransferOperation.IMPORT,
-                        stage = MemoTransferStage.PROCESSING_MEMOS,
-                        completed = processedEntryCount,
-                        total = totalEntries,
-                    )
-                )
+                emitImportProgress(MemoTransferStage.PROCESSING_MEMOS)
                 continue
             }
 
@@ -713,14 +635,7 @@ class MemoTransferService @Inject constructor(
                 cleanupUploadedResources(remoteRepository, remoteResourceIds)
                 failed += 1
                 processedEntryCount += 1
-                onProgress?.invoke(
-                    MemoTransferProgress(
-                        operation = MemoTransferOperation.IMPORT,
-                        stage = MemoTransferStage.PROCESSING_MEMOS,
-                        completed = processedEntryCount,
-                        total = totalEntries,
-                    )
-                )
+                emitImportProgress(MemoTransferStage.PROCESSING_MEMOS)
                 continue
             }
 
@@ -750,14 +665,7 @@ class MemoTransferService @Inject constructor(
             importedAttachmentCount += uploadedAttachmentCountForMemo
             imported += 1
             processedEntryCount += 1
-            onProgress?.invoke(
-                MemoTransferProgress(
-                    operation = MemoTransferOperation.IMPORT,
-                    stage = MemoTransferStage.PROCESSING_MEMOS,
-                    completed = processedEntryCount,
-                    total = totalEntries,
-                )
-            )
+            emitImportProgress(MemoTransferStage.PROCESSING_MEMOS)
         }
 
         val finalPersistNowMillis = System.currentTimeMillis()
@@ -771,8 +679,8 @@ class MemoTransferService @Inject constructor(
             MemoTransferProgress(
                 operation = MemoTransferOperation.IMPORT,
                 stage = MemoTransferStage.COMPLETED,
-                completed = totalEntries,
-                total = totalEntries,
+                completed = totalWorkCount,
+                total = totalWorkCount,
             )
         )
 
