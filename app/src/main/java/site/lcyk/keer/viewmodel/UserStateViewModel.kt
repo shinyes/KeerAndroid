@@ -38,7 +38,6 @@ import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.data.service.MemoExportResult
 import site.lcyk.keer.data.service.MemoImportResult
-import site.lcyk.keer.data.service.MemoImportPreviewResult
 import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.data.service.MemoTransferOperation
 import site.lcyk.keer.data.service.MemoTransferStage
@@ -301,13 +300,6 @@ class UserStateViewModel @Inject constructor(
             }
         }
     }
-
-    suspend fun previewPersonalMemoImport(sourceUri: Uri): Result<MemoImportPreviewResult> =
-        withContext(viewModelScope.coroutineContext) {
-            memoTransferMutex.withLock {
-                memoTransferService.previewPersonalMemoImport(sourceUri)
-            }
-        }
 
     fun observeAccountAvatarUri(accountKey: String) =
         accountLocalSettingsStore.observeUserAvatarUri(accountKey)

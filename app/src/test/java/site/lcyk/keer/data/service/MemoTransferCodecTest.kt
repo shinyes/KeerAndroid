@@ -164,4 +164,33 @@ class MemoTransferCodecTest {
         assertEquals("second", entries[1].content)
         assertEquals(MemoVisibility.PUBLIC, entries[1].visibility)
     }
+
+    @Test
+    fun forEachImportEntry_streamsManifestObjectEntries() = runBlocking {
+        val payload = buildString {
+            append("""{"format":"keer.memo.transfer.v2","memos":[""")
+            repeat(256) { index ->
+                if (index > 0) {
+                    append(',')
+                }
+                append("""{"content":"memo-$index","createdAt":"2026-03-20T00:00:00Z"}""")
+            }
+            append("]}")
+        }
+
+        var count = 0
+        var first: String? = null
+        var last: String? = null
+        MemoTransferCodec.forEachImportEntry(payload.reader()) { entry ->
+            if (first == null) {
+                first = entry.content
+            }
+            last = entry.content
+            count += 1
+        }
+
+        assertEquals(256, count)
+        assertEquals("memo-0", first)
+        assertEquals("memo-255", last)
+    }
 }

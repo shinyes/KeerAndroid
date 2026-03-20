@@ -10,6 +10,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.longOrNull
+import java.io.PushbackReader
+import java.io.Reader
 import site.lcyk.keer.data.model.MemoVisibility
 import java.time.Instant
 
@@ -116,6 +118,19 @@ internal object MemoTransferCodec {
             else -> throw IllegalArgumentException("Unsupported memo import format")
         }
         return memoArray.mapNotNull(::parseMemoEntry)
+    }
+
+    suspend fun forEachImportEntry(
+        reader: Reader,
+        onEntry: suspend (MemoImportEntry) -> Unit,
+    ) {
+        JsonMemoStreamReader(reader).readEntries { rawElement ->
+            val payload = runCatching { json.parseToJsonElement(rawElement) }
+                .getOrNull() ?: return@readEntries
+            parseMemoEntry(payload)?.let { entry ->
+                onEntry(entry)
+            }
+        }
     }
 
     private fun extractMemoArray(root: JsonObject): JsonArray {
@@ -326,4 +341,227 @@ internal object MemoTransferCodec {
     private val attachmentPathCandidateKeys = listOf("path", "file", "entry")
     private val attachmentFilenameCandidateKeys = listOf("filename", "name")
     private val attachmentMimeTypeCandidateKeys = listOf("mimeType", "type")
+}
+
+private class JsonMemoStreamReader(reader: Reader) {
+    private val source = PushbackReader(reader.buffered(16 * 1024), 8)
+    private val targetArrayKeys = setOf("memos", "items", "data")
+
+    suspend fun readEntries(onElement: suspend (String) -> Unit) {
+        val first = nextNonWhitespace()
+        when (first) {
+            '['.code -> readArrayElements(onElement)
+            '{'.code -> readObjectForMemoArrays(onElement)
+            else -> throw IllegalArgumentException("Unsupported memo import format")
+        }
+    }
+
+    private suspend fun readObjectForMemoArrays(onElement: suspend (String) -> Unit) {
+        var expectKey = true
+        while (true) {
+            val token = nextNonWhitespace()
+            when (token) {
+                '}'.code -> return
+                '"'.code -> {
+                    if (!expectKey) {
+                        throw IllegalArgumentException("Invalid JSON object")
+                    }
+                    val key = readJsonStringContent()
+                    expect(':')
+                    val valueStart = nextNonWhitespace()
+                    if (key in targetArrayKeys && valueStart == '['.code) {
+                        readArrayElements(onElement)
+                    } else {
+                        skipValue(valueStart)
+                    }
+                    val delimiter = nextNonWhitespace()
+                    when (delimiter) {
+                        ','.code -> expectKey = true
+                        '}'.code -> return
+                        else -> throw IllegalArgumentException("Invalid JSON object delimiter")
+                    }
+                }
+                else -> throw IllegalArgumentException("Invalid JSON object")
+            }
+        }
+    }
+
+    private suspend fun readArrayElements(onElement: suspend (String) -> Unit) {
+        var expectValue = true
+        while (true) {
+            val token = nextNonWhitespace()
+            when {
+                token == ']'.code -> return
+                expectValue -> {
+                    if (token == '{'.code) {
+                        onElement(readRawValueFromStart(token))
+                    } else {
+                        skipValue(token)
+                    }
+                    val delimiter = nextNonWhitespace()
+                    when (delimiter) {
+                        ','.code -> expectValue = true
+                        ']'.code -> return
+                        else -> throw IllegalArgumentException("Invalid JSON array delimiter")
+                    }
+                }
+                else -> throw IllegalArgumentException("Invalid JSON array")
+            }
+        }
+    }
+
+    private fun skipValue(start: Int) {
+        readRawValueFromStart(start)
+    }
+
+    private fun readRawValueFromStart(start: Int): String {
+        if (start < 0) {
+            throw IllegalArgumentException("Unexpected end of JSON")
+        }
+        val builder = StringBuilder()
+        builder.append(start.toChar())
+        when (start) {
+            '"'.code -> {
+                var escaped = false
+                while (true) {
+                    val next = read()
+                    if (next < 0) {
+                        throw IllegalArgumentException("Unterminated JSON string")
+                    }
+                    builder.append(next.toChar())
+                    if (escaped) {
+                        escaped = false
+                        continue
+                    }
+                    if (next == '\\'.code) {
+                        escaped = true
+                        continue
+                    }
+                    if (next == '"'.code) {
+                        return builder.toString()
+                    }
+                }
+            }
+            '{'.code, '['.code -> {
+                val stack = ArrayDeque<Char>()
+                stack.addLast(start.toChar())
+                var inString = false
+                var escaped = false
+                while (stack.isNotEmpty()) {
+                    val next = read()
+                    if (next < 0) {
+                        throw IllegalArgumentException("Unterminated JSON value")
+                    }
+                    val ch = next.toChar()
+                    builder.append(ch)
+                    if (inString) {
+                        if (escaped) {
+                            escaped = false
+                        } else if (ch == '\\') {
+                            escaped = true
+                        } else if (ch == '"') {
+                            inString = false
+                        }
+                        continue
+                    }
+                    when (ch) {
+                        '"' -> inString = true
+                        '{', '[' -> stack.addLast(ch)
+                        '}' -> {
+                            if (stack.removeLastOrNull() != '{') {
+                                throw IllegalArgumentException("Invalid JSON nesting")
+                            }
+                        }
+                        ']' -> {
+                            if (stack.removeLastOrNull() != '[') {
+                                throw IllegalArgumentException("Invalid JSON nesting")
+                            }
+                        }
+                    }
+                }
+                return builder.toString()
+            }
+            else -> {
+                while (true) {
+                    val next = read()
+                    if (next < 0) {
+                        return builder.toString()
+                    }
+                    val ch = next.toChar()
+                    if (ch.isWhitespace() || ch == ',' || ch == ']' || ch == '}') {
+                        unread(next)
+                        return builder.toString()
+                    }
+                    builder.append(ch)
+                }
+            }
+        }
+    }
+
+    private fun readJsonStringContent(): String {
+        val builder = StringBuilder()
+        while (true) {
+            val next = read()
+            if (next < 0) {
+                throw IllegalArgumentException("Unterminated JSON key string")
+            }
+            when (next) {
+                '"'.code -> return builder.toString()
+                '\\'.code -> {
+                    val escaped = read()
+                    if (escaped < 0) {
+                        throw IllegalArgumentException("Unterminated JSON escape")
+                    }
+                    when (escaped.toChar()) {
+                        '"', '\\', '/' -> builder.append(escaped.toChar())
+                        'b' -> builder.append('\b')
+                        'f' -> builder.append('\u000C')
+                        'n' -> builder.append('\n')
+                        'r' -> builder.append('\r')
+                        't' -> builder.append('\t')
+                        'u' -> {
+                            val hex = CharArray(4)
+                            repeat(4) { index ->
+                                val hexChar = read()
+                                if (hexChar < 0) {
+                                    throw IllegalArgumentException("Invalid unicode escape")
+                                }
+                                hex[index] = hexChar.toChar()
+                            }
+                            builder.append(hex.concatToString().toInt(16).toChar())
+                        }
+                        else -> throw IllegalArgumentException("Invalid JSON escape sequence")
+                    }
+                }
+                else -> builder.append(next.toChar())
+            }
+        }
+    }
+
+    private fun expect(expected: Char) {
+        val next = nextNonWhitespace()
+        if (next != expected.code) {
+            throw IllegalArgumentException("Expected '$expected'")
+        }
+    }
+
+    private fun nextNonWhitespace(): Int {
+        while (true) {
+            val next = read()
+            if (next < 0) {
+                return next
+            }
+            if (!next.toChar().isWhitespace()) {
+                return next
+            }
+        }
+    }
+
+    private fun read(): Int = source.read()
+
+    private fun unread(ch: Int) {
+        if (ch >= 0) {
+            source.unread(ch)
+        }
+    }
 }
