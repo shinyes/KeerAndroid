@@ -13,6 +13,7 @@ import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.data.model.User
 import okhttp3.MediaType
+import java.time.Instant
 
 abstract class AbstractMemoRepository {
     private val _syncStatus = MutableStateFlow(SyncStatus())
@@ -25,6 +26,7 @@ abstract class AbstractMemoRepository {
         visibility: MemoVisibility,
         resources: List<ResourceEntity>,
         tags: List<String>? = null,
+        createdAt: Instant? = null,
         latitude: Double? = null,
         longitude: Double? = null
     ): ApiResponse<MemoEntity>

@@ -227,7 +227,7 @@
     <string name="personal_memos_export_success">已匯出 %1$d 則 memo 與 %2$d 個附件。</string>
     <string name="personal_memos_export_result_with_failed">匯出完成。已匯出 %1$d 則 memo 與 %2$d 個附件，失敗 %3$d 則。</string>
     <string name="personal_memos_export_failed">匯出個人 memo 失敗。</string>
-    <string name="personal_memos_import_result">匯入完成。已匯入 %1$d 則 memo，已上傳 %2$d 個附件，失敗 %3$d 則，略過 %4$d 則。</string>
+    <string name="personal_memos_import_result">本機匯入完成。已匯入 %1$d 則 memo，已處理 %2$d 個附件，失敗 %3$d 則，略過 %4$d 則。背景正在同步到伺服器。</string>
     <string name="personal_memos_import_failed">匯入個人 memo 失敗。</string>
     <string name="personal_memos_import_preview_loading">正在掃描匯入檔案…</string>
     <string name="personal_memos_import_preview_summary">偵測到 %1$d 則 memo。預計匯入 %2$d 則，預計略過重複 %3$d 則。</string>

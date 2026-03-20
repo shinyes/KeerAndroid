@@ -77,16 +77,18 @@ class LocalDatabaseRepository(
         visibility: MemoVisibility,
         resources: List<ResourceEntity>,
         tags: List<String>?,
+        createdAt: Instant?,
         latitude: Double?,
         longitude: Double?
     ): ApiResponse<MemoEntity> {
         return try {
             val now = Instant.now()
+            val memoDate = createdAt ?: now
             val memo = MemoEntity(
                 identifier = UUID.randomUUID().toString(),
                 accountKey = accountKey,
                 content = content,
-                date = now,
+                date = memoDate,
                 visibility = visibility,
                 pinned = false,
                 archived = false,

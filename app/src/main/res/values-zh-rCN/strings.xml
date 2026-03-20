@@ -229,7 +229,7 @@
     <string name="personal_memos_export_success">已导出 %1$d 条 memo 和 %2$d 个附件。</string>
     <string name="personal_memos_export_result_with_failed">导出完成。已导出 %1$d 条 memo 和 %2$d 个附件，失败 %3$d 条。</string>
     <string name="personal_memos_export_failed">导出个人 memo 失败。</string>
-    <string name="personal_memos_import_result">导入完成。已导入 %1$d 条 memo，已上传 %2$d 个附件，失败 %3$d 条，跳过 %4$d 条。</string>
+    <string name="personal_memos_import_result">本地导入完成。已导入 %1$d 条 memo，已处理 %2$d 个附件，失败 %3$d 条，跳过 %4$d 条。后台正在同步到服务端。</string>
     <string name="personal_memos_import_failed">导入个人 memo 失败。</string>
     <string name="personal_memos_import_preview_loading">正在扫描导入文件…</string>
     <string name="personal_memos_import_preview_summary">检测到 %1$d 条 memo。预计导入 %2$d 条，预计跳过重复 %3$d 条。</string>

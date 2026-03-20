@@ -230,7 +230,7 @@
     <string name="personal_memos_export_success">Exported %1$d memos and %2$d attachments.</string>
     <string name="personal_memos_export_result_with_failed">Export finished. Exported %1$d memos and %2$d attachments, failed %3$d.</string>
     <string name="personal_memos_export_failed">Failed to export personal memos.</string>
-    <string name="personal_memos_import_result">Import finished. Imported %1$d memos, uploaded %2$d attachments, failed %3$d, skipped %4$d.</string>
+    <string name="personal_memos_import_result">Local import finished. Imported %1$d memos, processed %2$d attachments, failed %3$d, skipped %4$d. Sync is running in the background.</string>
     <string name="personal_memos_import_failed">Failed to import personal memos.</string>
     <string name="personal_memos_import_preview_loading">Scanning import package…</string>
     <string name="personal_memos_import_preview_summary">Detected %1$d memos. Estimated to import %2$d and skip %3$d duplicates.</string>

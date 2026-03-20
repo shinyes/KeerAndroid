@@ -8,12 +8,12 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.Request
 import site.lcyk.keer.R
+import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.Resource
 import site.lcyk.keer.data.repository.AbstractMemoRepository
 import site.lcyk.keer.data.repository.RemoteRepository
-import site.lcyk.keer.data.repository.ResourceEncryptionScope
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.util.normalizeTagList
@@ -126,7 +126,7 @@ class MemoTransferService @Inject constructor(
             if (isZipDocument(sourceUri)) {
                 importFromZip(
                     sourceUri = sourceUri,
-                    remoteRepository = importContext.remoteRepository,
+                    localRepository = importContext.localRepository,
                     dedupStore = importContext.dedupStore,
                     dedupKeys = importContext.dedupKeys,
                     onProgress = onProgress,
@@ -134,7 +134,7 @@ class MemoTransferService @Inject constructor(
             } else {
                 importFromJson(
                     sourceUri = sourceUri,
-                    remoteRepository = importContext.remoteRepository,
+                    localRepository = importContext.localRepository,
                     dedupStore = importContext.dedupStore,
                     dedupKeys = importContext.dedupKeys,
                     onProgress = onProgress,
@@ -246,8 +246,9 @@ class MemoTransferService @Inject constructor(
         ).toMutableSet().apply {
             addAll(existingMemoDedupKeys)
         }
+        val localRepository = accountService.getRepository()
         return MemoImportContext(
-            remoteRepository = remoteRepository,
+            localRepository = localRepository,
             dedupStore = dedupStore,
             dedupKeys = dedupKeys,
         )
@@ -477,7 +478,7 @@ class MemoTransferService @Inject constructor(
 
     private suspend fun importFromJson(
         sourceUri: Uri,
-        remoteRepository: RemoteRepository,
+        localRepository: AbstractMemoRepository,
         dedupStore: MemoImportDedupStore,
         dedupKeys: MutableSet<String>,
         onProgress: ((MemoTransferProgress) -> Unit)?,
@@ -495,7 +496,7 @@ class MemoTransferService @Inject constructor(
                 reader = reader,
                 includeAttachments = false,
                 resolveAttachmentFile = { null },
-                remoteRepository = remoteRepository,
+                localRepository = localRepository,
                 dedupStore = dedupStore,
                 dedupKeys = dedupKeys,
                 onProgress = onProgress,
@@ -505,7 +506,7 @@ class MemoTransferService @Inject constructor(
 
     private suspend fun importFromZip(
         sourceUri: Uri,
-        remoteRepository: RemoteRepository,
+        localRepository: AbstractMemoRepository,
         dedupStore: MemoImportDedupStore,
         dedupKeys: MutableSet<String>,
         onProgress: ((MemoTransferProgress) -> Unit)?,
@@ -559,7 +560,7 @@ class MemoTransferService @Inject constructor(
                                 attachment = attachment,
                             )
                         },
-                        remoteRepository = remoteRepository,
+                        localRepository = localRepository,
                         dedupStore = dedupStore,
                         dedupKeys = dedupKeys,
                         onProgress = onProgress,
@@ -575,7 +576,7 @@ class MemoTransferService @Inject constructor(
         reader: java.io.Reader,
         includeAttachments: Boolean,
         resolveAttachmentFile: suspend (MemoImportAttachment) -> File?,
-        remoteRepository: RemoteRepository,
+        localRepository: AbstractMemoRepository,
         dedupStore: MemoImportDedupStore,
         dedupKeys: MutableSet<String>,
         onProgress: ((MemoTransferProgress) -> Unit)?,
@@ -624,10 +625,10 @@ class MemoTransferService @Inject constructor(
                 return@forEachImportEntry
             }
 
-            val uploadResult = uploadAttachmentsForMemo(
+            val importResourcesResult = importAttachmentsToLocal(
                 entry = entry,
                 resolveAttachmentFile = resolveAttachmentFile,
-                remoteRepository = remoteRepository,
+                localRepository = localRepository,
                 onAttachmentProcessed = {
                     processedAttachmentCount += 1
                     progressReporter.emit(
@@ -637,7 +638,7 @@ class MemoTransferService @Inject constructor(
                     )
                 }
             )
-            if (!uploadResult.success) {
+            if (!importResourcesResult.success) {
                 failed += 1
                 processedEntryCount += 1
                 progressReporter.emit(
@@ -648,10 +649,10 @@ class MemoTransferService @Inject constructor(
                 return@forEachImportEntry
             }
 
-            val createResponse = remoteRepository.createMemo(
+            val createResponse = localRepository.createMemo(
                 content = entry.content,
                 visibility = entry.visibility,
-                resourceRemoteIds = uploadResult.remoteResourceIds,
+                resources = importResourcesResult.resources,
                 tags = normalizeTagList(entry.tags),
                 createdAt = entry.createdAt,
                 latitude = entry.latitude,
@@ -659,7 +660,7 @@ class MemoTransferService @Inject constructor(
             )
             val createdMemo = (createResponse as? ApiResponse.Success)?.data
             if (createdMemo == null) {
-                cleanupUploadedResources(remoteRepository, uploadResult.remoteResourceIds)
+                cleanupImportedLocalResources(localRepository, importResourcesResult.resources)
                 failed += 1
                 processedEntryCount += 1
                 progressReporter.emit(
@@ -670,12 +671,14 @@ class MemoTransferService @Inject constructor(
                 return@forEachImportEntry
             }
 
-            if (entry.pinned || entry.archived) {
-                remoteRepository.updateMemo(
-                    remoteId = createdMemo.remoteId,
-                    pinned = if (entry.pinned) true else null,
-                    archived = if (entry.archived) true else null,
+            if (entry.pinned) {
+                localRepository.updateMemo(
+                    identifier = createdMemo.identifier,
+                    pinned = true,
                 )
+            }
+            if (entry.archived) {
+                localRepository.archiveMemo(createdMemo.identifier)
             }
             dedupKeys.addAll(entryDedupKeys)
             pendingPersistDedupKeys.addAll(entryDedupKeys)
@@ -693,7 +696,7 @@ class MemoTransferService @Inject constructor(
                 pendingPersistDedupKeys.clear()
                 lastPersistAtMillis = now
             }
-            importedAttachmentCount += uploadResult.uploadedAttachmentCount
+            importedAttachmentCount += importResourcesResult.importedAttachmentCount
             imported += 1
             processedEntryCount += 1
             progressReporter.emit(
@@ -725,103 +728,69 @@ class MemoTransferService @Inject constructor(
         )
     }
 
-    private suspend fun uploadAttachmentsForMemo(
+    private suspend fun importAttachmentsToLocal(
         entry: MemoImportEntry,
         resolveAttachmentFile: suspend (MemoImportAttachment) -> File?,
-        remoteRepository: RemoteRepository,
+        localRepository: AbstractMemoRepository,
         onAttachmentProcessed: () -> Unit,
-    ): AttachmentUploadResult = coroutineScope {
+    ): LocalAttachmentImportResult {
         if (entry.attachments.isEmpty()) {
-            return@coroutineScope AttachmentUploadResult(
+            return LocalAttachmentImportResult(
                 success = true,
-                remoteResourceIds = emptyList(),
-                uploadedAttachmentCount = 0,
+                resources = emptyList(),
+                importedAttachmentCount = 0,
             )
         }
-        val prepared = mutableListOf<PreparedImportAttachment>()
-        entry.attachments.forEachIndexed { index, attachment ->
+        val importedResources = mutableListOf<ResourceEntity>()
+        for (attachment in entry.attachments) {
             val localFile = resolveAttachmentFile(attachment)
             if (localFile == null || !localFile.exists() || localFile.length() <= 0L) {
-                prepared.forEach { item -> runCatching { item.file.delete() } }
+                cleanupImportedLocalResources(localRepository, importedResources)
                 onAttachmentProcessed()
-                return@coroutineScope AttachmentUploadResult(
+                return LocalAttachmentImportResult(
                     success = false,
-                    remoteResourceIds = emptyList(),
-                    uploadedAttachmentCount = 0,
+                    resources = emptyList(),
+                    importedAttachmentCount = 0,
                 )
             }
-            prepared += PreparedImportAttachment(
-                index = index,
-                attachment = attachment,
-                file = localFile,
-            )
-        }
-        val semaphore = Semaphore(importAttachmentParallelism)
-        val uploadResults = prepared.map { preparedAttachment ->
-            async(Dispatchers.IO) {
-                semaphore.withPermit {
-                    try {
-                        val uploadResponse = remoteRepository.createResource(
-                            filename = preparedAttachment.attachment.filename.ifBlank { preparedAttachment.file.name },
-                            type = preparedAttachment.attachment.mimeType?.toMediaTypeOrNull(),
-                            file = preparedAttachment.file,
-                            memoRemoteId = null,
-                            encryptionScope = ResourceEncryptionScope.Account,
-                            thumbnail = null,
-                        )
-                        val uploadedResource = (uploadResponse as? ApiResponse.Success)?.data
-                        val remoteId = uploadedResource?.remoteId.orEmpty()
-                        if (remoteId.isBlank()) {
-                            return@withPermit AttachmentUploadItemResult(
-                                index = preparedAttachment.index,
-                                remoteId = null,
-                            )
-                        }
-                        AttachmentUploadItemResult(
-                            index = preparedAttachment.index,
-                            remoteId = remoteId,
-                        )
-                    } catch (_: Throwable) {
-                        AttachmentUploadItemResult(
-                            index = preparedAttachment.index,
-                            remoteId = null,
-                        )
-                    } finally {
-                        runCatching { preparedAttachment.file.delete() }
-                        onAttachmentProcessed()
-                    }
-                }
+            val sourceUri = localFile.toUri()
+            val createResponse = try {
+                localRepository.createResource(
+                    filename = attachment.filename.ifBlank { localFile.name },
+                    type = attachment.mimeType?.toMediaTypeOrNull(),
+                    sourceUri = sourceUri,
+                    memoIdentifier = null,
+                )
+            } finally {
+                runCatching { localFile.delete() }
             }
-        }.awaitAll()
-
-        val successful = uploadResults.filter { result -> !result.remoteId.isNullOrBlank() }
-            .sortedBy { result -> result.index }
-        val failed = uploadResults.any { result -> result.remoteId.isNullOrBlank() }
-        if (failed) {
-            cleanupUploadedResources(
-                remoteRepository = remoteRepository,
-                remoteResourceIds = successful.map { result -> result.remoteId.orEmpty() },
-            )
-            return@coroutineScope AttachmentUploadResult(
-                success = false,
-                remoteResourceIds = emptyList(),
-                uploadedAttachmentCount = successful.size,
-            )
+            val createdResource = (createResponse as? ApiResponse.Success)?.data
+            if (createdResource == null) {
+                cleanupImportedLocalResources(localRepository, importedResources)
+                onAttachmentProcessed()
+                return LocalAttachmentImportResult(
+                    success = false,
+                    resources = emptyList(),
+                    importedAttachmentCount = 0,
+                )
+            }
+            importedResources += createdResource
+            onAttachmentProcessed()
         }
-        AttachmentUploadResult(
+        return LocalAttachmentImportResult(
             success = true,
-            remoteResourceIds = successful.mapNotNull { result -> result.remoteId },
-            uploadedAttachmentCount = successful.size,
+            resources = importedResources,
+            importedAttachmentCount = importedResources.size,
         )
     }
 
-    private suspend fun cleanupUploadedResources(
-        remoteRepository: RemoteRepository,
-        remoteResourceIds: List<String>,
+    private suspend fun cleanupImportedLocalResources(
+        localRepository: AbstractMemoRepository,
+        resources: List<ResourceEntity>,
     ) {
-        remoteResourceIds.forEach { remoteId ->
+        resources.forEach { resource ->
             runCatching {
-                remoteRepository.deleteResource(remoteId)
+                localRepository.deleteResource(resource.identifier)
             }
         }
     }
@@ -1097,7 +1066,7 @@ class MemoTransferService @Inject constructor(
     }
 
     private data class MemoImportContext(
-        val remoteRepository: RemoteRepository,
+        val localRepository: AbstractMemoRepository,
         val dedupStore: MemoImportDedupStore,
         val dedupKeys: MutableSet<String>,
     )
@@ -1116,21 +1085,10 @@ class MemoTransferService @Inject constructor(
         val deleteAfterWrite: Boolean,
     )
 
-    private data class PreparedImportAttachment(
-        val index: Int,
-        val attachment: MemoImportAttachment,
-        val file: File,
-    )
-
-    private data class AttachmentUploadItemResult(
-        val index: Int,
-        val remoteId: String?,
-    )
-
-    private data class AttachmentUploadResult(
+    private data class LocalAttachmentImportResult(
         val success: Boolean,
-        val remoteResourceIds: List<String>,
-        val uploadedAttachmentCount: Int,
+        val resources: List<ResourceEntity>,
+        val importedAttachmentCount: Int,
     )
 
     companion object {
@@ -1145,7 +1103,6 @@ class MemoTransferService @Inject constructor(
         private const val encryptedContentUnavailablePlaceholder = "[Encrypted content unavailable]"
         private const val ioBufferSizeBytes = 64 * 1024
         private const val ioTextBufferSizeChars = 8 * 1024
-        private const val importAttachmentParallelism = 3
         private const val exportAttachmentParallelism = 3
         private const val hex = "0123456789abcdef"
     }
