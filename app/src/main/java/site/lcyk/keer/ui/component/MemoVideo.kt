@@ -35,6 +35,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.net.toUri
+import coil3.ImageLoader
 import coil3.annotation.ExperimentalCoilApi
 import coil3.compose.AsyncImage
 import androidx.media3.common.MediaItem
@@ -66,6 +67,7 @@ fun MemoVideo(
     resource: ResourceRepresentable,
     modifier: Modifier = Modifier,
     autoPreviewPrefetch: Boolean = true,
+    mediaImageLoader: ImageLoader? = null,
 ) {
     val context = LocalContext.current
     val userStateViewModel = LocalUserState.current
@@ -80,7 +82,7 @@ fun MemoVideo(
     var showPlayerDialog by remember(resource.remoteId, resource.uri, resource.localUri) {
         mutableStateOf(false)
     }
-    val imageLoader = rememberAuthorizedImageLoader()
+    val imageLoader = mediaImageLoader ?: rememberMemoMediaImageLoader()
     val runtimeCachedPreviewUri = MediaPreviewRuntimeCache.resolvePreviewUri(previewCacheKey(liveResource))
     val previewModel = remember(
         fallbackPreviewUri,

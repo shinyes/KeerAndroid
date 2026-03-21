@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import com.skydoves.sandwich.ApiResponse
+import coil3.ImageLoader
 import coil3.annotation.ExperimentalCoilApi
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.launch
@@ -46,6 +47,7 @@ fun MemoImage(
     resource: ResourceRepresentable,
     modifier: Modifier = Modifier,
     autoPreviewPrefetch: Boolean = true,
+    mediaImageLoader: ImageLoader? = null,
 ) {
     val context = LocalContext.current
     val userStateViewModel = LocalUserState.current
@@ -62,7 +64,7 @@ fun MemoImage(
     var viewerSelection by remember(resource.remoteId, resource.uri, resource.localUri) {
         mutableStateOf<ImageViewerSelectionState?>(null)
     }
-    val imageLoader = rememberAuthorizedImageLoader()
+    val imageLoader = mediaImageLoader ?: rememberMemoMediaImageLoader()
     val runtimeCachedPreviewUri = MediaPreviewRuntimeCache.resolvePreviewUri(previewCacheKey(liveResource))
     val previewModel = remember(
         fallbackPreviewUri,

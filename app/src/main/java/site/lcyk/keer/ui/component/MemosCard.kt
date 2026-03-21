@@ -82,6 +82,7 @@ fun MemosCard(
     onRequestEdit: ((MemoEntity) -> Unit)? = null,
     collaboratorProfiles: Map<String, CollaboratorProfile> = emptyMap(),
     avatarImageLoader: ImageLoader? = null,
+    mediaImageLoader: ImageLoader? = null,
     prefetchCollaborators: Boolean = true,
     resolvedQuote: ResolvedMemoQuote? = null,
 ) {
@@ -266,6 +267,7 @@ fun MemosCard(
                 memo,
                 previewMode = previewMode,
                 autoPreviewPrefetch = autoPreviewPrefetch,
+                mediaImageLoader = mediaImageLoader,
                 checkboxChange = { checked, startOffset, endOffset ->
                     scope.launch {
                         var text = memo.content.substring(startOffset, endOffset)

@@ -48,6 +48,7 @@ import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.component.MemosCardActionButton
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
+import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
@@ -89,6 +90,7 @@ fun MemosList(
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
     val avatarImageLoader = rememberAuthorizedImageLoader()
+    val mediaImageLoader = rememberMemoMediaImageLoader()
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     val sourceMemos = memos ?: visibleMemos
     val sourceMemoSnapshot = remember(sourceMemos) { sourceMemos.toList() }
@@ -199,6 +201,7 @@ fun MemosList(
         editGesture = editGesture,
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
+        mediaImageLoader = mediaImageLoader,
         onRefresh = {
             if (viewModel.syncStatus.value.syncing) {
                 return@MemoFeedList
@@ -245,6 +248,7 @@ private fun MemoFeedList(
     editGesture: MemoEditGesture,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
+    mediaImageLoader: coil3.ImageLoader,
     onRefresh: () -> Unit,
     onOpenMemoDetail: (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit,
     onTagClick: ((String) -> Unit)?,
@@ -285,6 +289,7 @@ private fun MemoFeedList(
                     onRequestEdit = onRequestEdit,
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
+                    mediaImageLoader = mediaImageLoader,
                     prefetchCollaborators = false,
                     resolvedQuote = card.resolvedQuote,
                 )

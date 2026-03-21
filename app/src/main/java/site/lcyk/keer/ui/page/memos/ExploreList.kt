@@ -50,6 +50,7 @@ import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
+import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
@@ -84,6 +85,7 @@ fun ExploreList(
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
     val avatarImageLoader = rememberAuthorizedImageLoader()
+    val mediaImageLoader = rememberMemoMediaImageLoader()
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     var editingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
     var editingContent by remember { mutableStateOf("") }
@@ -155,6 +157,7 @@ fun ExploreList(
         contentPadding = contentPadding,
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
+        mediaImageLoader = mediaImageLoader,
         accountKey = accountKey,
         resolvedQuoteMap = resolvedQuoteMap,
         currentUserId = currentUserId,
@@ -289,6 +292,7 @@ private fun ExploreMemoFeed(
     contentPadding: PaddingValues,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
+    mediaImageLoader: coil3.ImageLoader,
     accountKey: String,
     resolvedQuoteMap: Map<String, site.lcyk.keer.util.ResolvedMemoQuote>,
     currentUserId: String,
@@ -346,6 +350,7 @@ private fun ExploreMemoFeed(
                     onTagClick = onTagClick,
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
+                    mediaImageLoader = mediaImageLoader,
                     prefetchCollaborators = false,
                     resolvedQuote = resolvedQuoteMap[adaptedMemo.identifier],
                 )

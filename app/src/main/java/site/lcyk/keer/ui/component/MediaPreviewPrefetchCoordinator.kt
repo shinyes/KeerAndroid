@@ -18,9 +18,9 @@ import java.io.File
 import okhttp3.OkHttpClient
 
 internal object MediaPreviewPrefetchCoordinator {
-    private val networkSemaphore = Semaphore(permits = 2)
-    private val decryptSemaphore = Semaphore(permits = 1)
-    private val writeSemaphore = Semaphore(permits = 1)
+    private val networkSemaphore = Semaphore(permits = PREFETCH_NETWORK_CONCURRENCY)
+    private val decryptSemaphore = Semaphore(permits = PREFETCH_DECRYPT_CONCURRENCY)
+    private val writeSemaphore = Semaphore(permits = PREFETCH_WRITE_CONCURRENCY)
     private val inFlightMutex = Mutex()
     private val inFlightKeys = linkedSetOf<String>()
 
@@ -30,8 +30,8 @@ internal object MediaPreviewPrefetchCoordinator {
         currentAccountKey: String?,
         memos: List<MemoEntity>,
         visibleIndices: List<Int>,
-        windowAhead: Int = 4,
-        windowBehind: Int = 2,
+        windowAhead: Int = PREFETCH_WINDOW_AHEAD,
+        windowBehind: Int = PREFETCH_WINDOW_BEHIND,
         cacheResourceFile: suspend (String, Uri) -> ApiResponse<Unit>,
         cacheResourceThumbnail: suspend (String, Uri) -> ApiResponse<Unit>,
     ) {
@@ -252,6 +252,20 @@ internal object MediaPreviewPrefetchCoordinator {
         }
     }
 
+    internal fun collectWindowResourcesForTest(
+        memos: List<MemoEntity>,
+        visibleIndices: List<Int>,
+        windowAhead: Int = PREFETCH_WINDOW_AHEAD,
+        windowBehind: Int = PREFETCH_WINDOW_BEHIND,
+    ): List<ResourceEntity> {
+        return collectWindowResources(
+            memos = memos,
+            visibleIndices = visibleIndices,
+            windowAhead = windowAhead,
+            windowBehind = windowBehind,
+        )
+    }
+
     private fun collectWindowResources(
         memos: List<MemoEntity>,
         visibleIndices: List<Int>,
@@ -292,6 +306,12 @@ internal object MediaPreviewPrefetchCoordinator {
         }
         return null
     }
+
+    private const val PREFETCH_WINDOW_AHEAD = 10
+    private const val PREFETCH_WINDOW_BEHIND = 4
+    private const val PREFETCH_NETWORK_CONCURRENCY = 4
+    private const val PREFETCH_DECRYPT_CONCURRENCY = 2
+    private const val PREFETCH_WRITE_CONCURRENCY = 2
 }
 
 private fun ResourceEntity.shouldUseUntrackedPrefetch(): Boolean {

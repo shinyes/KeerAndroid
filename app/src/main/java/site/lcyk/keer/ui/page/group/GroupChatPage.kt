@@ -69,6 +69,7 @@ import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.SyncStatusBadge
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
+import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.memoinput.QuickMemoComposer
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
@@ -106,6 +107,7 @@ fun GroupChatPage(
     val groupFrozen by memosViewModel.observeScopeFrozen(MemoUiScope.GROUP_CHAT)
         .collectAsStateWithLifecycle(initialValue = false)
     val avatarImageLoader = rememberAuthorizedImageLoader()
+    val mediaImageLoader = rememberMemoMediaImageLoader()
 
     val resolvedGroupId = groupIdAliases
         .firstOrNull { alias -> alias.localId == groupId }
@@ -319,6 +321,7 @@ fun GroupChatPage(
                 contentPadding = innerPadding,
                 collaboratorProfiles = collaboratorProfiles,
                 avatarImageLoader = avatarImageLoader,
+                mediaImageLoader = mediaImageLoader,
                 resolvedQuoteMap = resolvedQuoteMap,
                 onRefresh = {
                     if (memosViewModel.syncStatus.value.syncing) {
@@ -516,6 +519,7 @@ private fun GroupChatList(
     contentPadding: PaddingValues,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
+    mediaImageLoader: coil3.ImageLoader,
     resolvedQuoteMap: Map<String, site.lcyk.keer.util.ResolvedMemoQuote>,
     onRefresh: () -> Unit,
     canManageMemo: (Memo) -> Boolean,
@@ -593,6 +597,7 @@ private fun GroupChatList(
                     onTagClick = onTagClick,
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
+                    mediaImageLoader = mediaImageLoader,
                     prefetchCollaborators = false,
                     resolvedQuote = resolvedQuoteMap[adaptedMemo.identifier],
                 )

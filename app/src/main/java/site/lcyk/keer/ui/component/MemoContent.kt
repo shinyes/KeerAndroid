@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import coil3.ImageLoader
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.MemoRepresentable
 import site.lcyk.keer.ext.string
@@ -33,6 +34,7 @@ fun MemoContent(
     selectable: Boolean = false,
     onTagClick: ((String) -> Unit)? = null,
     autoPreviewPrefetch: Boolean = true,
+    mediaImageLoader: ImageLoader? = null,
 ) {
     val (text, previewed) = remember(memo.content, previewMode) {
         if (previewMode) {
@@ -57,6 +59,7 @@ fun MemoContent(
         MemoResourceContent(
             memo = memo,
             autoPreviewPrefetch = autoPreviewPrefetch,
+            mediaImageLoader = mediaImageLoader,
         )
 
         if (previewed && onViewMore != null) {
@@ -76,10 +79,22 @@ fun MemoContent(
 fun MemoResourceContent(
     memo: MemoRepresentable,
     autoPreviewPrefetch: Boolean = true,
+    mediaImageLoader: ImageLoader? = null,
 ) {
     val cols = 3
 
-    val mediaList = memo.resources.filter { it.isMediaResource() }
+    val (mediaList, attachmentList) = remember(memo.resources) {
+        val media = mutableListOf<site.lcyk.keer.data.model.ResourceRepresentable>()
+        val attachments = mutableListOf<site.lcyk.keer.data.model.ResourceRepresentable>()
+        memo.resources.forEach { resource ->
+            if (resource.isMediaResource()) {
+                media += resource
+            } else {
+                attachments += resource
+            }
+        }
+        media to attachments
+    }
     if (mediaList.isNotEmpty()) {
         val rows = ceil(mediaList.size.toFloat() / cols).toInt()
         for (rowIndex in 0 until rows) {
@@ -95,6 +110,7 @@ fun MemoResourceContent(
                                     .padding(2.dp)
                                     .clip(RoundedCornerShape(4.dp)),
                                 autoPreviewPrefetch = autoPreviewPrefetch,
+                                mediaImageLoader = mediaImageLoader,
                             )
                         }
                     } else {
@@ -104,7 +120,7 @@ fun MemoResourceContent(
             }
         }
     }
-    memo.resources.filterNot { it.isMediaResource() }.forEach { resource ->
+    attachmentList.forEach { resource ->
         Attachment(resource)
     }
 }
