@@ -128,6 +128,32 @@ fun MemosCard(
             }
         }
     }
+    val onCheckboxChange = remember(
+        memo.identifier,
+        memo.content,
+        memo.resources,
+        memo.visibility,
+        memosViewModel,
+        scope,
+    ) {
+        { checked: Boolean, startOffset: Int, endOffset: Int ->
+            scope.launch {
+                var text = memo.content.substring(startOffset, endOffset)
+                text = if (checked) {
+                    text.replace("[ ]", "[x]")
+                } else {
+                    text.replace("[x]", "[ ]")
+                }
+                memosViewModel.editMemo(
+                    memo.identifier,
+                    memo.content.replaceRange(startOffset, endOffset, text),
+                    memo.resources,
+                    memo.visibility
+                )
+            }
+            Unit
+        }
+    }
     var showCollaboratorDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(collaboratorIds, collaboratorProfiles, prefetchCollaborators) {
@@ -283,22 +309,7 @@ fun MemosCard(
                 mediaImageLoader = mediaImageLoader,
                 uiFrozen = uiFrozen,
                 progressiveMediaEnabled = progressiveMediaEnabled,
-                checkboxChange = { checked, startOffset, endOffset ->
-                    scope.launch {
-                        var text = memo.content.substring(startOffset, endOffset)
-                        text = if (checked) {
-                            text.replace("[ ]", "[x]")
-                        } else {
-                            text.replace("[x]", "[ ]")
-                        }
-                        memosViewModel.editMemo(
-                            memo.identifier,
-                            memo.content.replaceRange(startOffset, endOffset, text),
-                            memo.resources,
-                            memo.visibility
-                        )
-                    }
-                },
+                checkboxChange = onCheckboxChange,
                 onViewMore = {
                     onClick(memo)
                 },

@@ -1,6 +1,7 @@
 package site.lcyk.keer.ui.component
 
 import android.net.Uri
+import androidx.collection.LruCache
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
@@ -8,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
@@ -58,25 +60,46 @@ fun Markdown(
         return if (textAlign == null) style else style.copy(textAlign = textAlign)
     }
 
-    val bodyTextStyle = withOptionalTextAlign(MaterialTheme.typography.bodyLarge)
-    val h1TextStyle = withOptionalTextAlign(MaterialTheme.typography.headlineLarge)
-    val h2TextStyle = withOptionalTextAlign(MaterialTheme.typography.headlineMedium)
-    val h3TextStyle = withOptionalTextAlign(MaterialTheme.typography.headlineSmall)
-    val h4TextStyle = withOptionalTextAlign(MaterialTheme.typography.titleLarge)
-    val h5TextStyle = withOptionalTextAlign(MaterialTheme.typography.titleMedium)
-    val h6TextStyle = withOptionalTextAlign(MaterialTheme.typography.titleSmall)
+    val currentCheckboxChange = rememberUpdatedState(checkboxChange)
+    val currentOnTagClick = rememberUpdatedState(onTagClick)
+
+    val typography = MaterialTheme.typography
+    val bodyTextStyle = remember(typography, textAlign) {
+        withOptionalTextAlign(typography.bodyLarge)
+    }
+    val h1TextStyle = remember(typography, textAlign) {
+        withOptionalTextAlign(typography.headlineLarge)
+    }
+    val h2TextStyle = remember(typography, textAlign) {
+        withOptionalTextAlign(typography.headlineMedium)
+    }
+    val h3TextStyle = remember(typography, textAlign) {
+        withOptionalTextAlign(typography.headlineSmall)
+    }
+    val h4TextStyle = remember(typography, textAlign) {
+        withOptionalTextAlign(typography.titleLarge)
+    }
+    val h5TextStyle = remember(typography, textAlign) {
+        withOptionalTextAlign(typography.titleMedium)
+    }
+    val h6TextStyle = remember(typography, textAlign) {
+        withOptionalTextAlign(typography.titleSmall)
+    }
     val uriHandler = LocalUriHandler.current
-    val tagLinkStyle = TextLinkStyles(
-        style = SpanStyle(
-            color = MaterialTheme.colorScheme.primary,
-            textDecoration = TextDecoration.Underline,
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val tagLinkStyle = remember(primaryColor) {
+        TextLinkStyles(
+            style = SpanStyle(
+                color = primaryColor,
+                textDecoration = TextDecoration.Underline,
+            )
         )
-    )
-    val tagLinkListener = remember(uriHandler, onTagClick) {
+    }
+    val tagLinkListener = remember(uriHandler) {
         LinkInteractionListener { link ->
             val url = (link as? LinkAnnotation.Url)?.url ?: return@LinkInteractionListener
             if (url.startsWith(TAG_LINK_PREFIX)) {
-                onTagClick?.invoke(Uri.decode(url.removePrefix(TAG_LINK_PREFIX)))
+                currentOnTagClick.value?.invoke(Uri.decode(url.removePrefix(TAG_LINK_PREFIX)))
                 return@LinkInteractionListener
             }
             uriHandler.openUri(url)
@@ -94,6 +117,86 @@ fun Markdown(
                 return Coil3ImageTransformerImpl.intrinsicSize(painter)
             }
         }
+    }
+    val annotator = remember(tagLinkStyle, tagLinkListener) {
+        markdownAnnotator(
+            config = markdownAnnotatorConfig(eolAsNewLine = true),
+            annotate = { content, child ->
+                if (child.type != MarkdownTokenTypes.TEXT) {
+                    return@markdownAnnotator false
+                }
+                if (!isCustomTagSupportedNode(child)) {
+                    return@markdownAnnotator false
+                }
+                val source = child.getUnescapedTextInNode(content)
+                val tags = rememberMarkdownTagSegments(source)
+                if (tags.isEmpty()) {
+                    return@markdownAnnotator false
+                }
+
+                var cursor = 0
+                tags.forEach { tag ->
+                    val start = tag.start
+                    val endInclusive = tag.endInclusive
+                    if (start > cursor) {
+                        append(source.substring(cursor, start))
+                    }
+                    withLink(
+                        LinkAnnotation.Url(
+                            url = TAG_LINK_PREFIX + Uri.encode(tag.rawTagName),
+                            styles = tagLinkStyle,
+                            linkInteractionListener = tagLinkListener
+                        )
+                    ) {
+                        append(tag.fullText)
+                    }
+                    cursor = endInclusive + 1
+                }
+                if (cursor < source.length) {
+                    append(source.substring(cursor))
+                }
+                true
+            }
+        )
+    }
+    val markdownComponents = remember {
+        markdownComponents(
+            codeFence = highlightedCodeFence,
+            codeBlock = highlightedCodeBlock,
+            image = {
+                // Intentionally disabled: inline markdown images (e.g. ![alt](url)) are not needed.
+            },
+            checkbox = {
+                val node = it.node
+                MarkdownCheckBox(
+                    content = it.content,
+                    node = it.node,
+                    style = it.typography.text,
+                    checkedIndicator = { checked, modifier ->
+                        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+                            Checkbox(
+                                checked = checked,
+                                onCheckedChange = if (currentCheckboxChange.value != null) {
+                                    {
+                                        currentCheckboxChange.value?.invoke(
+                                            !checked,
+                                            node.startOffset,
+                                            node.endOffset
+                                        )
+                                    }
+                                } else {
+                                    null
+                                },
+                                modifier = modifier.semantics {
+                                    role = Role.Checkbox
+                                    stateDescription = if (checked) "Checked" else "Unchecked"
+                                },
+                            )
+                        }
+                    }
+                )
+            }
+        )
     }
     val markdownState = rememberMarkdownState(
         content = text,
@@ -118,74 +221,8 @@ fun Markdown(
                 bullet = bodyTextStyle,
                 list = bodyTextStyle
             ),
-            annotator = markdownAnnotator(
-                config = markdownAnnotatorConfig(eolAsNewLine = true),
-                annotate = { content, child ->
-                    if (child.type != MarkdownTokenTypes.TEXT) {
-                        return@markdownAnnotator false
-                    }
-                    if (!isCustomTagSupportedNode(child)) {
-                        return@markdownAnnotator false
-                    }
-                    val source = child.getUnescapedTextInNode(content)
-                    val tags = findCustomTagMatches(source).toList()
-                    if (tags.isEmpty()) {
-                        return@markdownAnnotator false
-                    }
-
-                    var cursor = 0
-                    tags.forEach { match ->
-                        val start = match.range.first
-                        val endInclusive = match.range.last
-                        if (start > cursor) {
-                            append(source.substring(cursor, start))
-                        }
-                        val tagRaw = getCustomTagName(match)
-                        withLink(
-                            LinkAnnotation.Url(
-                                url = TAG_LINK_PREFIX + Uri.encode(tagRaw),
-                                styles = tagLinkStyle,
-                                linkInteractionListener = tagLinkListener
-                            )
-                        ) {
-                            append(match.value)
-                        }
-                        cursor = endInclusive + 1
-                    }
-                    if (cursor < source.length) {
-                        append(source.substring(cursor))
-                    }
-                    true
-                }
-            ),
-            components = markdownComponents(
-                codeFence = highlightedCodeFence,
-                codeBlock = highlightedCodeBlock,
-                checkbox = {
-                    val node = it.node
-                    MarkdownCheckBox(
-                        content = it.content,
-                        node = it.node,
-                        style = it.typography.text,
-                        checkedIndicator = { checked, modifier ->
-                            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-                                Checkbox(
-                                    checked = checked,
-                                    onCheckedChange = if (checkboxChange != null) {
-                                        { checkboxChange(!checked, node.startOffset, node.endOffset) }
-                                    } else {
-                                        null
-                                    },
-                                    modifier = modifier.semantics {
-                                        role = Role.Checkbox
-                                        stateDescription = if (checked) "Checked" else "Unchecked"
-                                    },
-                                )
-                            }
-                        }
-                    )
-                }
-            )
+            annotator = annotator,
+            components = markdownComponents
         )
     }
 
@@ -198,6 +235,32 @@ fun Markdown(
     }
 }
 
+private fun rememberMarkdownTagSegments(source: String): List<MarkdownTagSegment> {
+    MarkdownTagSegmentCache.get(source)?.let { return it }
+    val resolved = findCustomTagMatches(source).map { match ->
+        MarkdownTagSegment(
+            start = match.range.first,
+            endInclusive = match.range.last,
+            fullText = match.value,
+            rawTagName = getCustomTagName(match),
+        )
+    }.toList()
+    MarkdownTagSegmentCache.put(source, resolved)
+    return resolved
+}
+
+internal fun clearMarkdownTagSegmentCacheForTest() {
+    MarkdownTagSegmentCache.clear()
+}
+
+internal fun markdownTagSegmentCacheSizeForTest(): Int {
+    return MarkdownTagSegmentCache.size()
+}
+
+internal fun resolveMarkdownTagSegmentsForTest(source: String): List<String> {
+    return rememberMarkdownTagSegments(source).map { segment -> segment.fullText }
+}
+
 private fun resolveMarkdownImageLink(link: String, imageBaseUrl: String?): String {
     val uri = link.toUri()
     if (uri.scheme != null || imageBaseUrl.isNullOrBlank()) {
@@ -207,3 +270,39 @@ private fun resolveMarkdownImageLink(link: String, imageBaseUrl: String?): Strin
 }
 
 private const val TAG_LINK_PREFIX = "Keer://tag/"
+private const val MARKDOWN_TAG_SEGMENT_CACHE_LIMIT = 2_048
+
+private data class MarkdownTagSegment(
+    val start: Int,
+    val endInclusive: Int,
+    val fullText: String,
+    val rawTagName: String,
+)
+
+private object MarkdownTagSegmentCache {
+    private val cache = object : LruCache<String, List<MarkdownTagSegment>>(MARKDOWN_TAG_SEGMENT_CACHE_LIMIT) {}
+
+    fun get(source: String): List<MarkdownTagSegment>? {
+        return synchronized(cache) {
+            cache.get(source)
+        }
+    }
+
+    fun put(source: String, segments: List<MarkdownTagSegment>) {
+        synchronized(cache) {
+            cache.put(source, segments)
+        }
+    }
+
+    fun clear() {
+        synchronized(cache) {
+            cache.evictAll()
+        }
+    }
+
+    fun size(): Int {
+        return synchronized(cache) {
+            cache.size()
+        }
+    }
+}
