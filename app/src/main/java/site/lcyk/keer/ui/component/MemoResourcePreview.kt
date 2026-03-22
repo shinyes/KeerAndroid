@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.core.net.toUri
 import com.skydoves.sandwich.ApiResponse
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -26,15 +27,16 @@ internal data class ObservedMemoResource(
 @Composable
 internal fun rememberObservedMemoResource(
     resource: ResourceRepresentable,
-    autoPreviewPrefetch: Boolean = true,
+    observeLiveResource: Boolean = true,
 ): ObservedMemoResource {
     val memosViewModel = LocalMemos.current
     val identifier = (resource as? ResourceEntity)?.identifier
-    val resourceFlow = remember(identifier) {
-        if (identifier.isNullOrBlank()) {
-            flowOf(null)
-        } else {
-            memosViewModel.observeResource(identifier)
+    val resourceFlow = remember(identifier, observeLiveResource) {
+        buildObservedResourceFlow(
+            identifier = identifier,
+            observeLiveResource = observeLiveResource,
+        ) { trackedIdentifier ->
+            memosViewModel.observeResource(trackedIdentifier)
         }
     }
     val observed by resourceFlow.collectAsState(initial = null)
@@ -42,6 +44,21 @@ internal fun rememberObservedMemoResource(
         resource = observed ?: resource,
         tracked = observed != null,
     )
+}
+
+internal fun buildObservedResourceFlow(
+    identifier: String?,
+    observeLiveResource: Boolean,
+    observeResource: (String) -> Flow<ResourceEntity?>,
+): Flow<ResourceEntity?> {
+    if (!observeLiveResource) {
+        return flowOf(null)
+    }
+    val normalizedIdentifier = identifier?.trim().orEmpty()
+    if (normalizedIdentifier.isEmpty()) {
+        return flowOf(null)
+    }
+    return observeResource(normalizedIdentifier)
 }
 
 internal object MemoResourcePreviewLoader {

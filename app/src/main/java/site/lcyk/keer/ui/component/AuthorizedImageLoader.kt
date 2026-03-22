@@ -1,11 +1,13 @@
 package site.lcyk.keer.ui.component
 
+import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import coil3.ImageLoader
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import okhttp3.OkHttpClient
 import site.lcyk.keer.viewmodel.LocalUserState
 
 @Composable
@@ -14,11 +16,10 @@ fun rememberAuthorizedImageLoader(): ImageLoader {
     val appContext = context.applicationContext
     val userStateViewModel = LocalUserState.current
     return remember(appContext, userStateViewModel.okHttpClient) {
-        ImageLoader.Builder(appContext)
-            .components {
-                add(OkHttpNetworkFetcherFactory(callFactory = { userStateViewModel.okHttpClient }))
-            }
-            .build()
+        SharedImageLoaderRegistry.getOrCreateAuthorizedLoader(
+            appContext = appContext,
+            okHttpClient = userStateViewModel.okHttpClient,
+        )
     }
 }
 
@@ -31,24 +32,97 @@ fun rememberMemoMediaImageLoader(): ImageLoader {
         resolveMemoMediaMemoryCacheBytes()
     }
     return remember(appContext, userStateViewModel.okHttpClient, memoryCacheBytes) {
-        ImageLoader.Builder(appContext)
-            .components {
-                add(OkHttpNetworkFetcherFactory(callFactory = { userStateViewModel.okHttpClient }))
-            }
-            .memoryCache {
-                MemoryCache.Builder()
-                    .maxSizeBytes(memoryCacheBytes)
-                    .build()
-            }
-            .build()
+        SharedImageLoaderRegistry.getOrCreateMemoMediaLoader(
+            appContext = appContext,
+            okHttpClient = userStateViewModel.okHttpClient,
+            memoryCacheBytes = memoryCacheBytes,
+        )
     }
 }
 
 private fun resolveMemoMediaMemoryCacheBytes(): Long {
     val maxHeapBytes = Runtime.getRuntime().maxMemory().coerceAtLeast(1L)
-    val preferredBytes = (maxHeapBytes * 22L) / 100L
+    val preferredBytes = (maxHeapBytes * 24L) / 100L
     return preferredBytes.coerceIn(MEMO_MEDIA_MIN_CACHE_BYTES, MEMO_MEDIA_MAX_CACHE_BYTES)
 }
 
-private const val MEMO_MEDIA_MIN_CACHE_BYTES = 32L * 1024L * 1024L
-private const val MEMO_MEDIA_MAX_CACHE_BYTES = 192L * 1024L * 1024L
+private object SharedImageLoaderRegistry {
+    private val lock = Any()
+    private var authorizedLoader: ImageLoader? = null
+    private var authorizedClient: OkHttpClient? = null
+    private var mediaLoader: ImageLoader? = null
+    private var mediaClient: OkHttpClient? = null
+    private var mediaCacheBytes: Long = -1L
+
+    fun getOrCreateAuthorizedLoader(
+        appContext: Context,
+        okHttpClient: OkHttpClient,
+    ): ImageLoader {
+        synchronized(lock) {
+            val existing = authorizedLoader
+            if (existing != null && authorizedClient === okHttpClient) {
+                return existing
+            }
+            val created = buildAuthorizedImageLoader(
+                appContext = appContext,
+                okHttpClient = okHttpClient,
+            )
+            authorizedLoader = created
+            authorizedClient = okHttpClient
+            return created
+        }
+    }
+
+    fun getOrCreateMemoMediaLoader(
+        appContext: Context,
+        okHttpClient: OkHttpClient,
+        memoryCacheBytes: Long,
+    ): ImageLoader {
+        synchronized(lock) {
+            val existing = mediaLoader
+            if (existing != null && mediaClient === okHttpClient && mediaCacheBytes == memoryCacheBytes) {
+                return existing
+            }
+            val created = buildMemoMediaImageLoader(
+                appContext = appContext,
+                okHttpClient = okHttpClient,
+                memoryCacheBytes = memoryCacheBytes,
+            )
+            mediaLoader = created
+            mediaClient = okHttpClient
+            this.mediaCacheBytes = memoryCacheBytes
+            return created
+        }
+    }
+}
+
+private fun buildAuthorizedImageLoader(
+    appContext: Context,
+    okHttpClient: OkHttpClient,
+): ImageLoader {
+    return ImageLoader.Builder(appContext)
+        .components {
+            add(OkHttpNetworkFetcherFactory(callFactory = { okHttpClient }))
+        }
+        .build()
+}
+
+private fun buildMemoMediaImageLoader(
+    appContext: Context,
+    okHttpClient: OkHttpClient,
+    memoryCacheBytes: Long,
+): ImageLoader {
+    return ImageLoader.Builder(appContext)
+        .components {
+            add(OkHttpNetworkFetcherFactory(callFactory = { okHttpClient }))
+        }
+        .memoryCache {
+            MemoryCache.Builder()
+                .maxSizeBytes(memoryCacheBytes)
+                .build()
+        }
+        .build()
+}
+
+private const val MEMO_MEDIA_MIN_CACHE_BYTES = 48L * 1024L * 1024L
+private const val MEMO_MEDIA_MAX_CACHE_BYTES = 224L * 1024L * 1024L

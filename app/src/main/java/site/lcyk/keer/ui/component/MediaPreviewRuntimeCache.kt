@@ -8,13 +8,13 @@ import java.io.File
 internal object MediaPreviewRuntimeCache {
     private val maxHeapBytes = Runtime.getRuntime().maxMemory().coerceAtLeast(1L)
     private val bitmapCacheMaxBytes = minOf(
-        96L * 1024L * 1024L,
-        (maxHeapBytes * 12L) / 100L,
-    ).coerceAtLeast(8L * 1024L * 1024L).toInt()
+        128L * 1024L * 1024L,
+        (maxHeapBytes * 14L) / 100L,
+    ).coerceAtLeast(12L * 1024L * 1024L).toInt()
     private val decryptedBytesCacheMaxBytes = minOf(
-        32L * 1024L * 1024L,
-        (maxHeapBytes * 4L) / 100L,
-    ).coerceAtLeast(2L * 1024L * 1024L).toInt()
+        40L * 1024L * 1024L,
+        (maxHeapBytes * 5L) / 100L,
+    ).coerceAtLeast(4L * 1024L * 1024L).toInt()
 
     private val bitmapCache = object : LruCache<String, Bitmap>(bitmapCacheMaxBytes) {
         override fun sizeOf(key: String, value: Bitmap): Int {

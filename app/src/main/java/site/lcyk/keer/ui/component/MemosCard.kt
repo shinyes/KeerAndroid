@@ -83,6 +83,8 @@ fun MemosCard(
     collaboratorProfiles: Map<String, CollaboratorProfile> = emptyMap(),
     avatarImageLoader: ImageLoader? = null,
     mediaImageLoader: ImageLoader? = null,
+    uiFrozen: Boolean = false,
+    progressiveMediaEnabled: Boolean = false,
     prefetchCollaborators: Boolean = true,
     resolvedQuote: ResolvedMemoQuote? = null,
 ) {
@@ -222,22 +224,33 @@ fun MemosCard(
                     CollaboratorAvatarStack(
                         collaboratorIds = collaboratorIds,
                         collaboratorProfiles = collaboratorProfiles,
+                        avatarImageLoader = imageLoader,
                         onClick = { showCollaboratorDialog = true }
                     )
                 }
                 if (displayTags.isNotEmpty()) {
-                    LazyRow(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 8.dp, end = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        items(displayTags, key = { it }) { tag ->
-                            KeerTagChip(
-                                tag = tag,
-                                onClick = { onTagClick?.invoke(tag) }
-                            )
+                    if (uiFrozen) {
+                        FrozenTagSummaryRow(
+                            tags = displayTags,
+                            onTagClick = onTagClick,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(start = 8.dp, end = 8.dp),
+                        )
+                    } else {
+                        LazyRow(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(start = 8.dp, end = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            items(displayTags, key = { it }) { tag ->
+                                KeerTagChip(
+                                    tag = tag,
+                                    onClick = { onTagClick?.invoke(tag) }
+                                )
+                            }
                         }
                     }
                 } else {
@@ -268,6 +281,8 @@ fun MemosCard(
                 previewMode = previewMode,
                 autoPreviewPrefetch = autoPreviewPrefetch,
                 mediaImageLoader = mediaImageLoader,
+                uiFrozen = uiFrozen,
+                progressiveMediaEnabled = progressiveMediaEnabled,
                 checkboxChange = { checked, startOffset, endOffset ->
                     scope.launch {
                         var text = memo.content.substring(startOffset, endOffset)
@@ -309,10 +324,46 @@ fun MemosCard(
         CollaboratorListDialog(
             collaboratorIds = collaboratorIds,
             collaboratorProfiles = collaboratorProfiles,
+            avatarImageLoader = imageLoader,
             onDismiss = { showCollaboratorDialog = false }
         )
     }
 }
+
+@Composable
+private fun FrozenTagSummaryRow(
+    tags: List<String>,
+    onTagClick: ((String) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val visibleTags = remember(tags) {
+        tags.take(FROZEN_VISIBLE_TAG_LIMIT)
+    }
+    val hiddenCount = remember(tags.size, visibleTags.size) {
+        (tags.size - visibleTags.size).coerceAtLeast(0)
+    }
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        visibleTags.forEach { tag ->
+            KeerTagChip(
+                tag = tag,
+                onClick = { onTagClick?.invoke(tag) }
+            )
+        }
+        if (hiddenCount > 0) {
+            Text(
+                text = "+$hiddenCount",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+private const val FROZEN_VISIBLE_TAG_LIMIT = 2
 
 
 @Composable

@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
@@ -50,6 +49,7 @@ import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
+import site.lcyk.keer.ui.component.rememberMemoExtremeListState
 import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
@@ -81,7 +81,7 @@ fun ExploreList(
         .collectAsStateWithLifecycle(initialValue = false)
     val mutationErrorMessage by viewModel.mutationErrorMessage.collectAsStateWithLifecycle()
     val rootNavController = LocalRootNavController.current
-    val listState = rememberLazyListState()
+    val listState = rememberMemoExtremeListState()
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
     val avatarImageLoader = rememberAuthorizedImageLoader()
@@ -158,6 +158,7 @@ fun ExploreList(
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
         mediaImageLoader = mediaImageLoader,
+        uiFrozen = exploreFrozen,
         accountKey = accountKey,
         resolvedQuoteMap = resolvedQuoteMap,
         currentUserId = currentUserId,
@@ -293,6 +294,7 @@ private fun ExploreMemoFeed(
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
     mediaImageLoader: coil3.ImageLoader,
+    uiFrozen: Boolean,
     accountKey: String,
     resolvedQuoteMap: Map<String, site.lcyk.keer.util.ResolvedMemoQuote>,
     currentUserId: String,
@@ -351,6 +353,8 @@ private fun ExploreMemoFeed(
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
                     mediaImageLoader = mediaImageLoader,
+                    uiFrozen = uiFrozen,
+                    progressiveMediaEnabled = true,
                     prefetchCollaborators = false,
                     resolvedQuote = resolvedQuoteMap[adaptedMemo.identifier],
                 )

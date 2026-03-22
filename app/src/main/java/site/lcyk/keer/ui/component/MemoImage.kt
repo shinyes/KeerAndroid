@@ -48,6 +48,7 @@ fun MemoImage(
     modifier: Modifier = Modifier,
     autoPreviewPrefetch: Boolean = true,
     mediaImageLoader: ImageLoader? = null,
+    observeLiveResource: Boolean = true,
 ) {
     val context = LocalContext.current
     val userStateViewModel = LocalUserState.current
@@ -55,7 +56,7 @@ fun MemoImage(
     val memosViewModel = LocalMemos.current
     val observedResource = rememberObservedMemoResource(
         resource = resource,
-        autoPreviewPrefetch = autoPreviewPrefetch,
+        observeLiveResource = observeLiveResource,
     )
     val liveResource = observedResource.resource
     val scope = rememberCoroutineScope()

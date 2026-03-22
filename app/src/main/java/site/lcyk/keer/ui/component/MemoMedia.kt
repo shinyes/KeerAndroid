@@ -35,6 +35,7 @@ fun MemoMedia(
     modifier: Modifier = Modifier,
     autoPreviewPrefetch: Boolean = true,
     mediaImageLoader: ImageLoader? = null,
+    observeLiveResource: Boolean = true,
 ) {
     if (resource.isVideoResource()) {
         MemoVideo(
@@ -42,6 +43,7 @@ fun MemoMedia(
             modifier = modifier,
             autoPreviewPrefetch = autoPreviewPrefetch,
             mediaImageLoader = mediaImageLoader,
+            observeLiveResource = observeLiveResource,
         )
     } else {
         MemoImage(
@@ -49,6 +51,7 @@ fun MemoMedia(
             modifier = modifier,
             autoPreviewPrefetch = autoPreviewPrefetch,
             mediaImageLoader = mediaImageLoader,
+            observeLiveResource = observeLiveResource,
         )
     }
 }

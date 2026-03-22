@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Edit
@@ -48,6 +47,7 @@ import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.component.MemosCardActionButton
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
+import site.lcyk.keer.ui.component.rememberMemoExtremeListState
 import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.RouteName
@@ -66,7 +66,7 @@ import timber.log.Timber
 @Composable
 fun MemosList(
     contentPadding: PaddingValues,
-    lazyListState: LazyListState = rememberLazyListState(),
+    lazyListState: LazyListState = rememberMemoExtremeListState(),
     memos: List<site.lcyk.keer.data.local.entity.MemoEntity>? = null,
     tag: String? = null,
     searchString: String? = null,
@@ -202,6 +202,7 @@ fun MemosList(
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
         mediaImageLoader = mediaImageLoader,
+        uiFrozen = feedFrozen,
         onRefresh = {
             if (viewModel.syncStatus.value.syncing) {
                 return@MemoFeedList
@@ -249,6 +250,7 @@ private fun MemoFeedList(
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
     mediaImageLoader: coil3.ImageLoader,
+    uiFrozen: Boolean,
     onRefresh: () -> Unit,
     onOpenMemoDetail: (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit,
     onTagClick: ((String) -> Unit)?,
@@ -290,6 +292,8 @@ private fun MemoFeedList(
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
                     mediaImageLoader = mediaImageLoader,
+                    uiFrozen = uiFrozen,
+                    progressiveMediaEnabled = true,
                     prefetchCollaborators = false,
                     resolvedQuote = card.resolvedQuote,
                 )

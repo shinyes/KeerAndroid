@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -69,6 +68,7 @@ import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.SyncStatusBadge
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
+import site.lcyk.keer.ui.component.rememberMemoExtremeListState
 import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.memoinput.QuickMemoComposer
@@ -135,7 +135,7 @@ fun GroupChatPage(
     val loading by viewModel.loading.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val groupTags by viewModel.groupTags.collectAsStateWithLifecycle()
-    val listState = rememberLazyListState()
+    val listState = rememberMemoExtremeListState()
     val refreshState = rememberPullToRefreshState()
     val expandedFab by remember {
         derivedStateOf { listState.firstVisibleItemIndex == 0 }
@@ -322,6 +322,7 @@ fun GroupChatPage(
                 collaboratorProfiles = collaboratorProfiles,
                 avatarImageLoader = avatarImageLoader,
                 mediaImageLoader = mediaImageLoader,
+                uiFrozen = groupFrozen,
                 resolvedQuoteMap = resolvedQuoteMap,
                 onRefresh = {
                     if (memosViewModel.syncStatus.value.syncing) {
@@ -520,6 +521,7 @@ private fun GroupChatList(
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
     mediaImageLoader: coil3.ImageLoader,
+    uiFrozen: Boolean,
     resolvedQuoteMap: Map<String, site.lcyk.keer.util.ResolvedMemoQuote>,
     onRefresh: () -> Unit,
     canManageMemo: (Memo) -> Boolean,
@@ -598,6 +600,8 @@ private fun GroupChatList(
                     collaboratorProfiles = collaboratorProfiles,
                     avatarImageLoader = avatarImageLoader,
                     mediaImageLoader = mediaImageLoader,
+                    uiFrozen = uiFrozen,
+                    progressiveMediaEnabled = true,
                     prefetchCollaborators = false,
                     resolvedQuote = resolvedQuoteMap[adaptedMemo.identifier],
                 )

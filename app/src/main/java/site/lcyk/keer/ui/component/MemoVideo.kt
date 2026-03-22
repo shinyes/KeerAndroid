@@ -68,6 +68,7 @@ fun MemoVideo(
     modifier: Modifier = Modifier,
     autoPreviewPrefetch: Boolean = true,
     mediaImageLoader: ImageLoader? = null,
+    observeLiveResource: Boolean = true,
 ) {
     val context = LocalContext.current
     val userStateViewModel = LocalUserState.current
@@ -75,7 +76,7 @@ fun MemoVideo(
     val memosViewModel = LocalMemos.current
     val observedResource = rememberObservedMemoResource(
         resource = resource,
-        autoPreviewPrefetch = autoPreviewPrefetch,
+        observeLiveResource = observeLiveResource,
     )
     val liveResource = observedResource.resource
     var fallbackPreviewUri by remember(resource.remoteId, resource.uri) { mutableStateOf<String?>(null) }

@@ -38,6 +38,7 @@ import site.lcyk.keer.ext.string
 fun CollaboratorAvatarStack(
     collaboratorIds: List<String>,
     collaboratorProfiles: Map<String, CollaboratorProfile>,
+    avatarImageLoader: ImageLoader? = null,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null
 ) {
@@ -45,7 +46,7 @@ fun CollaboratorAvatarStack(
         return
     }
 
-    val imageLoader = rememberAuthorizedImageLoader()
+    val imageLoader = avatarImageLoader ?: rememberAuthorizedImageLoader()
     val maxVisibleAvatars = 4
     val visibleIds = collaboratorIds.take(maxVisibleAvatars)
     val hiddenCount = (collaboratorIds.size - visibleIds.size).coerceAtLeast(0)
@@ -106,13 +107,14 @@ fun CollaboratorAvatarStack(
 fun CollaboratorListDialog(
     collaboratorIds: List<String>,
     collaboratorProfiles: Map<String, CollaboratorProfile>,
+    avatarImageLoader: ImageLoader? = null,
     onDismiss: () -> Unit
 ) {
     if (collaboratorIds.isEmpty()) {
         return
     }
 
-    val imageLoader = rememberAuthorizedImageLoader()
+    val imageLoader = avatarImageLoader ?: rememberAuthorizedImageLoader()
     val collaborators = collaboratorIds.map { id ->
         collaboratorProfiles[id] ?: CollaboratorProfile(
             id = id,
