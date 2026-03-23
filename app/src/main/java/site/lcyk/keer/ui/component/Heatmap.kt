@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.requiredWidth
@@ -24,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import site.lcyk.keer.data.model.HeatmapTimeline
 import site.lcyk.keer.data.model.HeatmapWeekColumn
@@ -40,6 +42,10 @@ fun Heatmap(
     LazyRow(
         state = listState,
         modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(
+            start = HEATMAP_EDGE_HORIZONTAL_PADDING,
+            end = HEATMAP_EDGE_HORIZONTAL_PADDING,
+        ),
         horizontalArrangement = Arrangement.spacedBy(HEATMAP_COLUMN_SPACING),
         verticalAlignment = Alignment.Bottom,
         userScrollEnabled = true,
@@ -94,6 +100,10 @@ private fun HeatmapTopLabel(
     modifier: Modifier = Modifier,
 ) {
     val combinedLabel = formatHeatmapTopLabel(monthLabel = monthLabel, yearLabel = yearLabel)
+    val labelWidth = resolveHeatmapTopLabelTextWidth(
+        monthLabel = monthLabel,
+        yearLabel = yearLabel,
+    )
 
     Column(
         modifier = modifier,
@@ -103,12 +113,12 @@ private fun HeatmapTopLabel(
         if (combinedLabel != null) {
             Text(
                 text = combinedLabel,
-                modifier = Modifier.requiredWidth(HEATMAP_TOP_LABEL_TEXT_WIDTH),
+                modifier = Modifier.requiredWidth(labelWidth),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.outline,
                 maxLines = 1,
                 textAlign = TextAlign.Start,
-                overflow = TextOverflow.Clip,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -123,6 +133,18 @@ internal fun formatHeatmapTopLabel(
         monthLabel == null -> yearLabel
         yearLabel == null -> monthLabel
         else -> "$yearLabel $monthLabel"
+    }
+}
+
+internal fun resolveHeatmapTopLabelTextWidth(
+    monthLabel: String?,
+    yearLabel: String?,
+): Dp {
+    return when {
+        monthLabel != null && yearLabel != null -> HEATMAP_TOP_LABEL_COMBINED_WIDTH
+        yearLabel != null -> HEATMAP_TOP_LABEL_YEAR_ONLY_WIDTH
+        monthLabel != null -> HEATMAP_TOP_LABEL_MONTH_ONLY_WIDTH
+        else -> HEATMAP_TOP_LABEL_MONTH_ONLY_WIDTH
     }
 }
 
@@ -141,7 +163,10 @@ internal val HEATMAP_TOP_LABEL_HEIGHT = 20.dp
 internal val HEATMAP_ROW_SPACING = 2.dp
 internal val HEATMAP_COLUMN_SPACING = 2.dp
 internal val HEATMAP_CELL_SIZE = 12.dp
-internal val HEATMAP_TOP_LABEL_TEXT_WIDTH = 44.dp
+internal val HEATMAP_EDGE_HORIZONTAL_PADDING = 6.dp
+internal val HEATMAP_TOP_LABEL_MONTH_ONLY_WIDTH = 30.dp
+internal val HEATMAP_TOP_LABEL_YEAR_ONLY_WIDTH = 38.dp
+internal val HEATMAP_TOP_LABEL_COMBINED_WIDTH = 56.dp
 
 internal fun latestHeatmapColumnIndex(columnCount: Int): Int {
     return (columnCount - 1).coerceAtLeast(0)

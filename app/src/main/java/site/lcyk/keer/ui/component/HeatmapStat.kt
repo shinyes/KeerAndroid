@@ -18,7 +18,12 @@ fun HeatmapStat(
     day: DailyUsageStat,
     modifier: Modifier = Modifier,
 ) {
-    val borderWidth = if (day.date == LocalDate.now()) 1.dp else 0.dp
+    val today = LocalDate.now()
+    val isToday = day.date == today
+    val isMonthStartHighlight = shouldHighlightHeatmapMonthStart(
+        date = day.date,
+        today = today,
+    )
     val color = when (day.count) {
         0 -> Color(0xffeaeaea)
         1 -> Color(0xff9be9a8)
@@ -26,16 +31,36 @@ fun HeatmapStat(
         in 3..4 -> Color(0xff30a14e)
         else -> Color(0xff216e39)
     }
+    val borderWidth = when {
+        isToday -> 1.dp
+        isMonthStartHighlight -> HEATMAP_MONTH_START_BORDER_WIDTH
+        else -> 0.dp
+    }
+    val borderColor = when {
+        isToday -> MaterialTheme.colorScheme.onBackground
+        isMonthStartHighlight -> MaterialTheme.colorScheme.onSurface.copy(alpha = HEATMAP_MONTH_START_BORDER_ALPHA)
+        else -> Color.Transparent
+    }
     var resolvedModifier = modifier
         .clip(RoundedCornerShape(2.dp))
         .background(color = color)
-    if (day.date == LocalDate.now()) {
+    if (borderWidth > 0.dp) {
         resolvedModifier = resolvedModifier.border(
             borderWidth,
-            MaterialTheme.colorScheme.onBackground,
+            borderColor,
             shape = RoundedCornerShape(2.dp)
         )
     }
 
     Box(modifier = resolvedModifier)
 }
+
+internal fun shouldHighlightHeatmapMonthStart(
+    date: LocalDate,
+    today: LocalDate,
+): Boolean {
+    return date.dayOfMonth == 1 && date != today
+}
+
+internal val HEATMAP_MONTH_START_BORDER_WIDTH = 0.6.dp
+internal const val HEATMAP_MONTH_START_BORDER_ALPHA = 0.42f
