@@ -9,55 +9,48 @@ import org.junit.Test
 
 class HeatmapStatStyleTest {
     @Test
-    fun shouldHighlightHeatmapMonthStart_trueOnlyForMonthStartAndNotToday() {
-        val today = LocalDate.of(2026, 3, 23)
-
+    fun shouldHighlightHeatmapMonthStart_trueForAnyMonthStartIncludingToday() {
         assertTrue(
             shouldHighlightHeatmapMonthStart(
                 date = LocalDate.of(2026, 4, 1),
-                today = today,
             )
         )
         assertFalse(
             shouldHighlightHeatmapMonthStart(
                 date = LocalDate.of(2026, 4, 2),
-                today = today,
             )
         )
-        assertFalse(
+        assertTrue(
             shouldHighlightHeatmapMonthStart(
                 date = LocalDate.of(2026, 3, 1),
-                today = LocalDate.of(2026, 3, 1),
             )
         )
     }
 
     @Test
-    fun resolveHeatmapMonthStartBorderColor_darkThemeUsesDarkBorderForLightCell() {
+    fun resolveHeatmapMonthStartBorderColor_choosesHigherContrastForLightCell() {
         val resolved = resolveHeatmapMonthStartBorderColor(
             cellColor = Color(0xffeaeaea),
-            isDarkTheme = true,
             onBackground = Color.White,
             background = Color.Black,
         )
 
         assertEquals(
-            Color.Black.copy(alpha = HEATMAP_MONTH_START_DARK_THEME_LIGHT_CELL_ALPHA),
+            Color.Black.copy(alpha = HEATMAP_MONTH_START_BORDER_ALPHA),
             resolved
         )
     }
 
     @Test
-    fun resolveHeatmapMonthStartBorderColor_darkThemeUsesLightBorderForDarkCell() {
+    fun resolveHeatmapMonthStartBorderColor_choosesHigherContrastForDarkCell() {
         val resolved = resolveHeatmapMonthStartBorderColor(
             cellColor = Color(0xff216e39),
-            isDarkTheme = true,
             onBackground = Color.White,
             background = Color.Black,
         )
 
         assertEquals(
-            Color.White.copy(alpha = HEATMAP_MONTH_START_DARK_THEME_DARK_CELL_ALPHA),
+            Color.White.copy(alpha = HEATMAP_MONTH_START_BORDER_ALPHA),
             resolved
         )
     }

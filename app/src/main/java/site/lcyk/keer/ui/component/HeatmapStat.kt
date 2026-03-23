@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import site.lcyk.keer.data.model.DailyUsageStat
 import java.time.LocalDate
+import kotlin.math.abs
 
 @Composable
 fun HeatmapStat(
@@ -21,10 +22,7 @@ fun HeatmapStat(
 ) {
     val today = LocalDate.now()
     val isToday = day.date == today
-    val isMonthStartHighlight = shouldHighlightHeatmapMonthStart(
-        date = day.date,
-        today = today,
-    )
+    val isMonthStartHighlight = shouldHighlightHeatmapMonthStart(date = day.date)
     val color = when (day.count) {
         0 -> Color(0xffeaeaea)
         1 -> Color(0xff9be9a8)
@@ -32,7 +30,6 @@ fun HeatmapStat(
         in 3..4 -> Color(0xff30a14e)
         else -> Color(0xff216e39)
     }
-    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val borderWidth = when {
         isToday -> 1.dp
         isMonthStartHighlight -> HEATMAP_MONTH_START_BORDER_WIDTH
@@ -42,7 +39,6 @@ fun HeatmapStat(
         isToday -> MaterialTheme.colorScheme.onBackground
         isMonthStartHighlight -> resolveHeatmapMonthStartBorderColor(
             cellColor = color,
-            isDarkTheme = isDarkTheme,
             onBackground = MaterialTheme.colorScheme.onBackground,
             background = MaterialTheme.colorScheme.background,
         )
@@ -64,36 +60,33 @@ fun HeatmapStat(
 
 internal fun shouldHighlightHeatmapMonthStart(
     date: LocalDate,
-    today: LocalDate,
 ): Boolean {
-    return date.dayOfMonth == 1 && date != today
+    return date.dayOfMonth == 1
 }
 
 internal fun resolveHeatmapMonthStartBorderColor(
     cellColor: Color,
-    isDarkTheme: Boolean,
     onBackground: Color,
     background: Color,
 ): Color {
-    val lightCell = cellColor.luminance() >= HEATMAP_MONTH_START_LIGHT_CELL_LUMINANCE_THRESHOLD
-    return if (isDarkTheme) {
-        if (lightCell) {
-            background.copy(alpha = HEATMAP_MONTH_START_DARK_THEME_LIGHT_CELL_ALPHA)
-        } else {
-            onBackground.copy(alpha = HEATMAP_MONTH_START_DARK_THEME_DARK_CELL_ALPHA)
-        }
+    val foregroundCandidate = onBackground.copy(alpha = HEATMAP_MONTH_START_BORDER_ALPHA)
+    val backgroundCandidate = background.copy(alpha = HEATMAP_MONTH_START_BORDER_ALPHA)
+    return if (
+        resolveHeatmapBorderContrastDelta(cellColor, foregroundCandidate) >=
+        resolveHeatmapBorderContrastDelta(cellColor, backgroundCandidate)
+    ) {
+        foregroundCandidate
     } else {
-        if (lightCell) {
-            onBackground.copy(alpha = HEATMAP_MONTH_START_LIGHT_THEME_LIGHT_CELL_ALPHA)
-        } else {
-            background.copy(alpha = HEATMAP_MONTH_START_LIGHT_THEME_DARK_CELL_ALPHA)
-        }
+        backgroundCandidate
     }
 }
 
-internal val HEATMAP_MONTH_START_BORDER_WIDTH = 0.9.dp
-internal const val HEATMAP_MONTH_START_LIGHT_CELL_LUMINANCE_THRESHOLD = 0.55f
-internal const val HEATMAP_MONTH_START_DARK_THEME_LIGHT_CELL_ALPHA = 0.86f
-internal const val HEATMAP_MONTH_START_DARK_THEME_DARK_CELL_ALPHA = 0.92f
-internal const val HEATMAP_MONTH_START_LIGHT_THEME_LIGHT_CELL_ALPHA = 0.72f
-internal const val HEATMAP_MONTH_START_LIGHT_THEME_DARK_CELL_ALPHA = 0.88f
+internal fun resolveHeatmapBorderContrastDelta(
+    cellColor: Color,
+    borderColor: Color,
+): Float {
+    return abs(cellColor.luminance() - borderColor.luminance())
+}
+
+internal val HEATMAP_MONTH_START_BORDER_WIDTH = 1.dp
+internal const val HEATMAP_MONTH_START_BORDER_ALPHA = 0.96f
