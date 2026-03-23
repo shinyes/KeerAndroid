@@ -1,13 +1,14 @@
 package site.lcyk.keer.ui.component
 
-import androidx.collection.LruCache
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import site.lcyk.keer.data.local.entity.MemoEntity
+import site.lcyk.keer.data.model.MemoRepresentable
 import site.lcyk.keer.util.extractPreviewContent
 
 internal data class MemoPreviewSnapshot(
@@ -22,14 +23,14 @@ internal fun MemoPreviewWarmupEffect(
     warmupCount: Int = MEMO_PREVIEW_WARMUP_COUNT,
     warmupDelayMillis: Long = MEMO_PREVIEW_WARMUP_DELAY_MS,
 ) {
-    val contentSignature = remember(memos) {
+    val versionSignature = remember(memos, warmupCount) {
         memos
             .asSequence()
             .take(warmupCount)
-            .map { memo -> memo.content.hashCode() }
+            .map { memo -> buildMemoRenderVersionKey(memo).stableKey.hashCode() }
             .toList()
     }
-    LaunchedEffect(enabled, contentSignature, warmupCount, warmupDelayMillis) {
+    LaunchedEffect(enabled, versionSignature, warmupCount, warmupDelayMillis) {
         if (!enabled || memos.isEmpty()) {
             return@LaunchedEffect
         }
@@ -38,8 +39,10 @@ internal fun MemoPreviewWarmupEffect(
         }
         withContext(Dispatchers.Default) {
             warmupMemoPreviews(
-                memoContents = memos.asSequence().map { memo -> memo.content },
+                memos = memos.asSequence(),
                 warmupCount = warmupCount,
+                batchSize = MEMO_PREVIEW_WARMUP_BATCH_SIZE,
+                interBatchDelayMillis = MEMO_PREVIEW_WARMUP_FRAME_BUDGET_DELAY_MS,
             )
         }
     }
@@ -47,16 +50,45 @@ internal fun MemoPreviewWarmupEffect(
 
 internal fun resolveMemoPreviewSnapshot(
     markdownText: String,
+    versionKey: MemoRenderVersionKey = buildUntrackedMemoRenderVersionKey(markdownText),
 ): MemoPreviewSnapshot {
-    MemoPreviewCache.get(markdownText)?.let { cached ->
+    MemoRenderCache.getPreview(versionKey)?.let { cached ->
         return cached
     }
     val resolved = extractPreviewContent(markdownText)
         .let { (text, previewed) ->
             MemoPreviewSnapshot(text = text, previewed = previewed)
         }
-    MemoPreviewCache.put(markdownText, resolved)
+    MemoRenderCache.putPreview(versionKey, resolved)
     return resolved
+}
+
+internal suspend fun warmupMemoPreviews(
+    memos: Sequence<MemoRepresentable>,
+    warmupCount: Int = MEMO_PREVIEW_WARMUP_COUNT,
+    batchSize: Int = MEMO_PREVIEW_WARMUP_BATCH_SIZE,
+    interBatchDelayMillis: Long = MEMO_PREVIEW_WARMUP_FRAME_BUDGET_DELAY_MS,
+) {
+    val targets = memos.take(warmupCount.coerceAtLeast(0)).toList()
+    val normalizedBatchSize = batchSize.coerceAtLeast(1)
+    var cursor = 0
+    while (cursor < targets.size) {
+        val endExclusive = (cursor + normalizedBatchSize).coerceAtMost(targets.size)
+        for (index in cursor until endExclusive) {
+            val memo = targets[index]
+            resolveMemoPreviewSnapshot(
+                markdownText = memo.content,
+                versionKey = buildMemoRenderVersionKey(memo),
+            )
+        }
+        cursor = endExclusive
+        if (cursor < targets.size) {
+            yield()
+            if (interBatchDelayMillis > 0L) {
+                delay(interBatchDelayMillis)
+            }
+        }
+    }
 }
 
 internal fun warmupMemoPreviews(
@@ -71,41 +103,14 @@ internal fun warmupMemoPreviews(
 }
 
 internal fun clearMemoPreviewCacheForTest() {
-    MemoPreviewCache.clear()
+    MemoRenderCache.clear()
 }
 
 internal fun memoPreviewCacheSizeForTest(): Int {
-    return MemoPreviewCache.size()
-}
-
-private object MemoPreviewCache {
-    private val cache = object : LruCache<String, MemoPreviewSnapshot>(MEMO_PREVIEW_CACHE_LIMIT) {}
-
-    fun get(content: String): MemoPreviewSnapshot? {
-        return synchronized(cache) {
-            cache[content]
-        }
-    }
-
-    fun put(content: String, snapshot: MemoPreviewSnapshot) {
-        synchronized(cache) {
-            cache.put(content, snapshot)
-        }
-    }
-
-    fun clear() {
-        synchronized(cache) {
-            cache.evictAll()
-        }
-    }
-
-    fun size(): Int {
-        return synchronized(cache) {
-            cache.size()
-        }
-    }
+    return MemoRenderCache.size()
 }
 
 internal const val MEMO_PREVIEW_WARMUP_COUNT = 12
 internal const val MEMO_PREVIEW_WARMUP_DELAY_MS = 140L
-private const val MEMO_PREVIEW_CACHE_LIMIT = 1_024
+private const val MEMO_PREVIEW_WARMUP_BATCH_SIZE = 3
+private const val MEMO_PREVIEW_WARMUP_FRAME_BUDGET_DELAY_MS = 16L

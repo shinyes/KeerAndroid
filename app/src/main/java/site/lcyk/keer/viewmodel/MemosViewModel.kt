@@ -52,7 +52,6 @@ import site.lcyk.keer.data.repository.UserGeneralSettingsRepository
 import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.data.service.OfflineGroupStore
-import site.lcyk.keer.data.service.SyncCoordinator
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
@@ -344,19 +343,33 @@ class MemosViewModel @Inject constructor(
     suspend fun loadMemos(
         syncAfterLoad: Boolean = true,
         trigger: SyncTrigger = SyncTrigger.AUTO,
+        domains: Set<SyncDomain> = setOf(SyncDomain.MEMOS),
+        bypassCoalesce: Boolean = false,
     ) = withContext(viewModelScope.coroutineContext) {
         if (syncAfterLoad) {
-            val domains = when (trigger) {
-                SyncTrigger.APP_START -> SyncCoordinator.FULL_DOMAINS
-                SyncTrigger.APP_FOREGROUND -> setOf(SyncDomain.MEMOS)
-                else -> setOf(SyncDomain.MEMOS)
-            }
             memoService.requestSync(
                 trigger = trigger,
                 force = false,
                 domains = domains,
+                bypassCoalesce = bypassCoalesce,
             )
         }
+    }
+
+    suspend fun requestSync(
+        trigger: SyncTrigger,
+        domains: Set<SyncDomain>,
+        bypassCoalesce: Boolean = false,
+    ) = withContext(viewModelScope.coroutineContext) {
+        if (domains.isEmpty()) {
+            return@withContext
+        }
+        memoService.requestSync(
+            trigger = trigger,
+            force = false,
+            domains = domains,
+            bypassCoalesce = bypassCoalesce,
+        )
     }
 
     suspend fun refreshMemos(): ManualSyncResult = withContext(viewModelScope.coroutineContext) {

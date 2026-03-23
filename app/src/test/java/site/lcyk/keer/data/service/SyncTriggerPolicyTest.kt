@@ -91,6 +91,24 @@ class SyncTriggerPolicyTest {
     }
 
     @Test
+    fun shouldSkipSync_returnsFalse_whenBypassCoalesceEnabled() {
+        val skip = SyncTriggerPolicy.shouldSkipSync(
+            force = false,
+            trigger = SyncTrigger.APP_FOREGROUND,
+            hasPendingWork = false,
+            nowMillis = 50_000L,
+            lastSyncAttemptMillis = 49_900L,
+            idleSyncIntervalMillis = 120_000L,
+            pendingCoalesceMillis = 1_500L,
+            foregroundCoalesceMillis = 45_000L,
+            backoffUntilMillis = 0L,
+            bypassCoalesce = true,
+        )
+
+        assertFalse(skip)
+    }
+
+    @Test
     fun shouldSkipSync_returnsFalse_whenNoPendingAndIdleIntervalElapsed() {
         val skip = SyncTriggerPolicy.shouldSkipSync(
             force = false,

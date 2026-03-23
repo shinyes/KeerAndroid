@@ -28,28 +28,26 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import site.lcyk.keer.MainActivity
+import site.lcyk.keer.data.model.SyncDomain
+import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.account.AccountPage
 import site.lcyk.keer.ui.page.account.AddAccountPage
+import site.lcyk.keer.ui.page.group.GroupManagementPage
 import site.lcyk.keer.ui.page.login.LoginPage
 import site.lcyk.keer.ui.page.memoinput.MemoInputPage
 import site.lcyk.keer.ui.page.memos.MemoDetailPage
 import site.lcyk.keer.ui.page.memos.MemosPage
 import site.lcyk.keer.ui.page.memos.SearchPage
 import site.lcyk.keer.ui.page.memos.TagMemoPage
-import site.lcyk.keer.ui.page.group.GroupManagementPage
 import site.lcyk.keer.ui.page.resource.ResourceListPage
 import site.lcyk.keer.ui.page.settings.AvatarSettingsPage
 import site.lcyk.keer.ui.page.settings.DebugLogPage
 import site.lcyk.keer.ui.page.settings.FriendManagementPage
 import site.lcyk.keer.ui.page.settings.SettingsPage
 import site.lcyk.keer.ui.theme.KeerTheme
-import site.lcyk.keer.util.ForegroundSyncCoordinator
-import site.lcyk.keer.data.service.SyncTrigger
+import site.lcyk.keer.util.ForegroundSyncScheduler
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 
@@ -61,28 +59,36 @@ fun Navigation() {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
-    val foregroundSyncCoordinator = remember { ForegroundSyncCoordinator() }
-
-    suspend fun runForegroundSync(trigger: SyncTrigger) {
-        if (!userStateViewModel.hasAnyAccount()) {
-            return
-        }
-        userStateViewModel.loadCurrentUserIfStale()
-        memosViewModel.loadMemos(
-            syncAfterLoad = true,
-            trigger = trigger
+    val foregroundSyncScheduler = remember(scope, userStateViewModel, memosViewModel) {
+        ForegroundSyncScheduler(
+            scope = scope,
+            awaitFastLaneStart = {
+                withFrameNanos { }
+            },
+            runFastLaneSync = { trigger ->
+                if (userStateViewModel.hasAnyAccount()) {
+                    userStateViewModel.loadCurrentUserIfStale()
+                    memosViewModel.loadMemos(
+                        syncAfterLoad = true,
+                        trigger = trigger,
+                        domains = setOf(SyncDomain.MEMOS),
+                    )
+                }
+            },
+            runIdleLaneSync = { trigger ->
+                if (userStateViewModel.hasAnyAccount()) {
+                    memosViewModel.requestSync(
+                        trigger = trigger,
+                        domains = setOf(
+                            SyncDomain.USERS,
+                            SyncDomain.GROUPS,
+                            SyncDomain.PROFILE,
+                        ),
+                        bypassCoalesce = true,
+                    )
+                }
+            },
         )
-    }
-
-    suspend fun runForegroundSyncDeferred(
-        trigger: SyncTrigger,
-        deferMillis: Long,
-    ) {
-        withFrameNanos { }
-        if (deferMillis > 0L) {
-            delay(deferMillis)
-        }
-        runForegroundSync(trigger = trigger)
     }
 
     CompositionLocalProvider(LocalRootNavController provides navController) {
@@ -240,59 +246,25 @@ fun Navigation() {
             }
             return@LaunchedEffect
         }
-        if (foregroundSyncCoordinator.requestAppStartSync()) {
-            try {
-                runForegroundSyncDeferred(
-                    trigger = SyncTrigger.APP_START,
-                    deferMillis = APP_START_SYNC_DEFER_MILLIS,
-                )
-            } finally {
-                foregroundSyncCoordinator.completeSync()
-            }
-        }
+        foregroundSyncScheduler.request(trigger = SyncTrigger.APP_START)
     }
 
     DisposableEffect(lifecycleOwner) {
-        var resumeSyncJob: Job? = null
-
-        fun cancelPendingResumeSync() {
-            val job = resumeSyncJob
-            if (job != null) {
-                job.cancel()
-                resumeSyncJob = null
-                foregroundSyncCoordinator.completeSync()
-            }
-        }
-
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                if (!foregroundSyncCoordinator.requestResumeSync()) {
-                    return@LifecycleEventObserver
-                }
-                cancelPendingResumeSync()
-                resumeSyncJob = scope.launch {
-                    try {
-                        runForegroundSyncDeferred(
-                            trigger = SyncTrigger.APP_FOREGROUND,
-                            deferMillis = APP_RESUME_SYNC_DEFER_MILLIS,
-                        )
-                    } finally {
-                        resumeSyncJob = null
-                        foregroundSyncCoordinator.completeSync()
-                    }
-                }
+                foregroundSyncScheduler.request(trigger = SyncTrigger.APP_FOREGROUND)
                 return@LifecycleEventObserver
             }
             if (
                 event == Lifecycle.Event.ON_PAUSE ||
                 event == Lifecycle.Event.ON_STOP
             ) {
-                cancelPendingResumeSync()
+                foregroundSyncScheduler.cancelPending()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
-            cancelPendingResumeSync()
+            foregroundSyncScheduler.cancelPending()
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
@@ -346,6 +318,3 @@ fun Navigation() {
 
 val LocalRootNavController =
     compositionLocalOf<NavHostController> { error(site.lcyk.keer.R.string.nav_host_controller_not_found.string) }
-
-private const val APP_START_SYNC_DEFER_MILLIS = 320L
-private const val APP_RESUME_SYNC_DEFER_MILLIS = 480L

@@ -10,7 +10,8 @@ object SyncTriggerPolicy {
         idleSyncIntervalMillis: Long,
         pendingCoalesceMillis: Long,
         foregroundCoalesceMillis: Long,
-        backoffUntilMillis: Long
+        backoffUntilMillis: Long,
+        bypassCoalesce: Boolean = false,
     ): Boolean {
         if (force) {
             return false
@@ -20,6 +21,9 @@ object SyncTriggerPolicy {
         }
         if (nowMillis < backoffUntilMillis) {
             return true
+        }
+        if (bypassCoalesce) {
+            return false
         }
         val elapsed = nowMillis - lastSyncAttemptMillis
         if (trigger.isForegroundTrigger()) {

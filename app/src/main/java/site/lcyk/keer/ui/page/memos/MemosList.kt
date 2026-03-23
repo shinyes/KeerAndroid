@@ -47,10 +47,9 @@ import site.lcyk.keer.ui.component.PullSyncLineIndicator
 import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.component.MemosCardActionButton
-import site.lcyk.keer.ui.component.rememberDelayedScrollFreeze
-import site.lcyk.keer.ui.component.rememberScrollResumeGates
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.component.rememberMemoExtremeListState
+import site.lcyk.keer.ui.component.rememberListRenderSchedulerState
 import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.RouteName
@@ -94,15 +93,13 @@ fun MemosList(
     val scope = rememberCoroutineScope()
     val avatarImageLoader = rememberAuthorizedImageLoader()
     val mediaImageLoader = rememberMemoMediaImageLoader()
-    val delayedScrollFreeze = rememberDelayedScrollFreeze(
-        isScrollInProgressProvider = { lazyListState.isScrollInProgress }
+    val renderSchedulerState = rememberListRenderSchedulerState(
+        scopeFrozen = feedFrozen,
+        isScrollInProgressProvider = { lazyListState.isScrollInProgress },
     )
-    val scrollResumeGates = rememberScrollResumeGates(
-        isScrollInProgressProvider = { lazyListState.isScrollInProgress }
-    )
-    val prefetchPaused = feedFrozen || !scrollResumeGates.prefetchAllowed
-    val warmupEnabled = !feedFrozen && scrollResumeGates.warmupAllowed
-    val effectiveFeedFrozen = feedFrozen || delayedScrollFreeze
+    val prefetchPaused = renderSchedulerState.prefetchPaused
+    val warmupEnabled = renderSchedulerState.warmupEnabled
+    val effectiveFeedFrozen = renderSchedulerState.uiFrozen
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     val sourceMemos = memos ?: visibleMemos
     val sourceMemoSnapshot = remember(sourceMemos) { sourceMemos.toList() }

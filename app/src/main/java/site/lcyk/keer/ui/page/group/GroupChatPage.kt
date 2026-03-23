@@ -69,8 +69,7 @@ import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.SyncStatusBadge
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
-import site.lcyk.keer.ui.component.rememberDelayedScrollFreeze
-import site.lcyk.keer.ui.component.rememberScrollResumeGates
+import site.lcyk.keer.ui.component.rememberListRenderSchedulerState
 import site.lcyk.keer.ui.component.rememberMemoExtremeListState
 import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
@@ -139,15 +138,13 @@ fun GroupChatPage(
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val groupTags by viewModel.groupTags.collectAsStateWithLifecycle()
     val listState = rememberMemoExtremeListState()
-    val delayedScrollFreeze = rememberDelayedScrollFreeze(
-        isScrollInProgressProvider = { listState.isScrollInProgress }
+    val renderSchedulerState = rememberListRenderSchedulerState(
+        scopeFrozen = groupFrozen,
+        isScrollInProgressProvider = { listState.isScrollInProgress },
     )
-    val scrollResumeGates = rememberScrollResumeGates(
-        isScrollInProgressProvider = { listState.isScrollInProgress }
-    )
-    val prefetchPaused = groupFrozen || !scrollResumeGates.prefetchAllowed
-    val warmupEnabled = !groupFrozen && scrollResumeGates.warmupAllowed
-    val effectiveGroupFrozen = groupFrozen || delayedScrollFreeze
+    val prefetchPaused = renderSchedulerState.prefetchPaused
+    val warmupEnabled = renderSchedulerState.warmupEnabled
+    val effectiveGroupFrozen = renderSchedulerState.uiFrozen
     val refreshState = rememberPullToRefreshState()
     val expandedFab by remember {
         derivedStateOf { listState.firstVisibleItemIndex == 0 }

@@ -30,6 +30,7 @@ class SyncCoordinator @Inject constructor(
         val trigger: SyncTrigger,
         val domains: Set<SyncDomain>,
         val groupId: String?,
+        val bypassCoalesce: Boolean,
     )
 
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -72,6 +73,7 @@ class SyncCoordinator @Inject constructor(
         force: Boolean = false,
         domains: Set<SyncDomain> = FULL_DOMAINS,
         groupId: String? = null,
+        bypassCoalesce: Boolean = false,
     ) {
         requestChannel.trySend(
             SyncRequest(
@@ -79,6 +81,7 @@ class SyncCoordinator @Inject constructor(
                 trigger = trigger,
                 domains = domains,
                 groupId = groupId?.trim()?.takeIf(String::isNotBlank),
+                bypassCoalesce = bypassCoalesce,
             )
         )
     }
@@ -88,6 +91,7 @@ class SyncCoordinator @Inject constructor(
         trigger: SyncTrigger = if (force) SyncTrigger.MANUAL else SyncTrigger.AUTO,
         domains: Set<SyncDomain> = FULL_DOMAINS,
         groupId: String? = null,
+        bypassCoalesce: Boolean = false,
     ): ApiResponse<Unit> = withContext(Dispatchers.IO) {
         syncMutex.withLock {
             if (domains.isEmpty()) {
@@ -104,7 +108,8 @@ class SyncCoordinator @Inject constructor(
                     idleSyncIntervalMillis = AUTO_SYNC_INTERVAL_MILLIS,
                     pendingCoalesceMillis = PENDING_SYNC_COALESCE_MILLIS,
                     foregroundCoalesceMillis = FOREGROUND_SYNC_COALESCE_MILLIS,
-                    backoffUntilMillis = backoffUntilTime
+                    backoffUntilMillis = backoffUntilTime,
+                    bypassCoalesce = bypassCoalesce,
                 )
             ) {
                 return@withLock ApiResponse.Success(Unit)
@@ -161,11 +166,13 @@ class SyncCoordinator @Inject constructor(
                     next = next.groupId,
                     domains = mergedDomains
                 )
+                val mergedBypassCoalesce = merged.bypassCoalesce || next.bypassCoalesce
                 merged = SyncRequest(
                     force = mergedForce,
                     trigger = mergedTrigger,
                     domains = mergedDomains,
-                    groupId = mergedGroupId
+                    groupId = mergedGroupId,
+                    bypassCoalesce = mergedBypassCoalesce,
                 )
             }
             runCatching {
@@ -174,6 +181,7 @@ class SyncCoordinator @Inject constructor(
                     trigger = merged.trigger,
                     domains = merged.domains,
                     groupId = merged.groupId,
+                    bypassCoalesce = merged.bypassCoalesce,
                 )
             }
         }

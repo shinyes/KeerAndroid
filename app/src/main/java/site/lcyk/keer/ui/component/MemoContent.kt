@@ -36,9 +36,15 @@ fun MemoContent(
     mediaImageLoader: ImageLoader? = null,
     uiFrozen: Boolean = false,
 ) {
-    val (text, previewed) = remember(memo.content, previewMode) {
+    val renderVersionKey = remember(memo) {
+        buildMemoRenderVersionKey(memo)
+    }
+    val (text, previewed) = remember(renderVersionKey, memo.content, previewMode) {
         if (previewMode) {
-            resolveMemoPreviewSnapshot(markdownText = memo.content)
+            resolveMemoPreviewSnapshot(
+                markdownText = memo.content,
+                versionKey = renderVersionKey,
+            )
                 .let { snapshot ->
                     snapshot.text to snapshot.previewed
                 }

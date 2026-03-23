@@ -65,12 +65,14 @@ class MemoService @Inject constructor(
         force: Boolean = false,
         domains: Set<SyncDomain> = SyncCoordinator.FULL_DOMAINS,
         groupId: String? = null,
+        bypassCoalesce: Boolean = false,
     ) {
         syncCoordinator.requestSync(
             trigger = trigger,
             force = force,
             domains = domains,
             groupId = groupId,
+            bypassCoalesce = bypassCoalesce,
         )
     }
 
@@ -79,12 +81,14 @@ class MemoService @Inject constructor(
         trigger: SyncTrigger = if (force) SyncTrigger.MANUAL else SyncTrigger.AUTO,
         domains: Set<SyncDomain> = SyncCoordinator.FULL_DOMAINS,
         groupId: String? = null,
+        bypassCoalesce: Boolean = false,
     ): ApiResponse<Unit> {
         return syncCoordinator.sync(
             force = force,
             trigger = trigger,
             domains = domains,
             groupId = groupId,
+            bypassCoalesce = bypassCoalesce,
         )
     }
 }
