@@ -63,7 +63,32 @@ class HeatmapTimelineBuilderTest {
             .map { column -> column.monthLabel to column.yearLabel }
 
         assertTrue(labels.contains("Dec" to "2024"))
-        assertTrue(labels.contains("Jan" to "2025"))
         assertTrue(labels.contains("Feb" to null))
+    }
+
+    @Test
+    fun buildHeatmapTimeline_hidesJanuaryMonthLabelButKeepsYear() {
+        val start = LocalDate.of(2024, 12, 15)
+        val end = LocalDate.of(2025, 1, 15)
+        val matrix = (0..java.time.temporal.ChronoUnit.DAYS.between(start, end).toInt()).map { offset ->
+            DailyUsageStat(date = start.plusDays(offset.toLong()), count = 0)
+        }
+
+        val timeline = buildHeatmapTimeline(
+            matrix = matrix,
+            locale = Locale.US,
+            firstDayOfWeek = DayOfWeek.MONDAY,
+        )
+
+        val januaryColumn = timeline.columns.firstOrNull { column ->
+            column.cells.any { stat ->
+                stat?.date?.let { date ->
+                    date.monthValue == 1 && date.dayOfMonth == 1
+                } == true
+            }
+        }
+
+        assertEquals("2025", januaryColumn?.yearLabel)
+        assertEquals(null, januaryColumn?.monthLabel)
     }
 }

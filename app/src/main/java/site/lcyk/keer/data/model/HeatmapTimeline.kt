@@ -83,7 +83,13 @@ fun buildHeatmapTimeline(
             .mapNotNull { it?.date }
             .firstOrNull { date -> date.dayOfMonth == 1 }
 
-        val monthLabel = monthAnchor?.month?.getDisplayName(TextStyle.SHORT, locale)
+        val monthLabel = monthAnchor?.let { anchor ->
+            if (anchor.monthValue == 1) {
+                null
+            } else {
+                anchor.month.getDisplayName(TextStyle.SHORT, locale)
+            }
+        }
         val yearLabel = monthAnchor?.let { anchor ->
             if (lastLabeledYear == null || lastLabeledYear != anchor.year) {
                 lastLabeledYear = anchor.year
