@@ -293,7 +293,6 @@ private fun MemoFeedList(
                     avatarImageLoader = avatarImageLoader,
                     mediaImageLoader = mediaImageLoader,
                     uiFrozen = uiFrozen,
-                    progressiveMediaEnabled = true,
                     prefetchCollaborators = false,
                     resolvedQuote = card.resolvedQuote,
                 )

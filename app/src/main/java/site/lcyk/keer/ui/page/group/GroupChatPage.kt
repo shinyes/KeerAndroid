@@ -601,7 +601,6 @@ private fun GroupChatList(
                     avatarImageLoader = avatarImageLoader,
                     mediaImageLoader = mediaImageLoader,
                     uiFrozen = uiFrozen,
-                    progressiveMediaEnabled = true,
                     prefetchCollaborators = false,
                     resolvedQuote = resolvedQuoteMap[adaptedMemo.identifier],
                 )

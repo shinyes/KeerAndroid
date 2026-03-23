@@ -84,7 +84,6 @@ fun MemosCard(
     avatarImageLoader: ImageLoader? = null,
     mediaImageLoader: ImageLoader? = null,
     uiFrozen: Boolean = false,
-    progressiveMediaEnabled: Boolean = false,
     prefetchCollaborators: Boolean = true,
     resolvedQuote: ResolvedMemoQuote? = null,
 ) {
@@ -308,7 +307,6 @@ fun MemosCard(
                 autoPreviewPrefetch = autoPreviewPrefetch,
                 mediaImageLoader = mediaImageLoader,
                 uiFrozen = uiFrozen,
-                progressiveMediaEnabled = progressiveMediaEnabled,
                 checkboxChange = onCheckboxChange,
                 onViewMore = {
                     onClick(memo)
