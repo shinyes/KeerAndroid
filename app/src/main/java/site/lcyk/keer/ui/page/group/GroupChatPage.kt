@@ -70,6 +70,7 @@ import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.SyncStatusBadge
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.component.rememberDelayedScrollFreeze
+import site.lcyk.keer.ui.component.rememberScrollResumeGates
 import site.lcyk.keer.ui.component.rememberMemoExtremeListState
 import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
@@ -141,7 +142,11 @@ fun GroupChatPage(
     val delayedScrollFreeze = rememberDelayedScrollFreeze(
         isScrollInProgressProvider = { listState.isScrollInProgress }
     )
-    val prefetchPaused = groupFrozen || listState.isScrollInProgress
+    val scrollResumeGates = rememberScrollResumeGates(
+        isScrollInProgressProvider = { listState.isScrollInProgress }
+    )
+    val prefetchPaused = groupFrozen || !scrollResumeGates.prefetchAllowed
+    val warmupEnabled = !groupFrozen && scrollResumeGates.warmupAllowed
     val effectiveGroupFrozen = groupFrozen || delayedScrollFreeze
     val refreshState = rememberPullToRefreshState()
     val expandedFab by remember {
@@ -238,7 +243,7 @@ fun GroupChatPage(
     )
     MemoPreviewWarmupEffect(
         memos = prefetchMemoEntities,
-        enabled = !prefetchPaused,
+        enabled = warmupEnabled,
     )
 
     LaunchedEffect(group?.id) {

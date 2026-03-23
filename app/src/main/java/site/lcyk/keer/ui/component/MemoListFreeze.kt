@@ -37,6 +37,87 @@ internal fun rememberDelayedScrollFreeze(
     return frozen
 }
 
+internal data class ScrollResumeGates(
+    val prefetchAllowed: Boolean,
+    val warmupAllowed: Boolean,
+)
+
+@Composable
+internal fun rememberScrollResumeGates(
+    isScrollInProgressProvider: () -> Boolean,
+    prefetchResumeDelayMillis: Long = POST_SCROLL_PREFETCH_RESUME_DELAY_MS,
+    warmupResumeDelayMillis: Long = POST_SCROLL_WARMUP_RESUME_DELAY_MS,
+): ScrollResumeGates {
+    val currentProvider by rememberUpdatedState(isScrollInProgressProvider)
+    val gates by produceState(
+        initialValue = ScrollResumeGates(
+            prefetchAllowed = false,
+            warmupAllowed = false,
+        ),
+        prefetchResumeDelayMillis,
+        warmupResumeDelayMillis,
+    ) {
+        snapshotFlow { currentProvider() }
+            .distinctUntilChanged()
+            .scrollResumeGatesFlow(
+                prefetchResumeDelayMillis = prefetchResumeDelayMillis,
+                warmupResumeDelayMillis = warmupResumeDelayMillis,
+            )
+            .collect { stagedGates ->
+                value = stagedGates
+            }
+    }
+    return gates
+}
+
+@OptIn(ExperimentalCoroutinesApi::class)
+internal fun Flow<Boolean>.scrollResumeGatesFlow(
+    prefetchResumeDelayMillis: Long = POST_SCROLL_PREFETCH_RESUME_DELAY_MS,
+    warmupResumeDelayMillis: Long = POST_SCROLL_WARMUP_RESUME_DELAY_MS,
+): Flow<ScrollResumeGates> {
+    val safePrefetchDelay = prefetchResumeDelayMillis.coerceAtLeast(0L)
+    val safeWarmupDelay = warmupResumeDelayMillis.coerceAtLeast(safePrefetchDelay)
+    return transformLatest { isScrolling ->
+        if (isScrolling) {
+            emit(
+                ScrollResumeGates(
+                    prefetchAllowed = false,
+                    warmupAllowed = false,
+                )
+            )
+        } else {
+            if (safePrefetchDelay > 0L) {
+                delay(safePrefetchDelay)
+            }
+            emit(
+                ScrollResumeGates(
+                    prefetchAllowed = true,
+                    warmupAllowed = false,
+                )
+            )
+            val extraWarmupDelay = safeWarmupDelay - safePrefetchDelay
+            if (extraWarmupDelay > 0L) {
+                delay(extraWarmupDelay)
+            }
+            emit(
+                ScrollResumeGates(
+                    prefetchAllowed = true,
+                    warmupAllowed = true,
+                )
+            )
+        }
+    }
+        .onStart {
+            emit(
+                ScrollResumeGates(
+                    prefetchAllowed = false,
+                    warmupAllowed = false,
+                )
+            )
+        }
+        .distinctUntilChanged()
+}
+
 @OptIn(ExperimentalCoroutinesApi::class)
 internal fun Flow<Boolean>.delayedScrollFreezeFlow(
     startDelayMillis: Long = UI_FREEZE_START_DELAY_MS,
@@ -61,3 +142,5 @@ internal fun Flow<Boolean>.delayedScrollFreezeFlow(
 
 internal const val UI_FREEZE_START_DELAY_MS = 120L
 internal const val UI_FREEZE_RELEASE_HOLD_MS = 220L
+internal const val POST_SCROLL_PREFETCH_RESUME_DELAY_MS = 380L
+internal const val POST_SCROLL_WARMUP_RESUME_DELAY_MS = 620L

@@ -51,6 +51,7 @@ import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.component.rememberDelayedScrollFreeze
+import site.lcyk.keer.ui.component.rememberScrollResumeGates
 import site.lcyk.keer.ui.component.rememberMemoExtremeListState
 import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
@@ -91,7 +92,11 @@ fun ExploreList(
     val delayedScrollFreeze = rememberDelayedScrollFreeze(
         isScrollInProgressProvider = { listState.isScrollInProgress }
     )
-    val prefetchPaused = exploreFrozen || listState.isScrollInProgress
+    val scrollResumeGates = rememberScrollResumeGates(
+        isScrollInProgressProvider = { listState.isScrollInProgress }
+    )
+    val prefetchPaused = exploreFrozen || !scrollResumeGates.prefetchAllowed
+    val warmupEnabled = !exploreFrozen && scrollResumeGates.warmupAllowed
     val effectiveExploreFrozen = exploreFrozen || delayedScrollFreeze
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     var editingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
@@ -158,7 +163,7 @@ fun ExploreList(
     )
     MemoPreviewWarmupEffect(
         memos = prefetchMemoEntities,
-        enabled = !prefetchPaused,
+        enabled = warmupEnabled,
     )
 
     ExploreMemoFeed(

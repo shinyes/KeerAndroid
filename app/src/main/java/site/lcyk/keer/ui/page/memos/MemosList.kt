@@ -48,6 +48,7 @@ import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.component.MemosCardActionButton
 import site.lcyk.keer.ui.component.rememberDelayedScrollFreeze
+import site.lcyk.keer.ui.component.rememberScrollResumeGates
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.component.rememberMemoExtremeListState
 import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
@@ -96,7 +97,11 @@ fun MemosList(
     val delayedScrollFreeze = rememberDelayedScrollFreeze(
         isScrollInProgressProvider = { lazyListState.isScrollInProgress }
     )
-    val prefetchPaused = feedFrozen || lazyListState.isScrollInProgress
+    val scrollResumeGates = rememberScrollResumeGates(
+        isScrollInProgressProvider = { lazyListState.isScrollInProgress }
+    )
+    val prefetchPaused = feedFrozen || !scrollResumeGates.prefetchAllowed
+    val warmupEnabled = !feedFrozen && scrollResumeGates.warmupAllowed
     val effectiveFeedFrozen = feedFrozen || delayedScrollFreeze
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     val sourceMemos = memos ?: visibleMemos
@@ -200,7 +205,7 @@ fun MemosList(
     )
     MemoPreviewWarmupEffect(
         memos = prefetchMemos,
-        enabled = !prefetchPaused,
+        enabled = warmupEnabled,
     )
 
     MemoFeedList(
