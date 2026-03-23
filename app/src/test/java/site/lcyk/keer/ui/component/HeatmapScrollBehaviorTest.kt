@@ -46,6 +46,42 @@ class HeatmapScrollBehaviorTest {
     }
 
     @Test
+    fun resolveHeatmapTopLabelTextWidth_scalesWithFontSize() {
+        assertEquals(
+            HEATMAP_TOP_LABEL_COMBINED_WIDTH * 1.2f,
+            resolveHeatmapTopLabelTextWidth(
+                monthLabel = "2月",
+                yearLabel = "2026",
+                fontScale = 1.2f,
+            ),
+        )
+        assertEquals(
+            HEATMAP_TOP_LABEL_COMBINED_WIDTH,
+            resolveHeatmapTopLabelTextWidth(
+                monthLabel = "2月",
+                yearLabel = "2026",
+                fontScale = 0.9f,
+            ),
+        )
+    }
+
+    @Test
+    fun resolveHeatmapEdgeHorizontalPadding_scalesWithFontSizeAndCapsAtMax() {
+        assertEquals(
+            HEATMAP_EDGE_HORIZONTAL_PADDING_BASE,
+            resolveHeatmapEdgeHorizontalPadding(fontScale = 1f),
+        )
+        assertEquals(
+            HEATMAP_EDGE_HORIZONTAL_PADDING_BASE * 1.5f,
+            resolveHeatmapEdgeHorizontalPadding(fontScale = 1.5f),
+        )
+        assertEquals(
+            HEATMAP_EDGE_HORIZONTAL_PADDING_MAX,
+            resolveHeatmapEdgeHorizontalPadding(fontScale = 3f),
+        )
+    }
+
+    @Test
     fun shouldRenderHeatmapTopLabel_hidesPartiallyVisibleLeadingColumnLabel() {
         assertFalse(
             shouldRenderHeatmapTopLabel(

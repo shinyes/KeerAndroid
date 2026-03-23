@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -35,6 +36,10 @@ fun Heatmap(
     timeline: HeatmapTimeline,
 ) {
     val columns = timeline.columns
+    val density = LocalDensity.current
+    val edgePadding = remember(density.fontScale) {
+        resolveHeatmapEdgeHorizontalPadding(density.fontScale)
+    }
     val listState = remember(columns.size) {
         LazyListState(firstVisibleItemIndex = latestHeatmapColumnIndex(columns.size))
     }
@@ -48,8 +53,8 @@ fun Heatmap(
         state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
-            start = HEATMAP_EDGE_HORIZONTAL_PADDING,
-            end = HEATMAP_EDGE_HORIZONTAL_PADDING,
+            start = edgePadding,
+            end = edgePadding,
         ),
         horizontalArrangement = Arrangement.spacedBy(HEATMAP_COLUMN_SPACING),
         verticalAlignment = Alignment.Bottom,
@@ -111,10 +116,12 @@ private fun HeatmapTopLabel(
     yearLabel: String?,
     modifier: Modifier = Modifier,
 ) {
+    val density = LocalDensity.current
     val combinedLabel = formatHeatmapTopLabel(monthLabel = monthLabel, yearLabel = yearLabel)
     val labelWidth = resolveHeatmapTopLabelTextWidth(
         monthLabel = monthLabel,
         yearLabel = yearLabel,
+        fontScale = density.fontScale,
     )
 
     Column(
@@ -151,13 +158,20 @@ internal fun formatHeatmapTopLabel(
 internal fun resolveHeatmapTopLabelTextWidth(
     monthLabel: String?,
     yearLabel: String?,
+    fontScale: Float = 1f,
 ): Dp {
-    return when {
+    val baseWidth = when {
         monthLabel != null && yearLabel != null -> HEATMAP_TOP_LABEL_COMBINED_WIDTH
         yearLabel != null -> HEATMAP_TOP_LABEL_YEAR_ONLY_WIDTH
         monthLabel != null -> HEATMAP_TOP_LABEL_MONTH_ONLY_WIDTH
         else -> HEATMAP_TOP_LABEL_MONTH_ONLY_WIDTH
     }
+    return baseWidth * fontScale.coerceAtLeast(1f)
+}
+
+internal fun resolveHeatmapEdgeHorizontalPadding(fontScale: Float): Dp {
+    return (HEATMAP_EDGE_HORIZONTAL_PADDING_BASE * fontScale.coerceAtLeast(1f))
+        .coerceAtMost(HEATMAP_EDGE_HORIZONTAL_PADDING_MAX)
 }
 
 internal fun shouldRenderHeatmapTopLabel(
@@ -190,7 +204,8 @@ internal val HEATMAP_TOP_LABEL_HEIGHT = 20.dp
 internal val HEATMAP_ROW_SPACING = 2.dp
 internal val HEATMAP_COLUMN_SPACING = 2.dp
 internal val HEATMAP_CELL_SIZE = 12.dp
-internal val HEATMAP_EDGE_HORIZONTAL_PADDING = 12.dp
+internal val HEATMAP_EDGE_HORIZONTAL_PADDING_BASE = 12.dp
+internal val HEATMAP_EDGE_HORIZONTAL_PADDING_MAX = 28.dp
 internal val HEATMAP_TOP_LABEL_MONTH_ONLY_WIDTH = 30.dp
 internal val HEATMAP_TOP_LABEL_YEAR_ONLY_WIDTH = 38.dp
 internal val HEATMAP_TOP_LABEL_COMBINED_WIDTH = 56.dp
