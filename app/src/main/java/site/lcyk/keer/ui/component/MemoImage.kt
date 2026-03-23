@@ -67,7 +67,10 @@ fun MemoImage(
     }
     val imageLoader = mediaImageLoader ?: rememberMemoMediaImageLoader()
     val runtimeCachedPreviewUri = MediaPreviewRuntimeCache.resolvePreviewUri(previewCacheKey(liveResource))
-    val previewModel = remember(
+    val previewIdentity = (liveResource as? ResourceEntity)?.identifier
+        ?: "${liveResource.remoteId}|${liveResource.uri}"
+    var lastStablePreviewModel by remember(previewIdentity) { mutableStateOf<String?>(null) }
+    val previewCandidate = remember(
         fallbackPreviewUri,
         runtimeCachedPreviewUri,
         liveResource.thumbnailLocalUri,
@@ -77,6 +80,18 @@ fun MemoImage(
     ) {
         fallbackPreviewUri ?: runtimeCachedPreviewUri ?: resolveMemoImagePreviewUri(liveResource)
     }
+    val previewModelState = remember(previewCandidate, lastStablePreviewModel) {
+        resolveStablePreviewModelState(
+            candidateModel = previewCandidate,
+            lastStableModel = lastStablePreviewModel,
+        )
+    }
+    LaunchedEffect(previewModelState.retainedModel) {
+        if (previewModelState.retainedModel != lastStablePreviewModel) {
+            lastStablePreviewModel = previewModelState.retainedModel
+        }
+    }
+    val previewModel = previewModelState.model
 
     LaunchedEffect(
         autoPreviewPrefetch,

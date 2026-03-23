@@ -67,7 +67,6 @@ fun Navigation() {
             },
             runFastLaneSync = { trigger ->
                 if (userStateViewModel.hasAnyAccount()) {
-                    userStateViewModel.loadCurrentUserIfStale()
                     memosViewModel.loadMemos(
                         syncAfterLoad = true,
                         trigger = trigger,
@@ -77,6 +76,7 @@ fun Navigation() {
             },
             runIdleLaneSync = { trigger ->
                 if (userStateViewModel.hasAnyAccount()) {
+                    userStateViewModel.loadCurrentUserIfStale()
                     memosViewModel.requestSync(
                         trigger = trigger,
                         domains = setOf(
@@ -88,6 +88,7 @@ fun Navigation() {
                     )
                 }
             },
+            isUiBusy = { memosViewModel.foregroundSyncUiBusy.value },
         )
     }
 

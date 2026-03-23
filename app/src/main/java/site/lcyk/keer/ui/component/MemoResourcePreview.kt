@@ -3,9 +3,12 @@ package site.lcyk.keer.ui.component
 import android.content.Context
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.core.net.toUri
 import com.skydoves.sandwich.ApiResponse
 import kotlinx.coroutines.flow.Flow
@@ -30,7 +33,7 @@ internal fun rememberObservedMemoResource(
     observeLiveResource: Boolean = true,
 ): ObservedMemoResource {
     val memosViewModel = LocalMemos.current
-    val identifier = (resource as? ResourceEntity)?.identifier
+    val identifier = (resource as? ResourceEntity)?.identifier?.trim().orEmpty().ifBlank { null }
     val resourceFlow = remember(identifier, observeLiveResource) {
         buildObservedResourceFlow(
             identifier = identifier,
@@ -40,9 +43,62 @@ internal fun rememberObservedMemoResource(
         }
     }
     val observed by resourceFlow.collectAsState(initial = null)
+    var lastObservedResource by remember(identifier) {
+        mutableStateOf<ResourceRepresentable?>(resource.takeIf { identifier != null })
+    }
+
+    LaunchedEffect(observed) {
+        if (observed != null) {
+            lastObservedResource = observed
+        }
+    }
+
+    return resolveObservedMemoResource(
+        sourceResource = resource,
+        observedResource = observed,
+        lastObservedResource = lastObservedResource,
+        observeLiveResource = observeLiveResource,
+    )
+}
+
+internal fun resolveObservedMemoResource(
+    sourceResource: ResourceRepresentable,
+    observedResource: ResourceEntity?,
+    lastObservedResource: ResourceRepresentable?,
+    observeLiveResource: Boolean,
+): ObservedMemoResource {
+    val resolved = when {
+        observedResource != null -> observedResource
+        !observeLiveResource && lastObservedResource != null -> lastObservedResource
+        lastObservedResource != null -> lastObservedResource
+        else -> sourceResource
+    }
     return ObservedMemoResource(
-        resource = observed ?: resource,
-        tracked = observed != null,
+        resource = resolved,
+        tracked = observedResource != null || lastObservedResource != null,
+    )
+}
+
+internal data class StablePreviewModelState(
+    val model: String?,
+    val retainedModel: String?,
+)
+
+internal fun resolveStablePreviewModelState(
+    candidateModel: String?,
+    lastStableModel: String?,
+): StablePreviewModelState {
+    val normalizedCandidate = candidateModel?.trim()?.ifBlank { null }
+    if (normalizedCandidate != null) {
+        return StablePreviewModelState(
+            model = normalizedCandidate,
+            retainedModel = normalizedCandidate,
+        )
+    }
+    val retained = lastStableModel?.trim()?.ifBlank { null }
+    return StablePreviewModelState(
+        model = retained,
+        retainedModel = retained,
     )
 }
 

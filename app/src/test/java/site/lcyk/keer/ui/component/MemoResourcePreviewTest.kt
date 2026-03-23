@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import site.lcyk.keer.data.local.entity.ResourceEntity
 
@@ -63,7 +64,56 @@ class MemoResourcePreviewTest {
         assertEquals(1, observeInvocations)
     }
 
-    private fun testResource(identifier: String): ResourceEntity {
+    @Test
+    fun resolveObservedMemoResource_freezeKeepsLastObservedResource() {
+        val source = testResource("res-1", localUri = "")
+        val lastObserved = testResource("res-1", localUri = "file:///tmp/thumb.jpg")
+
+        val resolved = resolveObservedMemoResource(
+            sourceResource = source,
+            observedResource = null,
+            lastObservedResource = lastObserved,
+            observeLiveResource = false,
+        )
+        val resolvedResource = resolved.resource as ResourceEntity
+
+        assertEquals(lastObserved.identifier, resolvedResource.identifier)
+        assertEquals(lastObserved.localUri, resolvedResource.localUri)
+        assertTrue(resolved.tracked)
+    }
+
+    @Test
+    fun resolveObservedMemoResource_unfreezeWithoutFreshEmissionStillKeepsLastObservedResource() {
+        val source = testResource("res-2", localUri = "")
+        val lastObserved = testResource("res-2", localUri = "file:///tmp/preview.jpg")
+
+        val resolved = resolveObservedMemoResource(
+            sourceResource = source,
+            observedResource = null,
+            lastObservedResource = lastObserved,
+            observeLiveResource = true,
+        )
+        val resolvedResource = resolved.resource as ResourceEntity
+
+        assertEquals(lastObserved.localUri, resolvedResource.localUri)
+        assertTrue(resolved.tracked)
+    }
+
+    @Test
+    fun resolveStablePreviewModelState_blankCandidateDoesNotOverrideUsableModel() {
+        val state = resolveStablePreviewModelState(
+            candidateModel = "   ",
+            lastStableModel = "file:///tmp/usable.jpg",
+        )
+
+        assertEquals("file:///tmp/usable.jpg", state.model)
+        assertEquals("file:///tmp/usable.jpg", state.retainedModel)
+    }
+
+    private fun testResource(
+        identifier: String,
+        localUri: String? = null,
+    ): ResourceEntity {
         return ResourceEntity(
             identifier = identifier,
             remoteId = "remote-$identifier",
@@ -71,6 +121,7 @@ class MemoResourcePreviewTest {
             date = Instant.EPOCH,
             filename = "$identifier.jpg",
             uri = "https://example.com/$identifier",
+            localUri = localUri,
             mimeType = "image/jpeg",
             memoId = "memo-1",
         )

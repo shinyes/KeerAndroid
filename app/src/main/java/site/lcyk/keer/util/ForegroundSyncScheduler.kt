@@ -3,6 +3,7 @@ package site.lcyk.keer.util
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,8 +29,11 @@ internal class ForegroundSyncScheduler(
     private val awaitFastLaneStart: suspend () -> Unit,
     private val runFastLaneSync: suspend (SyncTrigger) -> Unit,
     private val runIdleLaneSync: suspend (SyncTrigger) -> Unit,
+    private val isUiBusy: () -> Boolean = { false },
     private val fastLaneDelayMillis: Long = FAST_LANE_DEFER_MILLIS,
     private val idleLaneDelayMillis: Long = IDLE_LANE_DEFER_MILLIS,
+    private val fastLaneMaxBusyWaitMillis: Long = FAST_LANE_MAX_BUSY_WAIT_MILLIS,
+    private val busyPollIntervalMillis: Long = FAST_LANE_BUSY_POLL_INTERVAL_MILLIS,
 ) {
     private var suppressNextResume = false
     private var requestVersion = 0L
@@ -76,8 +80,9 @@ internal class ForegroundSyncScheduler(
             setState(version, trigger, ForegroundSyncSchedulerPhase.FAST_WAITING)
             awaitFastLaneStart()
             if (fastLaneDelayMillis > 0L) {
-                kotlinx.coroutines.delay(fastLaneDelayMillis)
+                delay(fastLaneDelayMillis)
             }
+            waitUntilUiNotBusyOrTimeout(version)
             ensureLatest(version)
 
             setState(version, trigger, ForegroundSyncSchedulerPhase.FAST_RUNNING)
@@ -86,7 +91,7 @@ internal class ForegroundSyncScheduler(
 
             setState(version, trigger, ForegroundSyncSchedulerPhase.IDLE_WAITING)
             if (idleLaneDelayMillis > 0L) {
-                kotlinx.coroutines.delay(idleLaneDelayMillis)
+                delay(idleLaneDelayMillis)
             }
             ensureLatest(version)
 
@@ -119,7 +124,28 @@ internal class ForegroundSyncScheduler(
             throw CancellationException("Foreground sync pipeline superseded by newer request")
         }
     }
+
+    private suspend fun waitUntilUiNotBusyOrTimeout(version: Long) {
+        val maxWaitMillis = fastLaneMaxBusyWaitMillis.coerceAtLeast(0L)
+        if (maxWaitMillis == 0L) {
+            return
+        }
+        val pollIntervalMillis = busyPollIntervalMillis.coerceAtLeast(FAST_LANE_BUSY_POLL_MIN_MILLIS)
+        var remainingWaitMillis = maxWaitMillis
+        while (isUiBusy()) {
+            ensureLatest(version)
+            if (remainingWaitMillis <= 0L) {
+                return
+            }
+            val waitMillis = minOf(pollIntervalMillis, remainingWaitMillis)
+            delay(waitMillis)
+            remainingWaitMillis -= waitMillis
+        }
+    }
 }
 
 internal const val FAST_LANE_DEFER_MILLIS = 160L
 internal const val IDLE_LANE_DEFER_MILLIS = 1_200L
+internal const val FAST_LANE_MAX_BUSY_WAIT_MILLIS = 300L
+internal const val FAST_LANE_BUSY_POLL_INTERVAL_MILLIS = 16L
+private const val FAST_LANE_BUSY_POLL_MIN_MILLIS = 8L

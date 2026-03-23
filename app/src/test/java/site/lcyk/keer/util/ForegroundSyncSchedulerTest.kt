@@ -90,4 +90,69 @@ class ForegroundSyncSchedulerTest {
             events
         )
     }
+
+    @Test
+    fun request_fastLaneWaitsUntilUiNotBusyBeforeTimeout() = runTest {
+        val events = mutableListOf<String>()
+        var busy = true
+        val scheduler = ForegroundSyncScheduler(
+            scope = backgroundScope,
+            awaitFastLaneStart = {},
+            runFastLaneSync = { trigger -> events += "fast:$trigger" },
+            runIdleLaneSync = { trigger -> events += "idle:$trigger" },
+            isUiBusy = { busy },
+            fastLaneDelayMillis = 0L,
+            idleLaneDelayMillis = 0L,
+            fastLaneMaxBusyWaitMillis = 300L,
+            busyPollIntervalMillis = 20L,
+        )
+
+        scheduler.request(SyncTrigger.APP_FOREGROUND)
+        advanceTimeBy(80L)
+        runCurrent()
+        assertEquals(emptyList<String>(), events)
+
+        busy = false
+        advanceTimeBy(20L)
+        runCurrent()
+
+        assertEquals(
+            listOf(
+                "fast:${SyncTrigger.APP_FOREGROUND}",
+                "idle:${SyncTrigger.APP_FOREGROUND}",
+            ),
+            events
+        )
+    }
+
+    @Test
+    fun request_fastLaneRunsAfterBusyWaitTimeout() = runTest {
+        val events = mutableListOf<String>()
+        val scheduler = ForegroundSyncScheduler(
+            scope = backgroundScope,
+            awaitFastLaneStart = {},
+            runFastLaneSync = { trigger -> events += "fast:$trigger" },
+            runIdleLaneSync = { trigger -> events += "idle:$trigger" },
+            isUiBusy = { true },
+            fastLaneDelayMillis = 0L,
+            idleLaneDelayMillis = 0L,
+            fastLaneMaxBusyWaitMillis = 300L,
+            busyPollIntervalMillis = 20L,
+        )
+
+        scheduler.request(SyncTrigger.APP_FOREGROUND)
+        advanceTimeBy(299L)
+        runCurrent()
+        assertEquals(emptyList<String>(), events)
+
+        advanceTimeBy(1L)
+        runCurrent()
+        assertEquals(
+            listOf(
+                "fast:${SyncTrigger.APP_FOREGROUND}",
+                "idle:${SyncTrigger.APP_FOREGROUND}",
+            ),
+            events
+        )
+    }
 }

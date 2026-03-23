@@ -166,6 +166,18 @@ class MemosViewModel @Inject constructor(
     val syncStatus: StateFlow<SyncStatus> =
         memoService.syncStatus.stateIn(viewModelScope, SharingStarted.Eagerly, SyncStatus())
 
+    val foregroundSyncUiBusy: StateFlow<Boolean> =
+        uiInteractionGate.activeInteractions
+            .map { activeByScope ->
+                activeByScope.values.any { interactions ->
+                    interactions.any { interaction ->
+                        interaction in FOREGROUND_SYNC_BLOCKING_INTERACTIONS
+                    }
+                }
+            }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     private val projectionMemos: StateFlow<List<MemoEntity>> =
         memoService.memos
             .debounce(PROJECTION_MEMO_DEBOUNCE_MILLIS)
@@ -604,6 +616,11 @@ class MemosViewModel @Inject constructor(
         private const val PROJECTION_MEMO_DEBOUNCE_MILLIS = 64L
         private const val SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS = 300L
         private const val FEED_PROFILE_TAG = "FeedProfile"
+        private val FOREGROUND_SYNC_BLOCKING_INTERACTIONS = setOf(
+            UiInteractionType.LIST_SCROLL,
+            UiInteractionType.PULL_REFRESH,
+            UiInteractionType.DRAWER_TRANSITION,
+        )
     }
 }
 
