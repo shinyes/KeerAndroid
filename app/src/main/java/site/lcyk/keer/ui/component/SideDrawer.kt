@@ -83,10 +83,7 @@ import site.lcyk.keer.util.normalizeTagName
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import java.time.DayOfWeek
-import java.time.LocalDate
-import java.time.OffsetDateTime
 import java.time.format.TextStyle
-import java.time.temporal.ChronoUnit
 import java.time.temporal.WeekFields
 import java.util.Locale
 
@@ -109,7 +106,6 @@ fun SideDrawer(
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
     val generalSettings by userStateViewModel.generalSettings.collectAsState()
-    val currentUser = userStateViewModel.currentUser
     val drawerUiState by memosViewModel.visibleDrawerState.collectAsStateWithLifecycle()
     val joinedGroups = drawerUiState.drawerGroups
     val groupIdAliases = drawerUiState.groupIdAliases
@@ -172,12 +168,8 @@ fun SideDrawer(
             ?.let(Uri::decode)
     }
     val visibleColumns = drawerUiState.visibleColumns
-    val statsStartDate = remember(currentUser) {
-        currentUser?.startDate?.atZone(OffsetDateTime.now().offset)?.toLocalDate()
-    }
-    val today = LocalDate.now()
-    val statsDays = remember(statsStartDate, today) {
-        statsStartDate?.let { ChronoUnit.DAYS.between(it, today) } ?: 0
+    val statsDays = remember(drawerUiState.matrix) {
+        resolveDrawerStatsActiveDays(drawerUiState.matrix)
     }
     val statsText = remember(drawerUiState.matrix, drawerUiState.tags, statsDays) {
         formatDrawerStatsText(
@@ -212,60 +204,52 @@ fun SideDrawer(
                     .padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(
+                Text(
+                    text = drawerTitle,
+                    style = MaterialTheme.typography.headlineMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1.6f)
+                        .padding(start = 12.dp, end = 12.dp),
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     Text(
-                        text = drawerTitle,
-                        style = MaterialTheme.typography.headlineMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                Box(
-                    modifier = Modifier.weight(1f),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
                         text = statsText,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         textAlign = TextAlign.Center,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        overflow = TextOverflow.Clip,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                Box(
-                    modifier = Modifier.weight(1f),
-                    contentAlignment = Alignment.CenterEnd,
-                ) {
-                    IconButton(
-                        onClick = {
-                            scope.launch {
-                                memosNavController.navigateToTopLevel(RouteName.SETTINGS)
-                                onDrawerItemCloseRequested?.invoke()
-                                drawerState?.close()
-                            }
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            memosNavController.navigateToTopLevel(RouteName.SETTINGS)
+                            onDrawerItemCloseRequested?.invoke()
+                            drawerState?.close()
                         }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Settings,
-                            contentDescription = R.string.settings.string,
-                            tint = if (
-                                isSelected(RouteName.SETTINGS) ||
-                                isSelected(RouteName.CONFIG) ||
-                                isSelected(RouteName.COLUMN_CONFIG) ||
-                                isSelected(RouteName.TAG_CONFIG)
-                            ) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
                     }
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Settings,
+                        contentDescription = R.string.settings.string,
+                        tint = if (
+                            isSelected(RouteName.SETTINGS) ||
+                            isSelected(RouteName.CONFIG) ||
+                            isSelected(RouteName.COLUMN_CONFIG) ||
+                            isSelected(RouteName.TAG_CONFIG)
+                        ) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
                 }
             }
         }
@@ -760,6 +744,12 @@ fun SideDrawer(
             }
         }
     }
+}
+
+internal fun resolveDrawerStatsActiveDays(
+    matrix: List<site.lcyk.keer.data.model.DailyUsageStat>,
+): Long {
+    return matrix.count { stat -> stat.count > 0 }.toLong()
 }
 
 private val TagActionItemShape = RoundedCornerShape(12.dp)

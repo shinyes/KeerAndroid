@@ -44,4 +44,32 @@ class HeatmapScrollBehaviorTest {
             resolveHeatmapTopLabelTextWidth(monthLabel = "2月", yearLabel = "2026"),
         )
     }
+
+    @Test
+    fun shouldRenderHeatmapTopLabel_hidesPartiallyVisibleLeadingColumnLabel() {
+        assertFalse(
+            shouldRenderHeatmapTopLabel(
+                columnIndex = 10,
+                visibleIndices = setOf(10, 11, 12),
+                firstVisibleIndex = 10,
+                firstVisibleScrollOffset = 1,
+            )
+        )
+        assertTrue(
+            shouldRenderHeatmapTopLabel(
+                columnIndex = 10,
+                visibleIndices = setOf(10, 11, 12),
+                firstVisibleIndex = 10,
+                firstVisibleScrollOffset = 0,
+            )
+        )
+        assertFalse(
+            shouldRenderHeatmapTopLabel(
+                columnIndex = 9,
+                visibleIndices = setOf(10, 11, 12),
+                firstVisibleIndex = 10,
+                firstVisibleScrollOffset = 0,
+            )
+        )
+    }
 }

@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,6 +38,11 @@ fun Heatmap(
     val listState = remember(columns.size) {
         LazyListState(firstVisibleItemIndex = latestHeatmapColumnIndex(columns.size))
     }
+    val visibleIndices = listState.layoutInfo.visibleItemsInfo
+        .map { item -> item.index }
+        .toSet()
+    val firstVisibleIndex = listState.firstVisibleItemIndex
+    val firstVisibleScrollOffset = listState.firstVisibleItemScrollOffset
 
     LazyRow(
         state = listState,
@@ -50,13 +55,19 @@ fun Heatmap(
         verticalAlignment = Alignment.Bottom,
         userScrollEnabled = true,
     ) {
-        items(
+        itemsIndexed(
             items = columns,
-            key = { column -> column.weekStart },
-        ) { column ->
+            key = { _, column -> column.weekStart },
+        ) { index, column ->
             HeatmapWeekColumn(
                 column = column,
                 modifier = Modifier.fillMaxHeight(),
+                showTopLabel = shouldRenderHeatmapTopLabel(
+                    columnIndex = index,
+                    visibleIndices = visibleIndices,
+                    firstVisibleIndex = firstVisibleIndex,
+                    firstVisibleScrollOffset = firstVisibleScrollOffset,
+                ),
             )
         }
     }
@@ -66,6 +77,7 @@ fun Heatmap(
 private fun HeatmapWeekColumn(
     column: HeatmapWeekColumn,
     modifier: Modifier = Modifier,
+    showTopLabel: Boolean = true,
 ) {
     Column(
         modifier = modifier,
@@ -73,8 +85,8 @@ private fun HeatmapWeekColumn(
         verticalArrangement = Arrangement.spacedBy(HEATMAP_ROW_SPACING),
     ) {
         HeatmapTopLabel(
-            monthLabel = column.monthLabel,
-            yearLabel = column.yearLabel,
+            monthLabel = column.monthLabel.takeIf { showTopLabel },
+            yearLabel = column.yearLabel.takeIf { showTopLabel },
             modifier = Modifier
                 .size(width = HEATMAP_CELL_SIZE, height = HEATMAP_TOP_LABEL_HEIGHT),
         )
@@ -148,6 +160,21 @@ internal fun resolveHeatmapTopLabelTextWidth(
     }
 }
 
+internal fun shouldRenderHeatmapTopLabel(
+    columnIndex: Int,
+    visibleIndices: Set<Int>,
+    firstVisibleIndex: Int,
+    firstVisibleScrollOffset: Int,
+): Boolean {
+    if (columnIndex !in visibleIndices) {
+        return false
+    }
+    if (columnIndex == firstVisibleIndex && firstVisibleScrollOffset > 0) {
+        return false
+    }
+    return true
+}
+
 @Composable
 private fun HeatmapPlaceholderStat(
     modifier: Modifier = Modifier,
@@ -163,7 +190,7 @@ internal val HEATMAP_TOP_LABEL_HEIGHT = 20.dp
 internal val HEATMAP_ROW_SPACING = 2.dp
 internal val HEATMAP_COLUMN_SPACING = 2.dp
 internal val HEATMAP_CELL_SIZE = 12.dp
-internal val HEATMAP_EDGE_HORIZONTAL_PADDING = 6.dp
+internal val HEATMAP_EDGE_HORIZONTAL_PADDING = 12.dp
 internal val HEATMAP_TOP_LABEL_MONTH_ONLY_WIDTH = 30.dp
 internal val HEATMAP_TOP_LABEL_YEAR_ONLY_WIDTH = 38.dp
 internal val HEATMAP_TOP_LABEL_COMBINED_WIDTH = 56.dp
