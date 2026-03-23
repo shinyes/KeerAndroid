@@ -21,15 +21,15 @@ import site.lcyk.keer.data.local.entity.MemoEntity
 internal fun MediaPreviewPrefetchEffect(
     listState: LazyListState,
     memos: List<MemoEntity>,
-    frozen: Boolean,
+    prefetchPaused: Boolean,
     currentAccountKey: String?,
     okHttpClient: OkHttpClient,
     cacheResourceFile: suspend (String, Uri) -> ApiResponse<Unit>,
     cacheResourceThumbnail: suspend (String, Uri) -> ApiResponse<Unit>,
 ) {
     val context = LocalContext.current
-    LaunchedEffect(memos, frozen, currentAccountKey, listState, okHttpClient) {
-        if (frozen || memos.isEmpty()) {
+    LaunchedEffect(memos, prefetchPaused, currentAccountKey, listState, okHttpClient) {
+        if (prefetchPaused || memos.isEmpty()) {
             return@LaunchedEffect
         }
         launch {
@@ -67,7 +67,7 @@ internal fun MediaPreviewPrefetchEffect(
                     listState.layoutInfo.visibleItemsInfo.map { info -> info.index }
                 }
             },
-            frozen = frozen,
+            prefetchPaused = prefetchPaused,
         ) { visibleIndices, window ->
             MediaPreviewPrefetchCoordinator.prefetchMemoWindowResources(
                 context = context,
@@ -114,7 +114,7 @@ internal fun resolveFallbackPrefetchVisibleIndices(
 @OptIn(FlowPreview::class)
 internal suspend fun collectPrefetchVisibleWindows(
     visibleIndicesFlow: Flow<List<Int>>,
-    frozen: Boolean,
+    prefetchPaused: Boolean,
     onPrefetchVisibleWindow: suspend (List<Int>, PrefetchWindow) -> Unit,
 ) {
     var previousAnchorIndex: Int? = null
@@ -122,7 +122,7 @@ internal suspend fun collectPrefetchVisibleWindows(
         .distinctUntilChanged()
         .debounce(PREFETCH_VISIBLE_DEBOUNCE_MS)
         .collectLatest { visibleIndices ->
-            if (visibleIndices.isEmpty() || frozen) {
+            if (visibleIndices.isEmpty() || prefetchPaused) {
                 return@collectLatest
             }
             val currentAnchorIndex = visibleIndices.minOrNull() ?: return@collectLatest

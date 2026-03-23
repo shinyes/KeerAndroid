@@ -60,14 +60,14 @@ class MediaPreviewPrefetchEffectTest {
     }
 
     @Test
-    fun collectPrefetchVisibleWindows_skipsPrefetchWhenFrozen() = runTest {
+    fun collectPrefetchVisibleWindows_skipsPrefetchWhenPaused() = runTest {
         val emissions = MutableSharedFlow<List<Int>>(extraBufferCapacity = 4)
         val prefetched = mutableListOf<Pair<List<Int>, PrefetchWindow>>()
 
         val job = backgroundScope.launch {
             collectPrefetchVisibleWindows(
                 visibleIndicesFlow = emissions,
-                frozen = true,
+                prefetchPaused = true,
             ) { indices, window ->
                 prefetched += indices to window
             }
@@ -91,7 +91,7 @@ class MediaPreviewPrefetchEffectTest {
         val job = backgroundScope.launch {
             collectPrefetchVisibleWindows(
                 visibleIndicesFlow = emissions,
-                frozen = false,
+                prefetchPaused = false,
             ) { indices, _ ->
                 try {
                     delay(200L)

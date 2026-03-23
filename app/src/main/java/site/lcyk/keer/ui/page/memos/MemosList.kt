@@ -39,6 +39,7 @@ import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.MemoActionMenuButton
 import site.lcyk.keer.ui.component.MemoMenuAction
 import site.lcyk.keer.ui.component.MediaPreviewPrefetchEffect
+import site.lcyk.keer.ui.component.MemoPreviewWarmupEffect
 import site.lcyk.keer.ui.component.RefreshableListContainer
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
@@ -46,6 +47,7 @@ import site.lcyk.keer.ui.component.PullSyncLineIndicator
 import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.component.MemosCardActionButton
+import site.lcyk.keer.ui.component.rememberDelayedScrollFreeze
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.component.rememberMemoExtremeListState
 import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
@@ -91,7 +93,11 @@ fun MemosList(
     val scope = rememberCoroutineScope()
     val avatarImageLoader = rememberAuthorizedImageLoader()
     val mediaImageLoader = rememberMemoMediaImageLoader()
-    val effectiveFeedFrozen = feedFrozen || lazyListState.isScrollInProgress
+    val delayedScrollFreeze = rememberDelayedScrollFreeze(
+        isScrollInProgressProvider = { lazyListState.isScrollInProgress }
+    )
+    val prefetchPaused = feedFrozen || lazyListState.isScrollInProgress
+    val effectiveFeedFrozen = feedFrozen || delayedScrollFreeze
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     val sourceMemos = memos ?: visibleMemos
     val sourceMemoSnapshot = remember(sourceMemos) { sourceMemos.toList() }
@@ -182,7 +188,7 @@ fun MemosList(
     MediaPreviewPrefetchEffect(
         listState = lazyListState,
         memos = prefetchMemos,
-        frozen = effectiveFeedFrozen,
+        prefetchPaused = prefetchPaused,
         currentAccountKey = currentAccount?.accountKey(),
         okHttpClient = userStateViewModel.okHttpClient,
         cacheResourceFile = { identifier, downloadedUri ->
@@ -191,6 +197,10 @@ fun MemosList(
         cacheResourceThumbnail = { identifier, downloadedUri ->
             viewModel.cacheResourceThumbnail(identifier, downloadedUri)
         },
+    )
+    MemoPreviewWarmupEffect(
+        memos = prefetchMemos,
+        enabled = !prefetchPaused,
     )
 
     MemoFeedList(

@@ -21,7 +21,6 @@ import coil3.ImageLoader
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.MemoRepresentable
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.util.extractPreviewContent
 import site.lcyk.keer.viewmodel.LocalUserState
 import kotlin.math.ceil
 
@@ -39,7 +38,10 @@ fun MemoContent(
 ) {
     val (text, previewed) = remember(memo.content, previewMode) {
         if (previewMode) {
-            extractPreviewContent(markdownText = memo.content)
+            resolveMemoPreviewSnapshot(markdownText = memo.content)
+                .let { snapshot ->
+                    snapshot.text to snapshot.previewed
+                }
         } else {
             Pair(memo.content, false)
         }

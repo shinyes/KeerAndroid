@@ -43,12 +43,14 @@ import site.lcyk.keer.ui.component.MemoActionMenuButton
 import site.lcyk.keer.ui.component.MemoMenuAction
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.component.MediaPreviewPrefetchEffect
+import site.lcyk.keer.ui.component.MemoPreviewWarmupEffect
 import site.lcyk.keer.ui.component.PullSyncLineIndicator
 import site.lcyk.keer.ui.component.RefreshableListContainer
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
+import site.lcyk.keer.ui.component.rememberDelayedScrollFreeze
 import site.lcyk.keer.ui.component.rememberMemoExtremeListState
 import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
@@ -86,7 +88,11 @@ fun ExploreList(
     val scope = rememberCoroutineScope()
     val avatarImageLoader = rememberAuthorizedImageLoader()
     val mediaImageLoader = rememberMemoMediaImageLoader()
-    val effectiveExploreFrozen = exploreFrozen || listState.isScrollInProgress
+    val delayedScrollFreeze = rememberDelayedScrollFreeze(
+        isScrollInProgressProvider = { listState.isScrollInProgress }
+    )
+    val prefetchPaused = exploreFrozen || listState.isScrollInProgress
+    val effectiveExploreFrozen = exploreFrozen || delayedScrollFreeze
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     var editingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
     var editingContent by remember { mutableStateOf("") }
@@ -140,7 +146,7 @@ fun ExploreList(
     MediaPreviewPrefetchEffect(
         listState = listState,
         memos = prefetchMemoEntities,
-        frozen = effectiveExploreFrozen,
+        prefetchPaused = prefetchPaused,
         currentAccountKey = currentAccount?.accountKey(),
         okHttpClient = userStateViewModel.okHttpClient,
         cacheResourceFile = { identifier, downloadedUri ->
@@ -149,6 +155,10 @@ fun ExploreList(
         cacheResourceThumbnail = { identifier, downloadedUri ->
             memosViewModel.cacheResourceThumbnail(identifier, downloadedUri)
         },
+    )
+    MemoPreviewWarmupEffect(
+        memos = prefetchMemoEntities,
+        enabled = !prefetchPaused,
     )
 
     ExploreMemoFeed(
