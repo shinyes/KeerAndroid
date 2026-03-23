@@ -53,6 +53,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -80,8 +82,10 @@ import site.lcyk.keer.util.normalizeTagName
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import java.time.DayOfWeek
+import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.format.TextStyle
+import java.time.temporal.ChronoUnit
 import java.time.temporal.WeekFields
 import java.util.Locale
 
@@ -168,6 +172,20 @@ fun SideDrawer(
     val statsStartDate = remember(currentUser) {
         currentUser?.startDate?.atZone(OffsetDateTime.now().offset)?.toLocalDate()
     }
+    val today = LocalDate.now()
+    val statsDays = remember(statsStartDate, today) {
+        statsStartDate?.let { ChronoUnit.DAYS.between(it, today) } ?: 0
+    }
+    val statsText = remember(drawerUiState.matrix, drawerUiState.tags, statsDays) {
+        formatDrawerStatsText(
+            memoCount = drawerUiState.matrix.sumOf { it.count },
+            tagCount = drawerUiState.tags.size,
+            days = statsDays,
+            memoLabel = R.string.memo.string,
+            tagLabel = R.string.tag.string,
+            dayLabel = R.string.day.string,
+        )
+    }
 
     fun isSelected(route: String): Boolean {
         return currentDestination?.hierarchy?.any { it.route == route } == true
@@ -187,21 +205,27 @@ fun SideDrawer(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                    .padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = drawerTitle,
-                        style = MaterialTheme.typography.headlineMedium
-                    )
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Text(
+                    text = drawerTitle,
+                    style = MaterialTheme.typography.headlineMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    text = statsText,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
                         onClick = {
                             scope.launch {
@@ -227,13 +251,6 @@ fun SideDrawer(
                     }
                 }
             }
-        }
-        item {
-            Stats(
-                memoCount = drawerUiState.matrix.sumOf { it.count },
-                tagCount = drawerUiState.tags.size,
-                startDate = statsStartDate,
-            )
         }
 
         item {
