@@ -31,8 +31,6 @@ class HeatmapStatStyleTest {
     fun resolveHeatmapMonthStartBorderColor_choosesHigherContrastForLightCell() {
         val resolved = resolveHeatmapMonthStartBorderColor(
             cellColor = Color(0xffeaeaea),
-            onBackground = Color.White,
-            background = Color.Black,
         )
 
         assertEquals(
@@ -45,8 +43,6 @@ class HeatmapStatStyleTest {
     fun resolveHeatmapMonthStartBorderColor_choosesHigherContrastForDarkCell() {
         val resolved = resolveHeatmapMonthStartBorderColor(
             cellColor = Color(0xff216e39),
-            onBackground = Color.White,
-            background = Color.Black,
         )
 
         assertEquals(
