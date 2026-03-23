@@ -111,6 +111,10 @@ fun NavHostController.navigateToColumnConfigPage() {
     navigateSingleTop(RouteName.COLUMN_CONFIG)
 }
 
+fun NavHostController.navigateToTagConfigPage() {
+    navigateSingleTop(RouteName.TAG_CONFIG)
+}
+
 fun NavHostController.navigateToMemoInputPage(quoteMemoIdentifier: String? = null) {
     if (quoteMemoIdentifier.isNullOrBlank()) {
         navigateSingleTop(RouteName.INPUT)

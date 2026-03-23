@@ -5,6 +5,9 @@ import kotlinx.coroutines.flow.Flow
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.ExploreDrawerEntryConfig
 import site.lcyk.keer.data.model.UserGeneralSettings
+import site.lcyk.keer.data.model.withRenamedTagDrawerEntries
+import site.lcyk.keer.data.model.withTagDrawerVisibility
+import site.lcyk.keer.data.model.withoutTagDrawerEntries
 import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.ext.string
@@ -57,6 +60,39 @@ class UserGeneralSettingsRepository @Inject constructor(
         val current = readCurrentCachedGeneralSettings()
         return updateCurrentUserGeneralSettings(
             current.copy(exploreDrawerEntries = entries)
+        )
+    }
+
+    suspend fun updateTagDrawerVisibility(
+        tag: String,
+        visibleInDrawer: Boolean,
+    ): ApiResponse<UserGeneralSettings> {
+        val current = readCurrentCachedGeneralSettings()
+        return updateCurrentUserGeneralSettings(
+            current.withTagDrawerVisibility(
+                tag = tag,
+                visibleInDrawer = visibleInDrawer,
+            )
+        )
+    }
+
+    suspend fun renameTagDrawerEntries(
+        oldTag: String,
+        newTag: String,
+    ): ApiResponse<UserGeneralSettings> {
+        val current = readCurrentCachedGeneralSettings()
+        return updateCurrentUserGeneralSettings(
+            current.withRenamedTagDrawerEntries(
+                oldTag = oldTag,
+                newTag = newTag,
+            )
+        )
+    }
+
+    suspend fun removeTagDrawerEntries(tag: String): ApiResponse<UserGeneralSettings> {
+        val current = readCurrentCachedGeneralSettings()
+        return updateCurrentUserGeneralSettings(
+            current.withoutTagDrawerEntries(tag)
         )
     }
 

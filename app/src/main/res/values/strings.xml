@@ -37,6 +37,9 @@
     <string name="column_not_found">Column not found.</string>
     <string name="column_pin_requires_sync">This memo must finish syncing before it can be pinned in a column.</string>
     <string name="column_pin_update_failed">Failed to update the column pin state.</string>
+    <string name="tag_config">Tag Settings</string>
+    <string name="tag_config_hint">Toggle whether a tag appears in the drawer. Long press a tag to rename or delete it.</string>
+    <string name="no_tags_for_config">No tags yet.</string>
     <string name="tags">Tags</string>
     <string name="memo">Memo</string>
     <string name="memo_detail">Memo detail</string>

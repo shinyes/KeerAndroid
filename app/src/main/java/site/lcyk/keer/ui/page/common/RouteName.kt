@@ -4,6 +4,7 @@ object RouteName {
     const val MEMOS = "memos"
     const val COLUMN = "column"
     const val COLUMN_CONFIG = "column-config"
+    const val TAG_CONFIG = "tag-config"
     const val CONFIG = "config"
     const val SETTINGS = "settings"
     const val ADD_ACCOUNT = "add-account"

@@ -240,6 +240,16 @@ class UserStateViewModel @Inject constructor(
         )
     }
 
+    suspend fun updateTagDrawerVisibility(
+        tag: String,
+        visibleInDrawer: Boolean,
+    ): ApiResponse<UserGeneralSettings> = withContext(viewModelScope.coroutineContext) {
+        userGeneralSettingsRepository.updateTagDrawerVisibility(
+            tag = tag,
+            visibleInDrawer = visibleInDrawer,
+        )
+    }
+
     suspend fun cleanupOrphanFiles(): ApiResponse<StorageCleanupSummary> = withContext(viewModelScope.coroutineContext) {
         val remoteRepository = accountService.getRemoteRepository()
             ?: return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_admin_ops.string))

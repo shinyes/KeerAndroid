@@ -22,6 +22,7 @@ import site.lcyk.keer.ui.page.settings.ColumnConfigPage
 import site.lcyk.keer.ui.page.settings.DebugLogPage
 import site.lcyk.keer.ui.page.settings.FriendManagementPage
 import site.lcyk.keer.ui.page.settings.SettingsPage
+import site.lcyk.keer.ui.page.settings.TagConfigPage
 import site.lcyk.keer.viewmodel.LocalUserState
 
 @Composable
@@ -120,6 +121,10 @@ fun MemosNavigation(
 
         composable(RouteName.COLUMN_CONFIG) {
             ColumnConfigPage(navController = navController)
+        }
+
+        composable(RouteName.TAG_CONFIG) {
+            TagConfigPage(navController = navController)
         }
 
         composable(RouteName.DEBUG_LOGS) {

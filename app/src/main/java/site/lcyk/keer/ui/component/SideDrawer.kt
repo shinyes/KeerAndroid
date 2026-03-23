@@ -67,6 +67,7 @@ import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemoGroupType
+import site.lcyk.keer.data.model.isTagVisibleInDrawer
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
@@ -108,6 +109,7 @@ fun SideDrawer(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
+    val generalSettings by userStateViewModel.generalSettings.collectAsState()
     val currentUser = userStateViewModel.currentUser
     val drawerUiState by memosViewModel.visibleDrawerState.collectAsStateWithLifecycle()
     val joinedGroups = drawerUiState.drawerGroups
@@ -129,12 +131,13 @@ fun SideDrawer(
     var tagActionErrorMessage by remember { mutableStateOf<String?>(null) }
     var tagActionInProgress by remember { mutableStateOf(false) }
     val rawTags = drawerUiState.tags
-    val availableTags = remember(rawTags) {
+    val availableTags = remember(rawTags, generalSettings) {
         normalizeTagList(
             rawTags
                 .filterNot(::isCollaboratorTag)
                 .filterNot(::isQuoteTag)
         )
+            .filter { tag -> generalSettings.isTagVisibleInDrawer(tag) }
     }
     val tagTree = remember(availableTags) { buildTagTree(availableTags) }
     val currentSelectedTag = remember(navBackStackEntry) {
@@ -246,7 +249,8 @@ fun SideDrawer(
                         tint = if (
                             isSelected(RouteName.SETTINGS) ||
                             isSelected(RouteName.CONFIG) ||
-                            isSelected(RouteName.COLUMN_CONFIG)
+                            isSelected(RouteName.COLUMN_CONFIG) ||
+                            isSelected(RouteName.TAG_CONFIG)
                         ) {
                             MaterialTheme.colorScheme.primary
                         } else {

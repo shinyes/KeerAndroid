@@ -24,6 +24,7 @@ import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -73,6 +74,7 @@ import site.lcyk.keer.ui.page.common.navigateToAccountPage
 import site.lcyk.keer.ui.page.common.navigateToAddAccountPage
 import site.lcyk.keer.ui.page.common.navigateToColumnConfigPage
 import site.lcyk.keer.ui.page.common.navigateToDebugLogsPage
+import site.lcyk.keer.ui.page.common.navigateToTagConfigPage
 import site.lcyk.keer.ui.page.common.navigateSingleTop
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.util.resolveAvatarUrl
@@ -290,6 +292,15 @@ fun SettingsPage(
                     }
                 ) {
                     navController.navigateToColumnConfigPage()
+                }
+            }
+
+            item {
+                SettingItem(
+                    icon = Icons.Outlined.Tag,
+                    text = R.string.tag_config.string
+                ) {
+                    navController.navigateToTagConfigPage()
                 }
             }
 

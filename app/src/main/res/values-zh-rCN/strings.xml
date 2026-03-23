@@ -37,6 +37,9 @@
     <string name="column_not_found">未找到该专栏。</string>
     <string name="column_pin_requires_sync">该 MEMO 需要先完成同步后才能在专栏中置顶。</string>
     <string name="column_pin_update_failed">更新专栏置顶状态失败。</string>
+    <string name="tag_config">标签配置</string>
+    <string name="tag_config_hint">开关可控制标签是否显示在抽屉中。长按标签可重命名或删除。</string>
+    <string name="no_tags_for_config">还没有标签。</string>
     <string name="tags">标签</string>
     <string name="memo">灵感</string>
     <string name="memo_detail">详情</string>

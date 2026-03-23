@@ -377,6 +377,10 @@ class MemosViewModel @Inject constructor(
         withContext(viewModelScope.coroutineContext) {
             val response = memoService.getRepository().renameTag(oldTag, newTag)
             if (response is ApiResponse.Success) {
+                userGeneralSettingsRepository.renameTagDrawerEntries(
+                    oldTag = oldTag,
+                    newTag = newTag,
+                )
                 errorMessage = null
                 WidgetUpdater.updateWidgets(appContext)
                 triggerSyncAfterMutation()
@@ -390,6 +394,7 @@ class MemosViewModel @Inject constructor(
         withContext(viewModelScope.coroutineContext) {
             val response = memoService.getRepository().deleteTag(tag, deleteAssociatedMemos)
             if (response is ApiResponse.Success) {
+                userGeneralSettingsRepository.removeTagDrawerEntries(tag)
                 errorMessage = null
                 WidgetUpdater.updateWidgets(appContext)
                 triggerSyncAfterMutation()
