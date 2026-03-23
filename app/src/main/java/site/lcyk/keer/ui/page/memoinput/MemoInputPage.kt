@@ -13,10 +13,8 @@ import android.os.Build
 import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
-import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
 import androidx.compose.foundation.layout.imePadding
@@ -344,7 +342,7 @@ fun MemoInputPage(
         }
     }
 
-    val pickImage = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
+    val pickImage = rememberLauncherForActivityResult(OpenDocument()) { uri ->
         uri?.let { uploadResource(it) }
     }
 
@@ -456,7 +454,7 @@ fun MemoInputPage(
                     text = toggleTodoItemInText(text)
                 },
                 onPickImage = {
-                    pickImage.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
+                    pickImage.launch(arrayOf("image/*", "video/*"))
                 },
                 onPickAttachment = {
                     pickAttachment.launch(arrayOf("*/*"))

@@ -13,10 +13,8 @@ import android.os.Build
 import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
-import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
 import androidx.compose.animation.AnimatedVisibility
@@ -388,7 +386,7 @@ fun QuickMemoComposer(
         }
     }
 
-    val pickImage = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
+    val pickImage = rememberLauncherForActivityResult(OpenDocument()) { uri ->
         uri?.let(::uploadResource)
     }
 
@@ -586,7 +584,7 @@ fun QuickMemoComposer(
                             text = toggleTodoItemInText(text)
                         },
                         onPickImage = {
-                            pickImage.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
+                            pickImage.launch(arrayOf("image/*", "video/*"))
                         },
                         onPickAttachment = {
                             pickAttachment.launch(arrayOf("*/*"))
