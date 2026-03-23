@@ -197,60 +197,60 @@ fun SideDrawer(
 
     LazyColumn {
         item {
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 56.dp)
                     .padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = drawerTitle,
-                    style = MaterialTheme.typography.headlineMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                Box(
-                    modifier = Modifier
-                        .weight(1.6f)
-                        .padding(start = 12.dp, end = 12.dp),
-                    contentAlignment = Alignment.CenterStart,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = statsText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        textAlign = TextAlign.Center,
+                        text = drawerTitle,
+                        style = MaterialTheme.typography.headlineMedium,
                         maxLines = 1,
-                        overflow = TextOverflow.Clip,
-                        modifier = Modifier.fillMaxWidth(),
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
-                }
-                IconButton(
-                    onClick = {
-                        scope.launch {
-                            memosNavController.navigateToTopLevel(RouteName.SETTINGS)
-                            onDrawerItemCloseRequested?.invoke()
-                            drawerState?.close()
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                memosNavController.navigateToTopLevel(RouteName.SETTINGS)
+                                onDrawerItemCloseRequested?.invoke()
+                                drawerState?.close()
+                            }
                         }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = R.string.settings.string,
+                            tint = if (
+                                isSelected(RouteName.SETTINGS) ||
+                                isSelected(RouteName.CONFIG) ||
+                                isSelected(RouteName.COLUMN_CONFIG) ||
+                                isSelected(RouteName.TAG_CONFIG)
+                            ) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
                     }
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Settings,
-                        contentDescription = R.string.settings.string,
-                        tint = if (
-                            isSelected(RouteName.SETTINGS) ||
-                            isSelected(RouteName.CONFIG) ||
-                            isSelected(RouteName.COLUMN_CONFIG) ||
-                            isSelected(RouteName.TAG_CONFIG)
-                        ) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
                 }
+                Text(
+                    text = statsText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 88.dp)
+                        .fillMaxWidth(),
+                )
             }
         }
 
