@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
@@ -202,64 +203,56 @@ fun SideDrawer(
 
     LazyColumn {
         item {
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .heightIn(min = 56.dp)
+                    .padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 10.dp)
             ) {
-                Box(
-                    modifier = Modifier.weight(1f),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Text(
-                        text = drawerTitle,
-                        style = MaterialTheme.typography.headlineMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Box(
-                    modifier = Modifier.weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = statsText,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Box(
-                    modifier = Modifier.weight(1f),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    IconButton(
-                        onClick = {
-                            scope.launch {
-                                memosNavController.navigateToTopLevel(RouteName.SETTINGS)
-                                onDrawerItemCloseRequested?.invoke()
-                                drawerState?.close()
-                            }
+                Text(
+                    text = drawerTitle,
+                    style = MaterialTheme.typography.headlineMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .widthIn(max = 100.dp)
+                )
+                Text(
+                    text = statsText,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth()
+                        .padding(start = 90.dp, end = 70.dp)
+                )
+                IconButton(
+                    onClick = {
+                        scope.launch {
+                            memosNavController.navigateToTopLevel(RouteName.SETTINGS)
+                            onDrawerItemCloseRequested?.invoke()
+                            drawerState?.close()
                         }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Settings,
-                            contentDescription = R.string.settings.string,
-                            tint = if (
-                                isSelected(RouteName.SETTINGS) ||
-                                isSelected(RouteName.CONFIG) ||
-                                isSelected(RouteName.COLUMN_CONFIG)
-                            ) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-                        )
-                    }
+                    },
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Settings,
+                        contentDescription = R.string.settings.string,
+                        tint = if (
+                            isSelected(RouteName.SETTINGS) ||
+                            isSelected(RouteName.CONFIG) ||
+                            isSelected(RouteName.COLUMN_CONFIG)
+                        ) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
                 }
             }
         }
