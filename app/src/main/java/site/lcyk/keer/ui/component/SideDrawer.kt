@@ -257,26 +257,32 @@ fun SideDrawer(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(120.dp)
+                    .height(140.dp)
                     .padding(10.dp),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxHeight()
                         .padding(end = 5.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
+                    verticalArrangement = Arrangement.Top
                 ) {
-                    Text(weekDays[0],
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline)
-                    Text(weekDays[3],
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline)
-                    Text(weekDays[6],
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.outline)
+                    Spacer(modifier = Modifier.height(HEATMAP_TOP_LABEL_HEIGHT + HEATMAP_ROW_SPACING))
+                    Column(
+                        modifier = Modifier.fillMaxHeight(),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(weekDays[0],
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline)
+                        Text(weekDays[3],
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline)
+                        Text(weekDays[6],
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.outline)
+                    }
                 }
-                Heatmap(matrix = drawerUiState.matrix)
+                Heatmap(timeline = drawerUiState.heatmapTimeline)
             }
         }
 

@@ -38,10 +38,13 @@ import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.DailyUsageStat
+import site.lcyk.keer.data.model.HeatmapTimeline
 import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.SyncDomain
 import site.lcyk.keer.data.model.SyncStatus
+import site.lcyk.keer.data.model.buildDailyUsageMatrixFromDates
+import site.lcyk.keer.data.model.buildHeatmapTimeline
 import site.lcyk.keer.data.model.isExploreEntryVisible
 import site.lcyk.keer.data.model.toMemo
 import site.lcyk.keer.data.repository.JoinedGroupRepository
@@ -216,14 +219,18 @@ class MemosViewModel @Inject constructor(
                 )
             }
 
-        val liveMatrix = liveMemoProjection
+        val liveHeatmapData = liveMemoProjection
             .map { (latestMemos, matrixSignature, _) -> latestMemos to matrixSignature }
             .distinctUntilChangedBy { (_, matrixSignature) -> matrixSignature }
             .mapLatest { (latestMemos, _) ->
                 withContext(Dispatchers.Default) {
-                    calculateMatrix(latestMemos)
+                    val matrix = calculateMatrix(latestMemos)
+                    matrix to buildHeatmapTimeline(matrix)
                 }
             }
+
+        val liveMatrix = liveHeatmapData
+            .map { (matrix, _) -> matrix }
 
         val liveResolvedQuotes = liveMemoProjection
             .map { (latestMemos, _, quoteSignature) -> latestMemos to quoteSignature }
@@ -245,14 +252,15 @@ class MemosViewModel @Inject constructor(
         }
         val liveDrawerBaseState = combine(
             memoService.tags,
-            liveMatrix,
+            liveHeatmapData,
             joinedGroupRepository.observeJoinedGroups(),
             liveGeneralSettings,
             joinedGroupRepository.observeGroupIdAliases(),
-        ) { latestTags, latestMatrix, latestDrawerGroups, generalSettings, groupIdAliases ->
+        ) { latestTags, latestHeatmapData, latestDrawerGroups, generalSettings, groupIdAliases ->
             DrawerBaseState(
                 tags = latestTags,
-                matrix = latestMatrix,
+                matrix = latestHeatmapData.first,
+                heatmapTimeline = latestHeatmapData.second,
                 groups = latestDrawerGroups,
                 generalSettings = generalSettings,
                 groupIdAliases = groupIdAliases,
@@ -305,6 +313,7 @@ class MemosViewModel @Inject constructor(
                 DrawerUiState(
                     tags = baseState.tags,
                     matrix = baseState.matrix,
+                    heatmapTimeline = baseState.heatmapTimeline,
                     drawerGroups = visibleDrawerGroups,
                     visibleColumns = visibleColumns,
                     groupIdAliases = baseState.groupIdAliases,
@@ -491,16 +500,15 @@ class MemosViewModel @Inject constructor(
     }
 
     private fun calculateMatrix(sourceMemos: List<MemoEntity>): List<DailyUsageStat> {
-        val countMap = HashMap<LocalDate, Int>()
-
-        for (memo in sourceMemos) {
-            val date = memo.date.atZone(OffsetDateTime.now().offset).toLocalDate()
-            countMap[date] = (countMap[date] ?: 0) + 1
+        val zoneOffset = OffsetDateTime.now().offset
+        val dates = sourceMemos.map { memo ->
+            memo.date.atZone(zoneOffset).toLocalDate()
         }
-
-        return DailyUsageStat.initialMatrix.map {
-            it.copy(count = countMap[it.date] ?: 0)
-        }
+        return buildDailyUsageMatrixFromDates(
+            dates = dates,
+            today = LocalDate.now(),
+            emptyFallback = DailyUsageStat.initialMatrix,
+        )
     }
 
     private fun buildHomeMemoItems(
@@ -584,6 +592,7 @@ class MemosViewModel @Inject constructor(
 private data class DrawerBaseState(
     val tags: List<String>,
     val matrix: List<DailyUsageStat>,
+    val heatmapTimeline: HeatmapTimeline,
     val groups: List<MemoGroup>,
     val generalSettings: site.lcyk.keer.data.model.UserGeneralSettings,
     val groupIdAliases: List<site.lcyk.keer.data.model.GroupIdAlias>,
