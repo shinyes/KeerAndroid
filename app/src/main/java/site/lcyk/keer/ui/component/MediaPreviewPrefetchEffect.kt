@@ -8,10 +8,12 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalContext
 import com.skydoves.sandwich.ApiResponse
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.firstOrNull
 import okhttp3.OkHttpClient
 import site.lcyk.keer.data.local.entity.MemoEntity
 
@@ -29,6 +31,29 @@ internal fun MediaPreviewPrefetchEffect(
     LaunchedEffect(memos, frozen, currentAccountKey, listState, okHttpClient) {
         if (frozen || memos.isEmpty()) {
             return@LaunchedEffect
+        }
+        launch {
+            val initialVisibleIndices = resolveInitialPrefetchVisibleIndices(
+                immediateVisibleIndices = listState.layoutInfo.visibleItemsInfo.map { info -> info.index },
+                visibleIndicesFlow = snapshotFlow {
+                    listState.layoutInfo.visibleItemsInfo.map { info -> info.index }
+                }.distinctUntilChanged(),
+            )
+            if (initialVisibleIndices.isEmpty()) {
+                return@launch
+            }
+            val idleWindow = resolvePrefetchWindow(PrefetchDirection.IDLE)
+            MediaPreviewPrefetchCoordinator.prefetchMemoWindowResources(
+                context = context,
+                okHttpClient = okHttpClient,
+                currentAccountKey = currentAccountKey,
+                memos = memos,
+                visibleIndices = initialVisibleIndices,
+                windowAhead = idleWindow.ahead,
+                windowBehind = idleWindow.behind,
+                cacheResourceFile = cacheResourceFile,
+                cacheResourceThumbnail = cacheResourceThumbnail,
+            )
         }
         collectPrefetchVisibleWindows(
             visibleIndicesFlow = snapshotFlow {
@@ -53,6 +78,16 @@ internal fun MediaPreviewPrefetchEffect(
             )
         }
     }
+}
+
+internal suspend fun resolveInitialPrefetchVisibleIndices(
+    immediateVisibleIndices: List<Int>,
+    visibleIndicesFlow: Flow<List<Int>>,
+): List<Int> {
+    if (immediateVisibleIndices.isNotEmpty()) {
+        return immediateVisibleIndices
+    }
+    return visibleIndicesFlow.firstOrNull { indices -> indices.isNotEmpty() } ?: emptyList()
 }
 
 @OptIn(FlowPreview::class)

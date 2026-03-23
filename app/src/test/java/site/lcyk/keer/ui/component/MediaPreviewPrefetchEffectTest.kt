@@ -5,6 +5,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -15,6 +16,37 @@ import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MediaPreviewPrefetchEffectTest {
+
+    @Test
+    fun resolveInitialPrefetchVisibleIndices_returnsImmediateWhenAvailable() = runTest {
+        val resolved = resolveInitialPrefetchVisibleIndices(
+            immediateVisibleIndices = listOf(2, 3),
+            visibleIndicesFlow = flowOf(emptyList(), listOf(1, 2)),
+        )
+
+        assertEquals(listOf(2, 3), resolved)
+    }
+
+    @Test
+    fun resolveInitialPrefetchVisibleIndices_waitsForFirstNonEmptyEmission() = runTest {
+        val emissions = MutableSharedFlow<List<Int>>(extraBufferCapacity = 4)
+
+        val deferred = backgroundScope.launch {
+            val resolved = resolveInitialPrefetchVisibleIndices(
+                immediateVisibleIndices = emptyList(),
+                visibleIndicesFlow = emissions,
+            )
+            assertEquals(listOf(5, 6), resolved)
+        }
+        runCurrent()
+
+        emissions.emit(emptyList())
+        runCurrent()
+        emissions.emit(listOf(5, 6))
+        runCurrent()
+
+        deferred.join()
+    }
 
     @Test
     fun collectPrefetchVisibleWindows_skipsPrefetchWhenFrozen() = runTest {
