@@ -214,7 +214,7 @@ class SyncCoordinator @Inject constructor(
         val FULL_DOMAINS: Set<SyncDomain> = SyncDomain.entries.toSet()
 
         private const val AUTO_SYNC_INTERVAL_MILLIS = 120_000L
-        private const val FOREGROUND_SYNC_COALESCE_MILLIS = 3_000L
+        private const val FOREGROUND_SYNC_COALESCE_MILLIS = 45_000L
         private const val PENDING_SYNC_COALESCE_MILLIS = 1_500L
         private const val FAILURE_BACKOFF_BASE_MILLIS = 5_000L
         private const val FAILURE_BACKOFF_MAX_MILLIS = 120_000L

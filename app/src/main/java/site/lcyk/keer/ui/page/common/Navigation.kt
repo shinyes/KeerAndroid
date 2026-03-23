@@ -15,6 +15,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.util.Consumer
@@ -27,6 +28,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import site.lcyk.keer.MainActivity
 import site.lcyk.keer.ext.string
@@ -69,6 +72,17 @@ fun Navigation() {
             syncAfterLoad = true,
             trigger = trigger
         )
+    }
+
+    suspend fun runForegroundSyncDeferred(
+        trigger: SyncTrigger,
+        deferMillis: Long,
+    ) {
+        withFrameNanos { }
+        if (deferMillis > 0L) {
+            delay(deferMillis)
+        }
+        runForegroundSync(trigger = trigger)
     }
 
     CompositionLocalProvider(LocalRootNavController provides navController) {
@@ -228,7 +242,10 @@ fun Navigation() {
         }
         if (foregroundSyncCoordinator.requestAppStartSync()) {
             try {
-                runForegroundSync(trigger = SyncTrigger.APP_START)
+                runForegroundSyncDeferred(
+                    trigger = SyncTrigger.APP_START,
+                    deferMillis = APP_START_SYNC_DEFER_MILLIS,
+                )
             } finally {
                 foregroundSyncCoordinator.completeSync()
             }
@@ -236,22 +253,46 @@ fun Navigation() {
     }
 
     DisposableEffect(lifecycleOwner) {
+        var resumeSyncJob: Job? = null
+
+        fun cancelPendingResumeSync() {
+            val job = resumeSyncJob
+            if (job != null) {
+                job.cancel()
+                resumeSyncJob = null
+                foregroundSyncCoordinator.completeSync()
+            }
+        }
+
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 if (!foregroundSyncCoordinator.requestResumeSync()) {
                     return@LifecycleEventObserver
                 }
-                scope.launch {
+                cancelPendingResumeSync()
+                resumeSyncJob = scope.launch {
                     try {
-                        runForegroundSync(trigger = SyncTrigger.APP_FOREGROUND)
+                        runForegroundSyncDeferred(
+                            trigger = SyncTrigger.APP_FOREGROUND,
+                            deferMillis = APP_RESUME_SYNC_DEFER_MILLIS,
+                        )
                     } finally {
+                        resumeSyncJob = null
                         foregroundSyncCoordinator.completeSync()
                     }
                 }
+                return@LifecycleEventObserver
+            }
+            if (
+                event == Lifecycle.Event.ON_PAUSE ||
+                event == Lifecycle.Event.ON_STOP
+            ) {
+                cancelPendingResumeSync()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            cancelPendingResumeSync()
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
@@ -305,3 +346,6 @@ fun Navigation() {
 
 val LocalRootNavController =
     compositionLocalOf<NavHostController> { error(site.lcyk.keer.R.string.nav_host_controller_not_found.string) }
+
+private const val APP_START_SYNC_DEFER_MILLIS = 320L
+private const val APP_RESUME_SYNC_DEFER_MILLIS = 480L

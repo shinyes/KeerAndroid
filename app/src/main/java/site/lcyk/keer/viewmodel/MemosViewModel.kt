@@ -347,8 +347,8 @@ class MemosViewModel @Inject constructor(
     ) = withContext(viewModelScope.coroutineContext) {
         if (syncAfterLoad) {
             val domains = when (trigger) {
-                SyncTrigger.APP_START,
-                SyncTrigger.APP_FOREGROUND -> SyncCoordinator.FULL_DOMAINS
+                SyncTrigger.APP_START -> SyncCoordinator.FULL_DOMAINS
+                SyncTrigger.APP_FOREGROUND -> setOf(SyncDomain.MEMOS)
                 else -> setOf(SyncDomain.MEMOS)
             }
             memoService.requestSync(
