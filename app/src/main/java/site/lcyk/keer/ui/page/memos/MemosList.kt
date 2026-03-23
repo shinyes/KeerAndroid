@@ -91,6 +91,7 @@ fun MemosList(
     val scope = rememberCoroutineScope()
     val avatarImageLoader = rememberAuthorizedImageLoader()
     val mediaImageLoader = rememberMemoMediaImageLoader()
+    val effectiveFeedFrozen = feedFrozen || lazyListState.isScrollInProgress
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     val sourceMemos = memos ?: visibleMemos
     val sourceMemoSnapshot = remember(sourceMemos) { sourceMemos.toList() }
@@ -181,7 +182,7 @@ fun MemosList(
     MediaPreviewPrefetchEffect(
         listState = lazyListState,
         memos = prefetchMemos,
-        frozen = feedFrozen,
+        frozen = effectiveFeedFrozen,
         currentAccountKey = currentAccount?.accountKey(),
         okHttpClient = userStateViewModel.okHttpClient,
         cacheResourceFile = { identifier, downloadedUri ->
@@ -202,7 +203,7 @@ fun MemosList(
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
         mediaImageLoader = mediaImageLoader,
-        uiFrozen = feedFrozen,
+        uiFrozen = effectiveFeedFrozen,
         onRefresh = {
             if (viewModel.syncStatus.value.syncing) {
                 return@MemoFeedList

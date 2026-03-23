@@ -86,6 +86,7 @@ fun ExploreList(
     val scope = rememberCoroutineScope()
     val avatarImageLoader = rememberAuthorizedImageLoader()
     val mediaImageLoader = rememberMemoMediaImageLoader()
+    val effectiveExploreFrozen = exploreFrozen || listState.isScrollInProgress
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     var editingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
     var editingContent by remember { mutableStateOf("") }
@@ -139,7 +140,7 @@ fun ExploreList(
     MediaPreviewPrefetchEffect(
         listState = listState,
         memos = prefetchMemoEntities,
-        frozen = exploreFrozen,
+        frozen = effectiveExploreFrozen,
         currentAccountKey = currentAccount?.accountKey(),
         okHttpClient = userStateViewModel.okHttpClient,
         cacheResourceFile = { identifier, downloadedUri ->
@@ -158,7 +159,7 @@ fun ExploreList(
         collaboratorProfiles = collaboratorProfiles,
         avatarImageLoader = avatarImageLoader,
         mediaImageLoader = mediaImageLoader,
-        uiFrozen = exploreFrozen,
+        uiFrozen = effectiveExploreFrozen,
         accountKey = accountKey,
         resolvedQuoteMap = resolvedQuoteMap,
         currentUserId = currentUserId,

@@ -136,6 +136,7 @@ fun GroupChatPage(
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val groupTags by viewModel.groupTags.collectAsStateWithLifecycle()
     val listState = rememberMemoExtremeListState()
+    val effectiveGroupFrozen = groupFrozen || listState.isScrollInProgress
     val refreshState = rememberPullToRefreshState()
     val expandedFab by remember {
         derivedStateOf { listState.firstVisibleItemIndex == 0 }
@@ -219,7 +220,7 @@ fun GroupChatPage(
     MediaPreviewPrefetchEffect(
         listState = listState,
         memos = prefetchMemoEntities,
-        frozen = groupFrozen,
+        frozen = effectiveGroupFrozen,
         currentAccountKey = currentAccount?.accountKey(),
         okHttpClient = userStateViewModel.okHttpClient,
         cacheResourceFile = { identifier, downloadedUri ->
@@ -322,7 +323,7 @@ fun GroupChatPage(
                 collaboratorProfiles = collaboratorProfiles,
                 avatarImageLoader = avatarImageLoader,
                 mediaImageLoader = mediaImageLoader,
-                uiFrozen = groupFrozen,
+                uiFrozen = effectiveGroupFrozen,
                 resolvedQuoteMap = resolvedQuoteMap,
                 onRefresh = {
                     if (memosViewModel.syncStatus.value.syncing) {

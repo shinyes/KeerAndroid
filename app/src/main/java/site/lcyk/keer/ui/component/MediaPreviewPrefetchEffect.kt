@@ -38,6 +38,10 @@ internal fun MediaPreviewPrefetchEffect(
                 visibleIndicesFlow = snapshotFlow {
                     listState.layoutInfo.visibleItemsInfo.map { info -> info.index }
                 }.distinctUntilChanged(),
+                fallbackVisibleIndices = resolveFallbackPrefetchVisibleIndices(
+                    anchorIndex = listState.firstVisibleItemIndex,
+                    memoCount = memos.size,
+                ),
             )
             if (initialVisibleIndices.isEmpty()) {
                 return@launch
@@ -83,11 +87,28 @@ internal fun MediaPreviewPrefetchEffect(
 internal suspend fun resolveInitialPrefetchVisibleIndices(
     immediateVisibleIndices: List<Int>,
     visibleIndicesFlow: Flow<List<Int>>,
+    fallbackVisibleIndices: List<Int> = emptyList(),
 ): List<Int> {
     if (immediateVisibleIndices.isNotEmpty()) {
         return immediateVisibleIndices
     }
+    if (fallbackVisibleIndices.isNotEmpty()) {
+        return fallbackVisibleIndices
+    }
     return visibleIndicesFlow.firstOrNull { indices -> indices.isNotEmpty() } ?: emptyList()
+}
+
+internal fun resolveFallbackPrefetchVisibleIndices(
+    anchorIndex: Int,
+    memoCount: Int,
+): List<Int> {
+    if (memoCount <= 0) {
+        return emptyList()
+    }
+    val normalizedAnchor = anchorIndex.coerceAtLeast(0).coerceAtMost(memoCount - 1)
+    val endExclusive = (normalizedAnchor + PREFETCH_INITIAL_VISIBLE_FALLBACK_COUNT)
+        .coerceAtMost(memoCount)
+    return (normalizedAnchor until endExclusive).toList()
 }
 
 @OptIn(FlowPreview::class)
@@ -166,3 +187,4 @@ internal const val PREFETCH_FORWARD_WINDOW_AHEAD = 14
 internal const val PREFETCH_FORWARD_WINDOW_BEHIND = 3
 internal const val PREFETCH_BACKWARD_WINDOW_AHEAD = 5
 internal const val PREFETCH_BACKWARD_WINDOW_BEHIND = 12
+internal const val PREFETCH_INITIAL_VISIBLE_FALLBACK_COUNT = 5

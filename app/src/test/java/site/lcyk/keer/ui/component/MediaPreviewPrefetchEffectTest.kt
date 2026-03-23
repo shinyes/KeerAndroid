@@ -49,6 +49,17 @@ class MediaPreviewPrefetchEffectTest {
     }
 
     @Test
+    fun resolveInitialPrefetchVisibleIndices_usesFallbackWhenImmediateIsEmpty() = runTest {
+        val resolved = resolveInitialPrefetchVisibleIndices(
+            immediateVisibleIndices = emptyList(),
+            visibleIndicesFlow = flowOf(listOf(9, 10)),
+            fallbackVisibleIndices = listOf(2, 3, 4),
+        )
+
+        assertEquals(listOf(2, 3, 4), resolved)
+    }
+
+    @Test
     fun collectPrefetchVisibleWindows_skipsPrefetchWhenFrozen() = runTest {
         val emissions = MutableSharedFlow<List<Int>>(extraBufferCapacity = 4)
         val prefetched = mutableListOf<Pair<List<Int>, PrefetchWindow>>()
@@ -144,6 +155,22 @@ class MediaPreviewPrefetchEffectTest {
                 behind = PREFETCH_IDLE_WINDOW_BEHIND,
             ),
             resolvePrefetchWindow(PrefetchDirection.IDLE)
+        )
+    }
+
+    @Test
+    fun resolveFallbackPrefetchVisibleIndices_anchorsToCurrentIndex() {
+        assertEquals(
+            listOf(0, 1, 2, 3, 4),
+            resolveFallbackPrefetchVisibleIndices(anchorIndex = 0, memoCount = 30),
+        )
+        assertEquals(
+            listOf(27, 28, 29),
+            resolveFallbackPrefetchVisibleIndices(anchorIndex = 27, memoCount = 30),
+        )
+        assertEquals(
+            emptyList<Int>(),
+            resolveFallbackPrefetchVisibleIndices(anchorIndex = 0, memoCount = 0),
         )
     }
 }
