@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
@@ -54,9 +53,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -212,52 +212,56 @@ fun SideDrawer(
                     .heightIn(min = 56.dp)
                     .padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 10.dp)
             ) {
-                Text(
-                    text = drawerTitle,
-                    style = MaterialTheme.typography.headlineMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Row(
                     modifier = Modifier
-                        .align(Alignment.CenterStart)
-                        .widthIn(max = 100.dp)
-                )
+                        .fillMaxWidth()
+                        .align(Alignment.Center),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = drawerTitle,
+                        style = MaterialTheme.typography.headlineMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                memosNavController.navigateToTopLevel(RouteName.SETTINGS)
+                                onDrawerItemCloseRequested?.invoke()
+                                drawerState?.close()
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Settings,
+                            contentDescription = R.string.settings.string,
+                            tint = if (
+                                isSelected(RouteName.SETTINGS) ||
+                                isSelected(RouteName.CONFIG) ||
+                                isSelected(RouteName.COLUMN_CONFIG) ||
+                                isSelected(RouteName.TAG_CONFIG)
+                            ) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    }
+                }
                 Text(
                     text = statsText,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.Black,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
                     overflow = TextOverflow.Clip,
                     modifier = Modifier
                         .align(Alignment.Center)
                         .fillMaxWidth()
-                        .padding(start = 90.dp, end = 70.dp)
+                        .padding(start = 112.dp, end = 56.dp)
                 )
-                IconButton(
-                    onClick = {
-                        scope.launch {
-                            memosNavController.navigateToTopLevel(RouteName.SETTINGS)
-                            onDrawerItemCloseRequested?.invoke()
-                            drawerState?.close()
-                        }
-                    },
-                    modifier = Modifier.align(Alignment.CenterEnd)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Settings,
-                        contentDescription = R.string.settings.string,
-                        tint = if (
-                            isSelected(RouteName.SETTINGS) ||
-                            isSelected(RouteName.CONFIG) ||
-                            isSelected(RouteName.COLUMN_CONFIG) ||
-                            isSelected(RouteName.TAG_CONFIG)
-                        ) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
-                    )
-                }
             }
         }
 

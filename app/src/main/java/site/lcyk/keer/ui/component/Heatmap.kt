@@ -93,11 +93,7 @@ private fun HeatmapTopLabel(
     yearLabel: String?,
     modifier: Modifier = Modifier,
 ) {
-    val combinedLabel = when {
-        monthLabel == null -> null
-        yearLabel == null -> monthLabel
-        else -> "$yearLabel $monthLabel"
-    }
+    val combinedLabel = formatHeatmapTopLabel(monthLabel = monthLabel, yearLabel = yearLabel)
 
     Column(
         modifier = modifier,
@@ -115,6 +111,18 @@ private fun HeatmapTopLabel(
                 overflow = TextOverflow.Clip,
             )
         }
+    }
+}
+
+internal fun formatHeatmapTopLabel(
+    monthLabel: String?,
+    yearLabel: String?,
+): String? {
+    return when {
+        monthLabel == null && yearLabel == null -> null
+        monthLabel == null -> yearLabel
+        yearLabel == null -> monthLabel
+        else -> "$yearLabel $monthLabel"
     }
 }
 

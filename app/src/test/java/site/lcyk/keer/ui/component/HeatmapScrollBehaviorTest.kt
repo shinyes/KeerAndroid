@@ -20,4 +20,12 @@ class HeatmapScrollBehaviorTest {
         assertFalse(shouldAutoScrollToLatest(previousColumnCount = 10, currentColumnCount = 10))
         assertFalse(shouldAutoScrollToLatest(previousColumnCount = 3, currentColumnCount = 0))
     }
+
+    @Test
+    fun formatHeatmapTopLabel_keepsYearWhenJanuaryMonthHidden() {
+        assertEquals("2025", formatHeatmapTopLabel(monthLabel = null, yearLabel = "2025"))
+        assertEquals("Feb", formatHeatmapTopLabel(monthLabel = "Feb", yearLabel = null))
+        assertEquals("2025 Feb", formatHeatmapTopLabel(monthLabel = "Feb", yearLabel = "2025"))
+        assertEquals(null, formatHeatmapTopLabel(monthLabel = null, yearLabel = null))
+    }
 }

@@ -148,7 +148,7 @@ fun MemoImage(
                     ) ?: return@launch
 
                     val fileUri: Uri = KeerFileProvider.getFileUri(context, localFile)
-                    val mimeType = "image/*"
+                    val mimeType = resolveMimeType(resolvedResource, localFile)
                     when (val launch = prepareImageViewerLaunch(context, fileUri, mimeType)) {
                         is ImageViewerLaunch.Direct -> {
                             context.startActivity(launch.intent)
