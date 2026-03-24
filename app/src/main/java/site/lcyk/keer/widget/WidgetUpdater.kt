@@ -5,6 +5,8 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
+import kotlinx.coroutines.runBlocking
+import timber.log.Timber
 import java.util.concurrent.TimeUnit
 
 /**
@@ -31,9 +33,12 @@ object WidgetUpdater {
     ) : Worker(context, params) {
         override fun doWork(): Result {
             return try {
-                WidgetUpdateScheduler.updateAllWidgets(applicationContext)
+                runBlocking {
+                    WidgetUpdateScheduler.updateAllWidgets(applicationContext)
+                }
                 Result.success()
             } catch (e: Exception) {
+                Timber.w(e, "Widget update worker failed")
                 Result.retry()
             }
         }

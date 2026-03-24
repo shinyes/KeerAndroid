@@ -8,10 +8,8 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import timber.log.Timber
 import java.util.concurrent.TimeUnit
 
 object WidgetUpdateScheduler {
@@ -61,23 +59,22 @@ object WidgetUpdateScheduler {
                 }
                 Result.success()
             } catch (e: Exception) {
+                Timber.w(e, "Widget check worker failed")
                 Result.retry()
             }
         }
     }
 
-    fun updateAllWidgets(context: Context) {
-        runBlocking {
-            val manager = GlanceAppWidgetManager(context)
-            val memosWidgetIds = manager.getGlanceIds(KeerGlanceWidget::class.java)
-            val memoryWidgetIds = manager.getGlanceIds(MemoryGlanceWidget::class.java)
+    suspend fun updateAllWidgets(context: Context) {
+        val manager = GlanceAppWidgetManager(context)
+        val memosWidgetIds = manager.getGlanceIds(KeerGlanceWidget::class.java)
+        val memoryWidgetIds = manager.getGlanceIds(MemoryGlanceWidget::class.java)
 
-            memosWidgetIds.forEach { glanceId ->
-                KeerGlanceWidget().update(context, glanceId)
-            }
-            memoryWidgetIds.forEach { glanceId ->
-                MemoryGlanceWidget().update(context, glanceId)
-            }
+        memosWidgetIds.forEach { glanceId ->
+            KeerGlanceWidget().update(context, glanceId)
+        }
+        memoryWidgetIds.forEach { glanceId ->
+            MemoryGlanceWidget().update(context, glanceId)
         }
     }
 }
