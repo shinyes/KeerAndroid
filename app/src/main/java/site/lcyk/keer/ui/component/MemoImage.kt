@@ -253,10 +253,6 @@ private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String 
     if (!localThumbnail.isNullOrBlank()) {
         return localThumbnail
     }
-    if (!resource.encryptionMetadata.isNullOrBlank()) {
-        val local = resource.localUri?.trim().orEmpty()
-        return local
-    }
     val thumbnail = resource.thumbnailUri?.trim().orEmpty()
     if (thumbnail.isNotEmpty()) {
         return thumbnail

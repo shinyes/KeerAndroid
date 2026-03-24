@@ -73,6 +73,7 @@ fun BoxScope.PullSyncLineIndicator(
 
     LaunchedEffect(syncing) {
         if (!syncing) {
+            delay(50)
             refreshArmed = false
         }
     }
