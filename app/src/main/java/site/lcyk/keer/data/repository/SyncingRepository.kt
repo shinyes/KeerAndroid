@@ -42,6 +42,7 @@ import site.lcyk.keer.util.isValidTagName
 import site.lcyk.keer.util.normalizeTagName
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import timber.log.Timber
 import java.io.File
 import java.time.Instant
 import java.util.Base64
@@ -1803,7 +1804,8 @@ class SyncingRepository(
                 )
             )
             persistedFile
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to persist resource file for: %s", resource.filename)
             existing?.takeIf { it.length() > 0L }
         }
     }
@@ -1842,7 +1844,8 @@ class SyncingRepository(
         val thumbnailFile = existingThumbnailLocalUri(resource)?.path?.let(::File) ?: return null
         val thumbnailBytes = try {
             thumbnailFile.readBytes()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to read thumbnail file: %s", thumbnailFile.path)
             return null
         }
         if (thumbnailBytes.isEmpty() || thumbnailBytes.size > MAX_UPLOADED_THUMBNAIL_BYTES) {
@@ -1872,7 +1875,8 @@ class SyncingRepository(
                 fileStorage.deleteFile(localUri)
             }
             cachedUri.toString()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to move local file to cache for resource: %s", resource.filename)
             null
         }
     }

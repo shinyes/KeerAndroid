@@ -26,6 +26,7 @@ import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.widget.WidgetUpdater
+import timber.log.Timber
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import java.util.UUID
 import javax.inject.Inject
@@ -204,7 +205,8 @@ class MemoInputViewModel @Inject constructor(
                     cursor.getString(index)
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to query file name for URI: %s", uri)
             null
         }
     }
@@ -222,7 +224,8 @@ class MemoInputViewModel @Inject constructor(
                     cursor.getLong(index)
                 }
             } ?: -1L
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to query file size for URI: %s", uri)
             -1L
         }
     }

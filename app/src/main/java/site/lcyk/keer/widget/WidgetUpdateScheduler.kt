@@ -3,11 +3,15 @@ package site.lcyk.keer.widget
 import android.content.Context
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.Worker
+import androidx.work.WorkerParameters
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.TimeUnit
 
 object WidgetUpdateScheduler {
@@ -30,27 +34,50 @@ object WidgetUpdateScheduler {
     }
 
     fun cancelWidgetUpdatesIfNoWidgets(context: Context) {
-        CoroutineScope(Dispatchers.IO).launch {
-            val manager = GlanceAppWidgetManager(context)
-            val hasMemosWidget = manager.getGlanceIds(KeerGlanceWidget::class.java).isNotEmpty()
-            val hasMemoryWidget = manager.getGlanceIds(MemoryGlanceWidget::class.java).isNotEmpty()
+        WorkManager.getInstance(context).enqueue(
+            OneTimeWorkRequestBuilder<WidgetCheckWorker>().build()
+        )
+    }
 
-            if (!hasMemosWidget && !hasMemoryWidget) {
-                cancelWidgetUpdates(context)
+    /**
+     * Worker to check if widget updates should be cancelled
+     */
+    class WidgetCheckWorker(
+        context: Context,
+        params: WorkerParameters
+    ) : Worker(context, params) {
+        override fun doWork(): Result {
+            return try {
+                val manager = GlanceAppWidgetManager(applicationContext)
+                val hasMemosWidget = runBlocking {
+                    manager.getGlanceIds(KeerGlanceWidget::class.java).isNotEmpty()
+                }
+                val hasMemoryWidget = runBlocking {
+                    manager.getGlanceIds(MemoryGlanceWidget::class.java).isNotEmpty()
+                }
+
+                if (!hasMemosWidget && !hasMemoryWidget) {
+                    cancelWidgetUpdates(applicationContext)
+                }
+                Result.success()
+            } catch (e: Exception) {
+                Result.retry()
             }
         }
     }
 
-    suspend fun updateAllWidgets(context: Context) {
-        val manager = GlanceAppWidgetManager(context)
-        val memosWidgetIds = manager.getGlanceIds(KeerGlanceWidget::class.java)
-        val memoryWidgetIds = manager.getGlanceIds(MemoryGlanceWidget::class.java)
+    fun updateAllWidgets(context: Context) {
+        runBlocking {
+            val manager = GlanceAppWidgetManager(context)
+            val memosWidgetIds = manager.getGlanceIds(KeerGlanceWidget::class.java)
+            val memoryWidgetIds = manager.getGlanceIds(MemoryGlanceWidget::class.java)
 
-        memosWidgetIds.forEach { glanceId ->
-            KeerGlanceWidget().update(context, glanceId)
-        }
-        memoryWidgetIds.forEach { glanceId ->
-            MemoryGlanceWidget().update(context, glanceId)
+            memosWidgetIds.forEach { glanceId ->
+                KeerGlanceWidget().update(context, glanceId)
+            }
+            memoryWidgetIds.forEach { glanceId ->
+                MemoryGlanceWidget().update(context, glanceId)
+            }
         }
     }
 }

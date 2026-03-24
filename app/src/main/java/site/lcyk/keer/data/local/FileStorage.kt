@@ -13,6 +13,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.max
 import kotlin.math.roundToInt
+import timber.log.Timber
 
 @Singleton
 class FileStorage @Inject constructor(
@@ -277,7 +278,8 @@ class FileStorage @Inject constructor(
             }
 
             fallback ?: extractVideoFrame(retriever, 0L, targetSize.first, targetSize.second)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to extract video thumbnail")
             null
         } finally {
             retriever.release()
@@ -305,7 +307,8 @@ class FileStorage @Inject constructor(
             } else {
                 retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to extract frame at time %d", timeUs)
             null
         }
     }
