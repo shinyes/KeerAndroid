@@ -7,6 +7,7 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import java.io.File
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -31,7 +32,12 @@ import com.skydoves.sandwich.ApiResponse
 import coil3.ImageLoader
 import coil3.annotation.ExperimentalCoilApi
 import coil3.compose.AsyncImage
+import androidx.core.net.toUri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import kotlinx.coroutines.launch
+import site.lcyk.keer.viewmodel.MemosViewModel
 import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
@@ -147,19 +153,12 @@ fun MemoImage(
                     val resolvedResource = (liveResource as? ResourceEntity)?.let { entity ->
                         memosViewModel.getResourceById(entity.identifier) ?: liveResource
                     } ?: liveResource
-                    val localFile = resolveAttachmentFile(
+                    val localFile = resolveMemoImageResource(
                         context = context,
                         resource = resolvedResource,
                         okHttpClient = userStateViewModel.okHttpClient,
                         currentAccountKey = currentAccount?.accountKey(),
-                        cacheCanonical = { resourceIdentifier, downloadedUri ->
-                            val result = memosViewModel.cacheResourceFile(resourceIdentifier, downloadedUri)
-                            if (result is ApiResponse.Success) {
-                                memosViewModel.getResourceById(resourceIdentifier)
-                            } else {
-                                null
-                            }
-                        }
+                        memosViewModel = memosViewModel
                     ) ?: return@launch
 
                     val fileUri: Uri = KeerFileProvider.getFileUri(context, localFile)
@@ -378,4 +377,48 @@ private fun queryImageViewerOptions(
         }
         .distinctBy { it.packageName }
         .sortedBy { it.label.lowercase() }
+}
+
+/**
+ * Resolve memo image resource file, preferring thumbnail when available
+ * to avoid downloading full-resolution original unnecessarily.
+ */
+private suspend fun resolveMemoImageResource(
+    context: Context,
+    resource: ResourceRepresentable,
+    okHttpClient: OkHttpClient,
+    currentAccountKey: String?,
+    memosViewModel: MemosViewModel
+): File? {
+    // Check if we already have a local file
+    // Try to get existing local file from resource fields
+    resource.localUri?.toUri()?.takeIf { it.scheme == "file" }?.path?.let(::File)?.takeIf { it.exists() }?.let { return it }
+    
+    // For images, prefer thumbnail if available to avoid downloading full resolution
+    val thumbnailLocalUri = resource.thumbnailLocalUri
+    if (!thumbnailLocalUri.isNullOrBlank()) {
+        val thumbnailUri = thumbnailLocalUri.toUri()
+        if (thumbnailUri.scheme == "file") {
+            val thumbnailFile = File(thumbnailUri.path ?: return null)
+            if (thumbnailFile.exists()) {
+                return thumbnailFile
+            }
+        }
+    }
+    
+    // Fallback to downloading the full resolution original
+    return resolveAttachmentFile(
+        context = context,
+        resource = resource,
+        okHttpClient = okHttpClient,
+        currentAccountKey = currentAccountKey,
+        cacheCanonical = { resourceIdentifier, downloadedUri ->
+            val result = memosViewModel.cacheResourceFile(resourceIdentifier, downloadedUri)
+            if (result is ApiResponse.Success<Unit>) {
+                memosViewModel.getResourceById(resourceIdentifier)
+            } else {
+                null
+            }
+        }
+    )
 }
