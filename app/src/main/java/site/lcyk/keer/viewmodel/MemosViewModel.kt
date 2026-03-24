@@ -399,7 +399,7 @@ class MemosViewModel @Inject constructor(
     fun loadTags() = Unit
 
     suspend fun renameTag(oldTag: String, newTag: String): ApiResponse<Unit> =
-        withContext(viewModelScope.coroutineContext) {
+        withContext(Dispatchers.IO) {
             val response = memoService.getRepository().renameTag(oldTag, newTag)
             if (response is ApiResponse.Success) {
                 userGeneralSettingsRepository.renameTagDrawerEntries(
@@ -416,7 +416,7 @@ class MemosViewModel @Inject constructor(
         }
 
     suspend fun deleteTag(tag: String, deleteAssociatedMemos: Boolean): ApiResponse<Unit> =
-        withContext(viewModelScope.coroutineContext) {
+        withContext(Dispatchers.IO) {
             val response = memoService.getRepository().deleteTag(tag, deleteAssociatedMemos)
             if (response is ApiResponse.Success) {
                 userGeneralSettingsRepository.removeTagDrawerEntries(tag)
@@ -430,7 +430,7 @@ class MemosViewModel @Inject constructor(
         }
 
     suspend fun updateMemoPinned(memoIdentifier: String, pinned: Boolean) =
-        withContext(viewModelScope.coroutineContext) {
+        withContext(Dispatchers.IO) {
             memoService.getRepository().updateMemo(memoIdentifier, pinned = pinned).suspendOnSuccess {
                 WidgetUpdater.updateWidgets(appContext)
                 triggerSyncAfterMutation()
@@ -442,7 +442,7 @@ class MemosViewModel @Inject constructor(
         content: String,
         resourceList: List<ResourceEntity>?,
         visibility: MemoVisibility,
-    ): ApiResponse<MemoEntity> = withContext(viewModelScope.coroutineContext) {
+    ): ApiResponse<MemoEntity> = withContext(Dispatchers.IO) {
         memoService.getRepository().updateMemo(
             identifier = memoIdentifier,
             content = content,
@@ -454,14 +454,14 @@ class MemosViewModel @Inject constructor(
         }
     }
 
-    suspend fun archiveMemo(memoIdentifier: String) = withContext(viewModelScope.coroutineContext) {
+    suspend fun archiveMemo(memoIdentifier: String) = withContext(Dispatchers.IO) {
         memoService.getRepository().archiveMemo(memoIdentifier).suspendOnSuccess {
             WidgetUpdater.updateWidgets(appContext)
             triggerSyncAfterMutation()
         }
     }
 
-    suspend fun deleteMemo(memoIdentifier: String) = withContext(viewModelScope.coroutineContext) {
+    suspend fun deleteMemo(memoIdentifier: String) = withContext(Dispatchers.IO) {
         memoService.getRepository().deleteMemo(memoIdentifier).suspendOnSuccess {
             WidgetUpdater.updateWidgets(appContext)
             triggerSyncAfterMutation()

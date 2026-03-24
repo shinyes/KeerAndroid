@@ -156,14 +156,14 @@ class ExploreViewModel @Inject constructor(
         item: ExploreMemoItem,
         content: String,
         tags: List<String>,
-    ): Boolean {
+    ): Boolean = withContext(Dispatchers.IO) {
         val remoteRepository = accountService.getRemoteRepository() ?: run {
             _mutationErrorMessage.value = R.string.current_account_no_remote_memo_operations.string
-            return false
+            return@withContext false
         }
         val normalizedContent = content.trim()
         if (normalizedContent.isEmpty()) {
-            return false
+            return@withContext false
         }
         val normalizedTags = normalizeTagList(tags)
         val response = if (item.groupId.isNullOrBlank()) {
@@ -180,7 +180,7 @@ class ExploreViewModel @Inject constructor(
                 tags = normalizedTags,
             )
         }
-        return when (response) {
+        return@withContext when (response) {
             is ApiResponse.Success -> {
                 _mutationErrorMessage.value = null
                 enqueueExploreRefresh(item.groupId)
@@ -193,17 +193,17 @@ class ExploreViewModel @Inject constructor(
         }
     }
 
-    suspend fun deleteExploreMemo(item: ExploreMemoItem): Boolean {
+    suspend fun deleteExploreMemo(item: ExploreMemoItem): Boolean = withContext(Dispatchers.IO) {
         val remoteRepository = accountService.getRemoteRepository() ?: run {
             _mutationErrorMessage.value = R.string.current_account_no_remote_memo_operations.string
-            return false
+            return@withContext false
         }
         val response = if (item.groupId.isNullOrBlank()) {
             remoteRepository.deleteMemo(item.memo.remoteId)
         } else {
             remoteRepository.deleteGroupMessage(item.groupId, item.memo.remoteId)
         }
-        return when (response) {
+        return@withContext when (response) {
             is ApiResponse.Success -> {
                 _mutationErrorMessage.value = null
                 enqueueExploreRefresh(item.groupId)
@@ -220,7 +220,7 @@ class ExploreViewModel @Inject constructor(
         _mutationErrorMessage.value = null
     }
 
-    suspend fun refreshExploreMemos() {
+    suspend fun refreshExploreMemos() = withContext(Dispatchers.IO) {
         val refreshResponse = memoService.sync(
             force = true,
             trigger = SyncTrigger.MANUAL,

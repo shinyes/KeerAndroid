@@ -12,7 +12,12 @@ import java.time.Instant
     tableName = "memos",
     indices = [
         Index(value = ["accountKey"]),
-        Index(value = ["accountKey", "remoteId"])
+        Index(value = ["accountKey", "remoteId"]),
+        Index(value = ["accountKey", "needsSync"]),
+        Index(value = ["accountKey", "lastModified"]),
+        Index(value = ["accountKey", "lastSyncedAt"]),
+        Index(value = ["accountKey", "isDeleted", "needsSync"]),
+        Index(value = ["accountKey", "archived", "isDeleted", "pinned", "date"]),
     ]
 )
 data class MemoEntity(

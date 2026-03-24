@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.GroupIdAlias
@@ -110,7 +111,7 @@ class UserStateViewModel @Inject constructor(
         }
     }
 
-    suspend fun loadCurrentUser(): ApiResponse<User> = withContext(viewModelScope.coroutineContext) {
+    suspend fun loadCurrentUser(): ApiResponse<User> = withContext(Dispatchers.IO) {
         val response = userDirectoryRepository.loadCurrentUser()
         if (response is ApiResponse.Success) {
             memoService.requestSync(
@@ -124,11 +125,11 @@ class UserStateViewModel @Inject constructor(
 
     suspend fun loadCurrentUserIfStale(
         maxAgeMillis: Long = 30_000L
-    ) = withContext(viewModelScope.coroutineContext) {
+    ) = withContext(Dispatchers.IO) {
         userDirectoryRepository.loadCurrentUserIfStale(maxAgeMillis)
     }
 
-    suspend fun hasAnyAccount(): Boolean = withContext(viewModelScope.coroutineContext) {
+    suspend fun hasAnyAccount(): Boolean = withContext(Dispatchers.IO) {
         accountService.accounts.first().isNotEmpty()
     }
 
@@ -136,7 +137,7 @@ class UserStateViewModel @Inject constructor(
         host: String,
         username: String,
         password: String
-    ): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+    ): ApiResponse<Unit> = withContext(Dispatchers.IO) {
         try {
             when (val response = accountService.signInKeerV2WithPassword(host, username, password)) {
                 is ApiResponse.Success -> completeAuthenticatedSession()
@@ -152,7 +153,7 @@ class UserStateViewModel @Inject constructor(
         host: String,
         username: String,
         password: String,
-    ): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+    ): ApiResponse<Unit> = withContext(Dispatchers.IO) {
         try {
             when (val response = accountService.registerKeerV2WithPassword(host, username, password)) {
                 is ApiResponse.Success -> completeAuthenticatedSession()
@@ -164,20 +165,20 @@ class UserStateViewModel @Inject constructor(
         }
     }
 
-    suspend fun logout(accountKey: String) = withContext(viewModelScope.coroutineContext) {
+    suspend fun logout(accountKey: String) = withContext(Dispatchers.IO) {
         if (currentAccount.first()?.accountKey() == accountKey) {
             currentUser = null
         }
         accountService.removeAccount(accountKey)
     }
 
-    suspend fun switchAccount(accountKey: String) = withContext(viewModelScope.coroutineContext) {
+    suspend fun switchAccount(accountKey: String) = withContext(Dispatchers.IO) {
         accountService.switchAccount(accountKey)
         userGeneralSettingsRepository.refreshCurrentGeneralSettings()
         loadCurrentUser()
     }
 
-    suspend fun uploadCurrentUserAvatar(uri: Uri): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+    suspend fun uploadCurrentUserAvatar(uri: Uri): ApiResponse<Unit> = withContext(Dispatchers.IO) {
         val response = accountService.uploadCurrentUserAvatar(uri)
         if (response is ApiResponse.Success) {
             memoService.requestSync(
@@ -190,47 +191,47 @@ class UserStateViewModel @Inject constructor(
         response
     }
 
-    suspend fun refreshFriends(): ApiResponse<List<User>> = withContext(viewModelScope.coroutineContext) {
+    suspend fun refreshFriends(): ApiResponse<List<User>> = withContext(Dispatchers.IO) {
         userDirectoryRepository.refreshFriends()
     }
 
-    suspend fun addFriend(userIdentifier: String): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+    suspend fun addFriend(userIdentifier: String): ApiResponse<Unit> = withContext(Dispatchers.IO) {
         userDirectoryRepository.addFriend(userIdentifier)
     }
 
-    suspend fun removeFriend(userIdentifier: String): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+    suspend fun removeFriend(userIdentifier: String): ApiResponse<Unit> = withContext(Dispatchers.IO) {
         userDirectoryRepository.removeFriend(userIdentifier)
     }
 
     suspend fun changePassword(
         currentPassword: String,
         newPassword: String
-    ): ApiResponse<Unit> = withContext(viewModelScope.coroutineContext) {
+    ): ApiResponse<Unit> = withContext(Dispatchers.IO) {
         val remoteRepository = accountService.getRemoteRepository()
             ?: return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_password_change.string))
         remoteRepository.changePassword(currentPassword, newPassword)
     }
 
-    suspend fun refreshGeneralSettings(): ApiResponse<UserGeneralSettings> = withContext(viewModelScope.coroutineContext) {
+    suspend fun refreshGeneralSettings(): ApiResponse<UserGeneralSettings> = withContext(Dispatchers.IO) {
         userGeneralSettingsRepository.refreshCurrentGeneralSettings()
     }
 
     suspend fun updateMemoEditGesture(
         gesture: site.lcyk.keer.data.model.MemoEditGesture
-    ): ApiResponse<UserGeneralSettings> = withContext(viewModelScope.coroutineContext) {
+    ): ApiResponse<UserGeneralSettings> = withContext(Dispatchers.IO) {
         userGeneralSettingsRepository.updateMemoEditGesture(gesture)
     }
 
     suspend fun updateMemoColumns(
         columns: List<site.lcyk.keer.data.model.MemoColumnConfig>
-    ): ApiResponse<UserGeneralSettings> = withContext(viewModelScope.coroutineContext) {
+    ): ApiResponse<UserGeneralSettings> = withContext(Dispatchers.IO) {
         userGeneralSettingsRepository.updateMemoColumns(columns)
     }
 
     suspend fun updateExploreEntryVisibility(
         entryId: String,
         visibleInExplore: Boolean,
-    ): ApiResponse<UserGeneralSettings> = withContext(viewModelScope.coroutineContext) {
+    ): ApiResponse<UserGeneralSettings> = withContext(Dispatchers.IO) {
         val current = generalSettings.value
         userGeneralSettingsRepository.updateCurrentUserGeneralSettings(
             current.withExploreEntryVisibility(
@@ -243,20 +244,20 @@ class UserStateViewModel @Inject constructor(
     suspend fun updateTagDrawerVisibility(
         tag: String,
         visibleInDrawer: Boolean,
-    ): ApiResponse<UserGeneralSettings> = withContext(viewModelScope.coroutineContext) {
+    ): ApiResponse<UserGeneralSettings> = withContext(Dispatchers.IO) {
         userGeneralSettingsRepository.updateTagDrawerVisibility(
             tag = tag,
             visibleInDrawer = visibleInDrawer,
         )
     }
 
-    suspend fun cleanupOrphanFiles(): ApiResponse<StorageCleanupSummary> = withContext(viewModelScope.coroutineContext) {
+    suspend fun cleanupOrphanFiles(): ApiResponse<StorageCleanupSummary> = withContext(Dispatchers.IO) {
         val remoteRepository = accountService.getRemoteRepository()
             ?: return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_admin_ops.string))
         remoteRepository.cleanupOrphanFiles()
     }
 
-    suspend fun exportPersonalMemos(destinationUri: Uri): Result<MemoExportResult> = withContext(viewModelScope.coroutineContext) {
+    suspend fun exportPersonalMemos(destinationUri: Uri): Result<MemoExportResult> = withContext(Dispatchers.IO) {
         memoTransferMutex.withLock {
             _memoTransferTaskState.value = MemoTransferTaskState(
                 running = true,
@@ -279,7 +280,7 @@ class UserStateViewModel @Inject constructor(
         }
     }
 
-    suspend fun importPersonalMemos(sourceUri: Uri): Result<MemoImportResult> = withContext(viewModelScope.coroutineContext) {
+    suspend fun importPersonalMemos(sourceUri: Uri): Result<MemoImportResult> = withContext(Dispatchers.IO) {
         memoTransferMutex.withLock {
             _memoTransferTaskState.value = MemoTransferTaskState(
                 running = true,
@@ -314,7 +315,7 @@ class UserStateViewModel @Inject constructor(
     fun observeAccountAvatarUri(accountKey: String) =
         accountLocalSettingsStore.observeUserAvatarUri(accountKey)
 
-    suspend fun openDirectChat(userIdentifier: String): ApiResponse<MemoGroup> = withContext(viewModelScope.coroutineContext) {
+    suspend fun openDirectChat(userIdentifier: String): ApiResponse<MemoGroup> = withContext(Dispatchers.IO) {
         val remoteRepository = accountService.getRemoteRepository()
             ?: return@withContext ApiResponse.exception(IllegalStateException(R.string.current_account_no_direct_chats.string))
         when (val response = remoteRepository.createDirectGroup(userIdentifier)) {
@@ -326,7 +327,7 @@ class UserStateViewModel @Inject constructor(
         }
     }
 
-    suspend fun prefetchCollaboratorAvatars(userIds: List<String>) = withContext(viewModelScope.coroutineContext) {
+    suspend fun prefetchCollaboratorAvatars(userIds: List<String>) = withContext(Dispatchers.IO) {
         userDirectoryRepository.prefetchCollaboratorAvatars(userIds)
     }
 

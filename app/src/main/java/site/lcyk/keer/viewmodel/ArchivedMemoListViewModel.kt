@@ -11,6 +11,7 @@ import com.skydoves.sandwich.suspendOnSuccess
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.model.SyncDomain
 import site.lcyk.keer.data.service.MemoService
@@ -39,7 +40,7 @@ class ArchivedMemoListViewModel @Inject constructor(
         }
     }
 
-    suspend fun restoreMemo(identifier: String) = withContext(viewModelScope.coroutineContext) {
+    suspend fun restoreMemo(identifier: String) = withContext(Dispatchers.IO) {
         memoService.getRepository().restoreMemo(identifier).suspendOnSuccess {
             memos.removeIf { it.identifier == identifier }
             memoService.requestSync(
@@ -50,7 +51,7 @@ class ArchivedMemoListViewModel @Inject constructor(
         }
     }
 
-    suspend fun deleteMemo(identifier: String) = withContext(viewModelScope.coroutineContext) {
+    suspend fun deleteMemo(identifier: String) = withContext(Dispatchers.IO) {
         memoService.getRepository().deleteMemo(identifier).suspendOnSuccess {
             memos.removeIf { it.identifier == identifier }
             memoService.requestSync(

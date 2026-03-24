@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 16,
-    "identityHash": "895d09de6eeafd06bbe1de65c4465786",
+    "identityHash": "ec551670a54d3210157710f232d86df9",
     "entities": [
       {
         "tableName": "memos",
@@ -145,6 +145,60 @@
             ],
             "orders": [],
             "createSql": "CREATE INDEX IF NOT EXISTS `index_memos_accountKey_remoteId` ON `${TABLE_NAME}` (`accountKey`, `remoteId`)"
+          },
+          {
+            "name": "index_memos_accountKey_needsSync",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "needsSync"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memos_accountKey_needsSync` ON `${TABLE_NAME}` (`accountKey`, `needsSync`)"
+          },
+          {
+            "name": "index_memos_accountKey_lastModified",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "lastModified"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memos_accountKey_lastModified` ON `${TABLE_NAME}` (`accountKey`, `lastModified`)"
+          },
+          {
+            "name": "index_memos_accountKey_lastSyncedAt",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "lastSyncedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memos_accountKey_lastSyncedAt` ON `${TABLE_NAME}` (`accountKey`, `lastSyncedAt`)"
+          },
+          {
+            "name": "index_memos_accountKey_isDeleted_needsSync",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "isDeleted",
+              "needsSync"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memos_accountKey_isDeleted_needsSync` ON `${TABLE_NAME}` (`accountKey`, `isDeleted`, `needsSync`)"
+          },
+          {
+            "name": "index_memos_accountKey_archived_isDeleted_pinned_date",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "archived",
+              "isDeleted",
+              "pinned",
+              "date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memos_accountKey_archived_isDeleted_pinned_date` ON `${TABLE_NAME}` (`accountKey`, `archived`, `isDeleted`, `pinned`, `date`)"
           }
         ]
       },
@@ -979,7 +1033,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '895d09de6eeafd06bbe1de65c4465786')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'ec551670a54d3210157710f232d86df9')"
     ]
   }
 }

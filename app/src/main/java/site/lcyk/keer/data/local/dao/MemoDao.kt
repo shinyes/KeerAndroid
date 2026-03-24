@@ -50,6 +50,38 @@ interface MemoDao {
     @Query("SELECT * FROM memos WHERE accountKey = :accountKey")
     suspend fun getAllMemosForSync(accountKey: String): List<MemoEntity>
 
+    @Query("""
+        SELECT * FROM memos 
+        WHERE accountKey = :accountKey 
+        AND (needsSync = 1 OR isDeleted = 1 OR lastModified > :since)
+        ORDER BY lastModified ASC
+    """)
+    suspend fun getMemosForIncrementalSync(accountKey: String, since: Instant): List<MemoEntity>
+
+    @Query("""
+        SELECT * FROM memos 
+        WHERE accountKey = :accountKey 
+        AND needsSync = 1
+        ORDER BY lastModified ASC
+    """)
+    suspend fun getPendingSyncMemos(accountKey: String): List<MemoEntity>
+
+    @Query("""
+        SELECT * FROM memos 
+        WHERE accountKey = :accountKey 
+        AND isDeleted = 1
+        ORDER BY lastModified ASC
+    """)
+    suspend fun getDeletedMemos(accountKey: String): List<MemoEntity>
+
+    @Query("""
+        SELECT * FROM memos 
+        WHERE accountKey = :accountKey 
+        AND lastModified > :since
+        ORDER BY lastModified ASC
+    """)
+    suspend fun getModifiedMemosSince(accountKey: String, since: Instant): List<MemoEntity>
+
     @Query("SELECT COUNT(*) FROM memos WHERE accountKey = :accountKey AND needsSync = 1")
     suspend fun countUnsyncedMemos(accountKey: String): Int
 
@@ -59,11 +91,20 @@ interface MemoDao {
     @Query("SELECT * FROM memos WHERE remoteId = :remoteId AND accountKey = :accountKey")
     suspend fun getMemoByRemoteId(remoteId: String, accountKey: String): MemoEntity?
 
+    @Query("SELECT MAX(lastSyncedAt) FROM memos WHERE accountKey = :accountKey AND lastSyncedAt IS NOT NULL")
+    suspend fun getLastSyncTimestamp(accountKey: String): Instant?
+
     @Upsert
     suspend fun insertMemo(memo: MemoEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMemos(memos: List<MemoEntity>)
+
     @Delete
     suspend fun deleteMemo(memo: MemoEntity)
+
+    @Delete
+    suspend fun deleteMemos(memos: List<MemoEntity>)
 
     @Query("SELECT * FROM resources WHERE memoId = :memoId AND accountKey = :accountKey")
     suspend fun getMemoResources(memoId: String, accountKey: String): List<ResourceEntity>
@@ -84,8 +125,14 @@ interface MemoDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertResource(resource: ResourceEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertResources(resources: List<ResourceEntity>)
+
     @Delete
     suspend fun deleteResource(resource: ResourceEntity)
+
+    @Delete
+    suspend fun deleteResources(resources: List<ResourceEntity>)
 
     @Query("SELECT * FROM resources WHERE accountKey = :accountKey ORDER BY date DESC")
     suspend fun getAllResources(accountKey: String): List<ResourceEntity>
@@ -118,8 +165,14 @@ interface MemoDao {
     @Upsert
     suspend fun insertTag(tag: TagEntity)
 
+    @Upsert
+    suspend fun insertTags(tags: List<TagEntity>)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMemoTagCrossRef(crossRef: MemoTagCrossRef)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMemoTagCrossRefs(crossRefs: List<MemoTagCrossRef>)
 
     @Query("DELETE FROM memo_tags WHERE memoId = :memoId AND accountKey = :accountKey")
     suspend fun deleteMemoTagsForMemo(memoId: String, accountKey: String)

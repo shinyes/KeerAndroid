@@ -163,7 +163,7 @@ class GroupChatViewModel @Inject constructor(
         }
     }
 
-    suspend fun addGroupTag(groupId: String, tag: String): Boolean = withContext(viewModelScope.coroutineContext) {
+    suspend fun addGroupTag(groupId: String, tag: String): Boolean = withContext(Dispatchers.IO) {
         val normalized = tag.trim()
         if (normalized.isEmpty()) {
             return@withContext false
@@ -185,7 +185,7 @@ class GroupChatViewModel @Inject constructor(
         content: String,
         tags: List<String> = emptyList(),
         resourceIdentifiers: List<String> = emptyList()
-    ): Boolean = withContext(viewModelScope.coroutineContext) {
+    ): Boolean = withContext(Dispatchers.IO) {
         val text = content.trim()
         if (text.isEmpty() && resourceIdentifiers.isEmpty()) {
             return@withContext false

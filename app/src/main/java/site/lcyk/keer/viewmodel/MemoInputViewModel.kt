@@ -62,7 +62,7 @@ class MemoInputViewModel @Inject constructor(
         tags: List<String>,
         latitude: Double? = null,
         longitude: Double? = null
-    ): ApiResponse<MemoEntity> = withContext(viewModelScope.coroutineContext) {
+    ): ApiResponse<MemoEntity> = withContext(Dispatchers.IO) {
         val resolvedTags = normalizeTagList(tags)
         val response = memoService.getRepository().createMemo(
             content = content,
@@ -88,7 +88,7 @@ class MemoInputViewModel @Inject constructor(
         content: String,
         visibility: MemoVisibility,
         tags: List<String>
-    ): ApiResponse<MemoEntity> = withContext(viewModelScope.coroutineContext) {
+    ): ApiResponse<MemoEntity> = withContext(Dispatchers.IO) {
         val resolvedTags = normalizeTagList(tags)
         val response = memoService.getRepository().updateMemo(
             identifier,

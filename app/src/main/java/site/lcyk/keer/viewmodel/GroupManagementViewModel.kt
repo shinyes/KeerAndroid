@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemoGroup
@@ -43,7 +44,7 @@ class GroupManagementViewModel @Inject constructor(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    suspend fun refreshGroups() = withContext(viewModelScope.coroutineContext) {
+    suspend fun refreshGroups() = withContext(Dispatchers.IO) {
         _groups.value = readStoredGroups()
         _loading.value = true
         _errorMessage.value = null
@@ -56,7 +57,7 @@ class GroupManagementViewModel @Inject constructor(
         }
     }
 
-    suspend fun createGroup(name: String, description: String): Boolean = withContext(viewModelScope.coroutineContext) {
+    suspend fun createGroup(name: String, description: String): Boolean = withContext(Dispatchers.IO) {
         val normalizedName = name.trim()
         if (normalizedName.isEmpty()) {
             _errorMessage.value = R.string.group_error_name_required.string
@@ -86,7 +87,7 @@ class GroupManagementViewModel @Inject constructor(
         true
     }
 
-    suspend fun addGroupMember(groupId: String, userIdentifier: String): Boolean = withContext(viewModelScope.coroutineContext) {
+    suspend fun addGroupMember(groupId: String, userIdentifier: String): Boolean = withContext(Dispatchers.IO) {
         val normalizedGroupId = groupId.trim()
         val normalizedUserIdentifier = userIdentifier.trim()
         if (normalizedGroupId.isEmpty() || normalizedUserIdentifier.isEmpty()) {

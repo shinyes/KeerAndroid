@@ -5,7 +5,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,7 +35,10 @@ class SyncCoordinator @Inject constructor(
 
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val syncMutex = Mutex()
-    private val requestChannel = Channel<SyncRequest>(capacity = Channel.UNLIMITED)
+    private val requestFlow = MutableSharedFlow<SyncRequest>(
+        replay = 0,
+        extraBufferCapacity = 1
+    )
     private val _syncStatus = MutableStateFlow(SyncStatus())
     val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
 
@@ -75,15 +78,17 @@ class SyncCoordinator @Inject constructor(
         groupId: String? = null,
         bypassCoalesce: Boolean = false,
     ) {
-        requestChannel.trySend(
-            SyncRequest(
-                force = force,
-                trigger = trigger,
-                domains = domains,
-                groupId = groupId?.trim()?.takeIf(String::isNotBlank),
-                bypassCoalesce = bypassCoalesce,
+        syncScope.launch {
+            requestFlow.emit(
+                SyncRequest(
+                    force = force,
+                    trigger = trigger,
+                    domains = domains,
+                    groupId = groupId?.trim()?.takeIf(String::isNotBlank),
+                    bypassCoalesce = bypassCoalesce,
+                )
             )
-        )
+        }
     }
 
     suspend fun sync(
@@ -149,39 +154,14 @@ class SyncCoordinator @Inject constructor(
     }
 
     private suspend fun processSyncRequests() {
-        while (true) {
-            val first = requestChannel.receive()
-            var merged = first
-            while (true) {
-                val next = requestChannel.tryReceive().getOrNull() ?: break
-                val mergedForce = merged.force || next.force
-                val mergedTrigger = if (next.trigger.priority() >= merged.trigger.priority()) {
-                    next.trigger
-                } else {
-                    merged.trigger
-                }
-                val mergedDomains = merged.domains + next.domains
-                val mergedGroupId = mergeGroupId(
-                    current = merged.groupId,
-                    next = next.groupId,
-                    domains = mergedDomains
-                )
-                val mergedBypassCoalesce = merged.bypassCoalesce || next.bypassCoalesce
-                merged = SyncRequest(
-                    force = mergedForce,
-                    trigger = mergedTrigger,
-                    domains = mergedDomains,
-                    groupId = mergedGroupId,
-                    bypassCoalesce = mergedBypassCoalesce,
-                )
-            }
+        requestFlow.collect { request ->
             runCatching {
                 sync(
-                    force = merged.force,
-                    trigger = merged.trigger,
-                    domains = merged.domains,
-                    groupId = merged.groupId,
-                    bypassCoalesce = merged.bypassCoalesce,
+                    force = request.force,
+                    trigger = request.trigger,
+                    domains = request.domains,
+                    groupId = request.groupId,
+                    bypassCoalesce = request.bypassCoalesce,
                 )
             }
         }
