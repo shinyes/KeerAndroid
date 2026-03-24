@@ -38,6 +38,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.launch
 import site.lcyk.keer.viewmodel.MemosViewModel
+import site.lcyk.keer.data.local.FileStorage
 import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
@@ -415,10 +416,76 @@ private suspend fun resolveMemoImageResource(
         cacheCanonical = { resourceIdentifier, downloadedUri ->
             val result = memosViewModel.cacheResourceFile(resourceIdentifier, downloadedUri)
             if (result is ApiResponse.Success<Unit>) {
-                memosViewModel.getResourceById(resourceIdentifier)
+                // After downloading original, generate thumbnail if it doesn't exist
+                val updatedResource = memosViewModel.getResourceById(resourceIdentifier)
+                if (updatedResource != null && updatedResource.thumbnailLocalUri.isNullOrBlank()) {
+                    // Generate thumbnail for images and videos
+                    generateThumbnailIfNeeded(
+                        context = context,
+                        resource = updatedResource,
+                        originalFileUri = downloadedUri,
+                        memosViewModel = memosViewModel
+                    )
+                }
+                updatedResource
             } else {
                 null
             }
         }
     )
+}
+
+/**
+ * Generate thumbnail for image or video resource if thumbnail doesn't exist yet.
+ * This ensures thumbnails are created after downloading the original file.
+ */
+private suspend fun generateThumbnailIfNeeded(
+    context: Context,
+    resource: ResourceEntity,
+    originalFileUri: Uri,
+    memosViewModel: MemosViewModel
+) {
+        val mimeType = resource.mimeType
+    val isImage = mimeType?.startsWith("image", ignoreCase = true) == true
+    val isVideo = mimeType?.startsWith("video", ignoreCase = true) == true
+    
+    if (!isImage && !isVideo) {
+        return
+    }
+    
+    try {
+            val accountKey = memosViewModel.getCurrentAccountKey().orEmpty()
+        if (accountKey.isNullOrBlank()) {
+            return
+        }
+        
+        val fileStorage = FileStorage(context)
+        val thumbnailFilename = "thumb_${resource.filename}"
+        
+            val thumbnailUri: Uri? = if (isImage) {
+            fileStorage.saveImageThumbnailFromUri(
+                accountKey = accountKey,
+                sourceUri = originalFileUri,
+                filename = thumbnailFilename
+            )
+        } else {
+            // For videos, save a frame as thumbnail
+            fileStorage.saveVideoThumbnailFromUri(
+                accountKey = accountKey,
+                sourceUri = originalFileUri,
+                filename = thumbnailFilename
+            )
+        }
+        
+        if (thumbnailUri != null) {
+            // Update resource with thumbnail URI
+            memosViewModel.updateResourceThumbnail(
+                resourceIdentifier = resource.identifier,
+                thumbnailUri = thumbnailUri.toString()
+            )
+        }
+    } catch (e: Exception) {
+        // Silently fail - thumbnail generation is optional
+        Timber.w(e, "Failed to generate thumbnail for resource ${resource.identifier}")
+    }
 }

@@ -419,6 +419,28 @@ class LocalDatabaseRepository(
             ?: memoDao.getResourceByRemoteId(identifier, accountKey)
     }
 
+        override suspend fun updateResourceThumbnail(identifier: String, thumbnailUri: String): ApiResponse<Unit> {
+            return try {
+                val resource = memoDao.getResourceById(identifier, accountKey)
+                    ?: return ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
+
+                // Delete old thumbnail if exists
+                resource.thumbnailLocalUri
+                    ?.toUri()
+                    ?.takeIf { it.scheme == "file" }
+                    ?.let(fileStorage::deleteFile)
+
+                // Update with new thumbnail URI
+                memoDao.insertResource(
+                    resource.copy(thumbnailLocalUri = thumbnailUri)
+                )
+                notifyResourceRelationsChanged(resource)
+                ApiResponse.Success(Unit)
+            } catch (e: Exception) {
+                ApiResponse.Failure.Exception(e)
+            }
+        }
+
     override suspend fun deleteResource(identifier: String): ApiResponse<Unit> {
         return try {
             val resource = memoDao.getResourceById(identifier, accountKey)

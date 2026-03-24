@@ -641,6 +641,30 @@ class SyncingRepository(
             ?: memoDao.getResourceByRemoteId(identifier, accountKey)
     }
 
+        override suspend fun updateResourceThumbnail(identifier: String, thumbnailUri: String): ApiResponse<Unit> =
+            withContext(Dispatchers.IO) {
+                try {
+                    val resource = memoDao.getResourceById(identifier, accountKey)
+                        ?: return@withContext ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
+
+                    // Delete old thumbnail if exists
+                    resource.thumbnailLocalUri?.let { oldLocal ->
+                        val oldUri = oldLocal.toUri()
+                        if (oldUri.scheme == "file") {
+                            fileStorage.deleteFile(oldUri)
+                        }
+                    }
+
+                    // Update with new thumbnail URI
+                    memoDao.insertResource(
+                        resource.copy(thumbnailLocalUri = thumbnailUri)
+                    )
+                    ApiResponse.Success(Unit)
+                } catch (e: Exception) {
+                    ApiResponse.Failure.Exception(e)
+                }
+            }
+
     override suspend fun getCurrentUser(): ApiResponse<User> {
         return when (val refresh = refreshCurrentUserFromRemoteIfNeeded()) {
             is ApiResponse.Success -> ApiResponse.Success(currentUser)
