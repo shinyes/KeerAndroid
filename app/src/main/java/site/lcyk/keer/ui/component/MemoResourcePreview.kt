@@ -1,6 +1,7 @@
 package site.lcyk.keer.ui.component
 
 import android.content.Context
+import android.util.Log
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -17,6 +18,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
 import site.lcyk.keer.data.local.entity.ResourceEntity
+import site.lcyk.keer.data.local.FileStorage
 import site.lcyk.keer.data.model.ResourceRepresentable
 import site.lcyk.keer.data.security.EncryptedBlobVariant
 import site.lcyk.keer.viewmodel.LocalMemos
@@ -203,6 +205,14 @@ internal suspend fun ensureMemoImageCardPreview(
         )?.let { downloaded ->
             try {
                 cacheResourceFile(resource.identifier, downloaded.toUri())
+                if (resource.thumbnailLocalUri.isNullOrBlank()) {
+                    generateThumbnailIfNeeded(
+                        context = context,
+                        resource = resource,
+                        downloadedUri = downloaded.toUri(),
+                        currentAccountKey = currentAccountKey,
+                    )
+                }
             } finally {
                 downloaded.delete()
             }
@@ -244,6 +254,42 @@ internal suspend fun ensureMemoVideoCardPreview(
                 downloaded.delete()
             }
         }
+    }
+}
+
+
+private suspend fun generateThumbnailIfNeeded(
+    context: Context,
+    resource: ResourceEntity,
+    downloadedUri: Uri,
+    currentAccountKey: String?,
+) {
+    val mimeType = resource.mimeType?.trim()?.lowercase() ?: return
+    val accountKey = currentAccountKey?.trim()?.ifBlank { null } ?: return
+    val fileStorage = FileStorage(context)
+    val thumbnailFilename = "thumb_${resource.filename}"
+
+    val thumbnailUri = when {
+        mimeType.startsWith("image/") -> {
+            fileStorage.saveImageThumbnailFromUri(
+                accountKey = accountKey,
+                sourceUri = downloadedUri,
+                filename = thumbnailFilename,
+            )
+        }
+        mimeType.startsWith("video/") -> {
+            fileStorage.saveVideoThumbnailFromUri(
+                accountKey = accountKey,
+                sourceUri = downloadedUri,
+                filename = thumbnailFilename,
+            )
+        }
+        else -> null
+    }
+
+    thumbnailUri?.let { generatedThumb ->
+        MediaPreviewRuntimeCache.rememberPreviewUri(previewCacheKey(resource), generatedThumb.toString())
+        Log.d("MemoResourcePreview", "Generated thumbnail for ${resource.identifier}")
     }
 }
 
