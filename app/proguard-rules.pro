@@ -99,6 +99,22 @@
 #    static <1>$$serializer INSTANCE;
 #}
 
+# Timber - Remove logging in release builds
+# Keep Timber class to prevent NoClassDefFoundError
+-keep class timber.log.Timber
+-keepclassmembers class timber.log.Timber {
+    public static ** d(...);
+    public static ** e(...);
+    public static ** i(...);
+    public static ** v(...);
+    public static ** w(...);
+    public static ** wtf(...);
+}
+
+# Keep DebugTree only if needed for custom logging
+-keep class site.lcyk.keer.data.service.DebugLogTree
+-keep class site.lcyk.keer.data.service.DebugLogManager
+
 # A resource is loaded with a relative path so the package of this class must be preserved.
 -adaptresourcefilenames okhttp3/internal/publicsuffix/PublicSuffixDatabase.gz
 
