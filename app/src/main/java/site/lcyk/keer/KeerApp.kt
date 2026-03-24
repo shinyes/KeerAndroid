@@ -1,8 +1,6 @@
 package site.lcyk.keer
 
-import android.annotation.SuppressLint
 import android.app.Application
-import android.content.Context
 import dagger.hilt.android.HiltAndroidApp
 import site.lcyk.keer.data.service.DebugLogManager
 import site.lcyk.keer.data.service.DebugLogTree
@@ -15,18 +13,13 @@ class KeerApp: Application() {
     lateinit var debugLogManager: DebugLogManager
 
     companion object {
-        @SuppressLint("StaticFieldLeak")
-        lateinit var CONTEXT: Context
-    }
-
-    override fun attachBaseContext(base: Context?) {
-        super.attachBaseContext(base)
-        CONTEXT = base?.applicationContext ?: this
+        lateinit var INSTANCE: KeerApp
+            private set
     }
 
     override fun onCreate() {
         super.onCreate()
-        CONTEXT = applicationContext
+        INSTANCE = this
         if (Timber.forest().none { it is Timber.DebugTree }) {
             Timber.plant(Timber.DebugTree())
         }

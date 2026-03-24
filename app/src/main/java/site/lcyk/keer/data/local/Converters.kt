@@ -16,7 +16,13 @@ class Converters {
     }
 
     @TypeConverter
-    fun toMemoVisibility(value: String) = enumValueOf<MemoVisibility>(value)
+    fun toMemoVisibility(value: String): MemoVisibility {
+        return try {
+            enumValueOf(value)
+        } catch (e: IllegalArgumentException) {
+            MemoVisibility.PRIVATE
+        }
+    }
 
     @TypeConverter
     fun fromMemoVisibility(value: MemoVisibility) = value.name

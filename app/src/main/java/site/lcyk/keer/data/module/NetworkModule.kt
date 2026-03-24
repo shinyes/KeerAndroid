@@ -12,11 +12,13 @@ import site.lcyk.keer.data.service.DebugHttpLogInterceptor
 import java.net.CookieManager
 import java.net.CookiePolicy
 import java.util.concurrent.TimeUnit
+import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
+    @Singleton
     @Provides
     fun provideOkHttpClient(
         apiRequestMetadataInterceptor: ApiRequestMetadataInterceptor,
