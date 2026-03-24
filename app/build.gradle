@@ -32,7 +32,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 119
-        versionName = "3.11.14"
+        versionName = "3.11.15"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -54,7 +54,6 @@ android {
     buildTypes {
         debug {
             minifyEnabled false
-            debuggable true
             applicationIdSuffix ".debug"
             versionNameSuffix "-debug"
         }
