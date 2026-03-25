@@ -180,6 +180,11 @@ internal suspend fun ensureMemoImageCardPreview(
     val previewKey = previewCacheKey(resource)
     resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)?.let { localThumbnail ->
         MediaPreviewRuntimeCache.rememberPreviewUri(previewKey, localThumbnail)
+        enqueueThumbnailUploadIfRemoteMissing(
+            resource = resource,
+            localThumbnailUri = localThumbnail,
+            updateResourceThumbnail = updateResourceThumbnail,
+        )
         return PreviewEnsureResult(
             source = PreviewEnsureSource.LOCAL_THUMB,
             previewReady = true,
@@ -310,6 +315,11 @@ internal suspend fun ensureMemoVideoCardPreview(
     val previewKey = previewCacheKey(resource)
     resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)?.let { localThumbnail ->
         MediaPreviewRuntimeCache.rememberPreviewUri(previewKey, localThumbnail)
+        enqueueThumbnailUploadIfRemoteMissing(
+            resource = resource,
+            localThumbnailUri = localThumbnail,
+            updateResourceThumbnail = updateResourceThumbnail,
+        )
         return PreviewEnsureResult(
             source = PreviewEnsureSource.LOCAL_THUMB,
             previewReady = true,
@@ -423,6 +433,23 @@ internal suspend fun ensureMemoVideoCardPreview(
         mainFallbackAttempted = attemptedMainFallback,
         previewReady = generatedPreview,
     )
+}
+
+private suspend fun enqueueThumbnailUploadIfRemoteMissing(
+    resource: ResourceEntity,
+    localThumbnailUri: String,
+    updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
+) {
+    if (resource.remoteId?.trim().isNullOrEmpty()) {
+        return
+    }
+    if (!resource.thumbnailUri?.trim().isNullOrEmpty()) {
+        return
+    }
+    if (localThumbnailUri.isBlank()) {
+        return
+    }
+    updateResourceThumbnail(resource.identifier, localThumbnailUri)
 }
 
 private suspend fun generateThumbnailFromExistingLocalMainIfNeeded(

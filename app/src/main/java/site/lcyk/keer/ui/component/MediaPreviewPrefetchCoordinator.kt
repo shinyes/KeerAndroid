@@ -112,6 +112,15 @@ internal object MediaPreviewPrefetchCoordinator {
         val previewSnapshot = resolvePreviewSnapshot(resource)
         if (previewSnapshot != null) {
             MediaPreviewRuntimeCache.rememberPreviewUri(previewCacheKey(resource), previewSnapshot.uri)
+            val localThumbnail = resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)
+            val shouldUploadMissingRemoteThumbnail = !localThumbnail.isNullOrBlank() &&
+                resource.remoteId?.trim().isNullOrEmpty().not() &&
+                resource.thumbnailUri?.trim().isNullOrEmpty()
+            if (shouldUploadMissingRemoteThumbnail) {
+                writeSemaphore.withPermit {
+                    updateResourceThumbnail(resource.identifier, localThumbnail)
+                }
+            }
             val shouldBackfillFromLocalMain = previewSnapshot.source == "local_main" &&
                 resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri).isNullOrBlank() &&
                 resource.thumbnailUri?.trim().isNullOrEmpty()
