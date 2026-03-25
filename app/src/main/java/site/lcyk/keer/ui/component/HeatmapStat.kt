@@ -56,26 +56,22 @@ fun HeatmapStat(
         else -> Color(0xff216e39)
     }
     
-    // For month start days, override with low-saturation orange
-    val cellColor = if (isMonthStart) {
-        HeatmapMonthStartOrange
-    } else {
-        baseColor
-    }
+    // Month-start markers should keep normal heat intensity fill.
+    val cellColor = baseColor
     
     // Border configuration
     val borderWidth = when {
-        isToday -> HEATMAP_TODAY_BORDER_WIDTH
         isMonthStart -> HEATMAP_MONTH_START_BORDER_WIDTH
+        isToday -> HEATMAP_TODAY_BORDER_WIDTH
         else -> 0.dp
     }
     
     val borderColor = when {
-        isToday -> MaterialTheme.colorScheme.primary
         isMonthStart -> resolveHeatmapMonthStartBorderColor(
             isDarkTheme = isDarkTheme,
             baseColor = HeatmapMonthStartOrange
         )
+        isToday -> MaterialTheme.colorScheme.primary
         else -> Color.Transparent
     }
     
