@@ -166,6 +166,12 @@ interface KeerV2Api {
     @POST("api/v1/attachments")
     suspend fun createResource(@Body body: CreateResourceRequest): ApiResponse<KeerV2Resource>
 
+    @POST("api/v1/attachments/{id}/thumbnail")
+    suspend fun updateResourceThumbnail(
+        @Path("id") resourceId: String,
+        @Body body: UpdateResourceThumbnailRequest
+    ): ApiResponse<KeerV2Resource>
+
     @DELETE("api/v1/attachments/{id}")
     suspend fun deleteResource(@Path("id") resourceId: String): ApiResponse<Unit>
 
@@ -506,6 +512,14 @@ data class CreateResourceRequest(
 )
 
 @Serializable
+data class UpdateResourceThumbnailRequest(
+    val filename: String,
+    val type: String,
+    val content: String,
+    val thumbnailBlobEncryption: String? = null,
+)
+
+@Serializable
 data class KeerV2Memo(
     val name: String,
     val state: KeerV2State? = null,
@@ -580,10 +594,16 @@ data class KeerV2Resource(
             return directLink.toUri()
         }
         val resolvedName = thumbnailName?.trim().orEmpty()
-        val resolvedFilename = thumbnailFilename?.trim().orEmpty()
-        if (resolvedName.isEmpty() || resolvedFilename.isEmpty()) {
+        if (resolvedName.isEmpty()) {
             return null
         }
+        val resolvedFilename = thumbnailFilename
+            ?.trim()
+            ?.ifEmpty { null }
+            ?: filename
+                ?.trim()
+                ?.ifEmpty { null }
+            ?: "thumbnail"
         return host.toUri()
             .buildUpon()
             .appendPath("file")

@@ -42,6 +42,7 @@ import site.lcyk.keer.data.api.UpdateUserSettingRequest
 import site.lcyk.keer.data.api.UpdateGroupMessageRequest
 import site.lcyk.keer.data.api.UpdateMemoRequest
 import site.lcyk.keer.data.api.UpdateGroupRequest
+import site.lcyk.keer.data.api.UpdateResourceThumbnailRequest
 import site.lcyk.keer.data.constant.KeerException
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.GroupMember
@@ -1927,6 +1928,65 @@ class KeerV2Repository(
             "$stage failed: $message"
         }
         return ApiResponse.Failure.Exception(IllegalStateException(fullMessage, throwable))
+    }
+
+    override suspend fun updateResourceThumbnail(
+        remoteId: String,
+        thumbnailFile: File,
+        encryptionMetadata: String?
+    ): ApiResponse<Resource> = withContext(Dispatchers.IO) {
+        if (!thumbnailFile.exists() || !thumbnailFile.isFile) {
+            return@withContext failure("update thumbnail", "thumbnail file missing")
+        }
+        val thumbnailBytes = runCatching { thumbnailFile.readBytes() }.getOrElse { throwable ->
+            return@withContext failure("update thumbnail", "read thumbnail file failed", throwable)
+        }
+        if (thumbnailBytes.isEmpty()) {
+            return@withContext failure("update thumbnail", "thumbnail file is empty")
+        }
+
+        val plainThumbnailBase64 = java.util.Base64.getEncoder().encodeToString(thumbnailBytes)
+        val rawMetadata = encryptionMetadata?.trim().orEmpty()
+        val parsedMetadata = AttachmentEncryptionManager.parseMetadata(rawMetadata)
+
+        val uploadFilename: String
+        val uploadType: String
+        val uploadContent: String
+        val thumbnailBlobEncryption: String?
+
+        if (parsedMetadata != null) {
+            val prepared = attachmentEncryptionManager.prepareEncryptedThumbnailForExistingAttachment(
+                accountKey = account.accountKey(),
+                rawMetadata = rawMetadata,
+                thumbnailFilename = encryptedThumbnailFilename,
+                thumbnailContent = plainThumbnailBase64,
+            ) ?: return@withContext failure(
+                "update thumbnail",
+                "prepare encrypted thumbnail failed"
+            )
+            uploadFilename = prepared.thumbnail.filename
+            uploadType = prepared.thumbnail.type
+            uploadContent = prepared.thumbnail.content
+            thumbnailBlobEncryption = uploadJson.encodeToString(
+                EncryptedBlobMetadata.serializer(),
+                prepared.blobMetadata,
+            )
+        } else {
+            uploadFilename = thumbnailFile.name.ifBlank { "thumbnail.jpg" }
+            uploadType = "image/jpeg"
+            uploadContent = plainThumbnailBase64
+            thumbnailBlobEncryption = null
+        }
+
+        memosApi.updateResourceThumbnail(
+            resourceId = getId(remoteId),
+            body = UpdateResourceThumbnailRequest(
+                filename = uploadFilename,
+                type = uploadType,
+                content = uploadContent,
+                thumbnailBlobEncryption = thumbnailBlobEncryption,
+            )
+        ).mapSuccess { convertResource(this) }
     }
 
     override suspend fun deleteResource(remoteId: String): ApiResponse<Unit> {

@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -89,6 +90,7 @@ class SyncingRepository(
     private var pendingDetailedSyncError: String? = null
     private val _syncStatus = MutableStateFlow(SyncStatus())
     private val syncApplyPipeline = SyncApplyPipeline(SYNC_APPLY_CHUNK_SIZE)
+    private val thumbnailUploadScheduler = ThumbnailUploadTaskScheduler()
     override val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
 
     init {
@@ -641,29 +643,38 @@ class SyncingRepository(
             ?: memoDao.getResourceByRemoteId(identifier, accountKey)
     }
 
-        override suspend fun updateResourceThumbnail(identifier: String, thumbnailUri: String): ApiResponse<Unit> =
-            withContext(Dispatchers.IO) {
-                try {
-                    val resource = memoDao.getResourceById(identifier, accountKey)
-                        ?: return@withContext ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
+    override suspend fun updateResourceThumbnail(identifier: String, thumbnailUri: String): ApiResponse<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val resource = memoDao.getResourceById(identifier, accountKey)
+                    ?: memoDao.getResourceByRemoteId(identifier, accountKey)
+                    ?: return@withContext ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
 
-                    // Delete old thumbnail if exists
+                val normalizedThumbnailUri = thumbnailUri.trim()
+                if (normalizedThumbnailUri.isEmpty()) {
+                    return@withContext ApiResponse.Failure.Exception(Exception("thumbnail uri is empty"))
+                }
+
+                if (resource.thumbnailLocalUri != normalizedThumbnailUri) {
                     resource.thumbnailLocalUri?.let { oldLocal ->
                         val oldUri = oldLocal.toUri()
                         if (oldUri.scheme == "file") {
                             fileStorage.deleteFile(oldUri)
                         }
                     }
-
-                    // Update with new thumbnail URI
-                    memoDao.insertResource(
-                        resource.copy(thumbnailLocalUri = thumbnailUri)
-                    )
-                    ApiResponse.Success(Unit)
-                } catch (e: Exception) {
-                    ApiResponse.Failure.Exception(e)
                 }
+
+                val updated = resource.copy(thumbnailLocalUri = normalizedThumbnailUri)
+                memoDao.insertResource(updated)
+
+                if (!updated.remoteId.isNullOrBlank()) {
+                    enqueueResourceThumbnailUpload(updated.identifier)
+                }
+                ApiResponse.Success(Unit)
+            } catch (e: Exception) {
+                ApiResponse.Failure.Exception(e)
             }
+        }
 
     override suspend fun getCurrentUser(): ApiResponse<User> {
         return when (val refresh = refreshCurrentUserFromRemoteIfNeeded()) {
@@ -1883,6 +1894,97 @@ class SyncingRepository(
         )
     }
 
+    private fun enqueueResourceThumbnailUpload(resourceIdentifier: String) {
+        if (!thumbnailUploadScheduler.enqueue(resourceIdentifier)) {
+            return
+        }
+        operationScope.launch {
+            processResourceThumbnailUploads(resourceIdentifier)
+        }
+    }
+
+    private suspend fun processResourceThumbnailUploads(resourceIdentifier: String) {
+        while (thumbnailUploadScheduler.takePending(resourceIdentifier)) {
+            uploadResourceThumbnailWithRetry(resourceIdentifier)
+        }
+        if (thumbnailUploadScheduler.finishAndShouldRestart(resourceIdentifier)) {
+            operationScope.launch {
+                processResourceThumbnailUploads(resourceIdentifier)
+            }
+        }
+    }
+
+    private suspend fun uploadResourceThumbnailWithRetry(resourceIdentifier: String) {
+        var attempt = 1
+        while (attempt <= THUMBNAIL_UPLOAD_MAX_RETRY_COUNT) {
+            if (uploadResourceThumbnailOnce(resourceIdentifier)) {
+                return
+            }
+            if (attempt < THUMBNAIL_UPLOAD_MAX_RETRY_COUNT) {
+                delay(thumbnailUploadRetryDelayMillis(attempt))
+            }
+            attempt += 1
+        }
+    }
+
+    private suspend fun uploadResourceThumbnailOnce(resourceIdentifier: String): Boolean {
+        val resource = memoDao.getResourceById(resourceIdentifier, accountKey) ?: return true
+        val remoteId = resource.remoteId?.trim().orEmpty()
+        if (remoteId.isEmpty()) {
+            return true
+        }
+        val thumbnailLocalUri = existingThumbnailLocalUri(resource) ?: return true
+        val thumbnailFilePath = thumbnailLocalUri.path?.trim().orEmpty()
+        if (thumbnailFilePath.isEmpty()) {
+            return true
+        }
+        val thumbnailFile = File(thumbnailFilePath)
+        if (!thumbnailFile.exists() || !thumbnailFile.isFile || thumbnailFile.length() <= 0L) {
+            return true
+        }
+
+        return when (val response = remoteRepository.updateResourceThumbnail(
+            remoteId = remoteId,
+            thumbnailFile = thumbnailFile,
+            encryptionMetadata = resource.encryptionMetadata,
+        )) {
+            is ApiResponse.Success -> {
+                val remoteResource = response.data
+                memoDao.insertResource(
+                    resource.copy(
+                        remoteId = remoteResource.remoteId.takeIf { it.isNotBlank() } ?: resource.remoteId,
+                        encryptionMetadata = remoteResource.encryptionMetadata ?: resource.encryptionMetadata,
+                        thumbnailUri = remoteResource.thumbnailUri ?: resource.thumbnailUri,
+                        thumbnailLocalUri = resource.thumbnailLocalUri,
+                    )
+                )
+                true
+            }
+            is ApiResponse.Failure.Error -> {
+                Timber.w(
+                    "Thumbnail upload failed for resource %s: HTTP %s",
+                    resource.identifier,
+                    response.statusCode.code
+                )
+                false
+            }
+            is ApiResponse.Failure.Exception -> {
+                Timber.w(
+                    response.throwable,
+                    "Thumbnail upload failed for resource %s",
+                    resource.identifier
+                )
+                false
+            }
+        }
+    }
+
+    private fun thumbnailUploadRetryDelayMillis(attempt: Int): Long {
+        val safeAttempt = attempt.coerceAtLeast(1)
+        val factor = 1L shl (safeAttempt - 1).coerceAtMost(6)
+        return THUMBNAIL_UPLOAD_BASE_RETRY_DELAY_MILLIS * factor
+    }
+
     private fun moveLocalFileToCache(resource: ResourceEntity, sourceFile: File): String? {
         if (!sourceFile.exists()) {
             return null
@@ -1955,6 +2057,8 @@ class SyncingRepository(
         private const val PULL_SYNC_MEMO_PAGE_SIZE = 120
         private const val MAX_PULL_SYNC_PAGES_PER_SESSION = 20
         private const val SYNC_APPLY_CHUNK_SIZE = 24
+        private const val THUMBNAIL_UPLOAD_MAX_RETRY_COUNT = 3
+        private const val THUMBNAIL_UPLOAD_BASE_RETRY_DELAY_MILLIS = 800L
     }
 
 }
@@ -1977,4 +2081,34 @@ private fun renameTagWithPrefix(tag: String, oldPrefix: String, newPrefix: Strin
 
 private fun matchesTagOrDescendant(tag: String, rootTag: String): Boolean {
     return tag == rootTag || tag.startsWith("$rootTag/")
+}
+
+internal class ThumbnailUploadTaskScheduler {
+    private val lock = Any()
+    private val pending = mutableSetOf<String>()
+    private val running = mutableSetOf<String>()
+
+    fun enqueue(resourceIdentifier: String): Boolean = synchronized(lock) {
+        pending += resourceIdentifier
+        if (resourceIdentifier in running) {
+            false
+        } else {
+            running += resourceIdentifier
+            true
+        }
+    }
+
+    fun takePending(resourceIdentifier: String): Boolean = synchronized(lock) {
+        pending.remove(resourceIdentifier)
+    }
+
+    fun finishAndShouldRestart(resourceIdentifier: String): Boolean = synchronized(lock) {
+        running -= resourceIdentifier
+        if (resourceIdentifier in pending) {
+            running += resourceIdentifier
+            true
+        } else {
+            false
+        }
+    }
 }

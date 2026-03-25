@@ -180,6 +180,12 @@ abstract class RemoteRepository {
         onProgress: (uploadedBytes: Long, totalBytes: Long) -> Unit = { _, _ -> }
     ): ApiResponse<Resource>
 
+    abstract suspend fun updateResourceThumbnail(
+        remoteId: String,
+        thumbnailFile: File,
+        encryptionMetadata: String?
+    ): ApiResponse<Resource>
+
     abstract suspend fun deleteResource(remoteId: String): ApiResponse<Unit>
     abstract suspend fun getCurrentUser(): ApiResponse<User>
 

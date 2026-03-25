@@ -34,6 +34,7 @@ internal object MediaPreviewPrefetchCoordinator {
         windowBehind: Int = PREFETCH_WINDOW_BEHIND,
         cacheResourceFile: suspend (String, Uri) -> ApiResponse<Unit>,
         cacheResourceThumbnail: suspend (String, Uri) -> ApiResponse<Unit>,
+        updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
     ) {
         if (memos.isEmpty() || visibleIndices.isEmpty()) {
             return
@@ -51,6 +52,7 @@ internal object MediaPreviewPrefetchCoordinator {
             resources = resources,
             cacheResourceFile = cacheResourceFile,
             cacheResourceThumbnail = cacheResourceThumbnail,
+            updateResourceThumbnail = updateResourceThumbnail,
         )
     }
 
@@ -61,6 +63,7 @@ internal object MediaPreviewPrefetchCoordinator {
         resources: List<ResourceEntity>,
         cacheResourceFile: suspend (String, Uri) -> ApiResponse<Unit>,
         cacheResourceThumbnail: suspend (String, Uri) -> ApiResponse<Unit>,
+        updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
     ) {
         if (resources.isEmpty()) {
             return
@@ -75,6 +78,7 @@ internal object MediaPreviewPrefetchCoordinator {
                         resource = resource,
                         cacheResourceFile = cacheResourceFile,
                         cacheResourceThumbnail = cacheResourceThumbnail,
+                        updateResourceThumbnail = updateResourceThumbnail,
                     )
                 }
             }
@@ -88,6 +92,7 @@ internal object MediaPreviewPrefetchCoordinator {
         resource: ResourceEntity,
         cacheResourceFile: suspend (String, Uri) -> ApiResponse<Unit>,
         cacheResourceThumbnail: suspend (String, Uri) -> ApiResponse<Unit>,
+        updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
     ) {
         if (!resource.isMediaResource()) {
             return
@@ -124,6 +129,11 @@ internal object MediaPreviewPrefetchCoordinator {
                                         cacheResourceThumbnail(identifier, downloadedUri)
                                     }
                                 },
+                                updateResourceThumbnail = { identifier, localThumbnailUri ->
+                                    writeSemaphore.withPermit {
+                                        updateResourceThumbnail(identifier, localThumbnailUri)
+                                    }
+                                },
                             )
                         }
                         else -> {
@@ -140,6 +150,11 @@ internal object MediaPreviewPrefetchCoordinator {
                                 cacheResourceThumbnail = { identifier, downloadedUri ->
                                     writeSemaphore.withPermit {
                                         cacheResourceThumbnail(identifier, downloadedUri)
+                                    }
+                                },
+                                updateResourceThumbnail = { identifier, localThumbnailUri ->
+                                    writeSemaphore.withPermit {
+                                        updateResourceThumbnail(identifier, localThumbnailUri)
                                     }
                                 },
                             )

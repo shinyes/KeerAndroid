@@ -23,6 +23,7 @@ import site.lcyk.keer.data.model.ResourceRepresentable
 import site.lcyk.keer.data.security.EncryptedBlobVariant
 import site.lcyk.keer.viewmodel.LocalMemos
 import java.io.File
+import java.util.UUID
 
 internal data class ObservedMemoResource(
     val resource: ResourceRepresentable,
@@ -152,6 +153,7 @@ internal suspend fun ensureMemoImageCardPreview(
     currentAccountKey: String?,
     cacheResourceFile: suspend (String, Uri) -> ApiResponse<Unit>,
     cacheResourceThumbnail: suspend (String, Uri) -> ApiResponse<Unit>,
+    updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
 ) {
     val previewKey = previewCacheKey(resource)
     resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)?.let { localThumbnail ->
@@ -205,12 +207,21 @@ internal suspend fun ensureMemoImageCardPreview(
         )?.let { downloaded ->
             try {
                 cacheResourceFile(resource.identifier, downloaded.toUri())
-                if (resource.thumbnailLocalUri.isNullOrBlank()) {
+                val generatedThumbnailUri = if (resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri).isNullOrBlank()) {
                     generateThumbnailIfNeeded(
                         context = context,
                         resource = resource,
                         downloadedUri = downloaded.toUri(),
                         currentAccountKey = currentAccountKey,
+                    )
+                } else {
+                    null
+                }
+                if (generatedThumbnailUri != null) {
+                    persistGeneratedThumbnail(
+                        resource = resource,
+                        generatedThumbnailUri = generatedThumbnailUri,
+                        updateResourceThumbnail = updateResourceThumbnail,
                     )
                 }
             } finally {
@@ -226,6 +237,7 @@ internal suspend fun ensureMemoVideoCardPreview(
     resource: ResourceEntity,
     currentAccountKey: String?,
     cacheResourceThumbnail: suspend (String, Uri) -> ApiResponse<Unit>,
+    updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
 ) {
     val previewKey = previewCacheKey(resource)
     resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)?.let { localThumbnail ->
@@ -233,23 +245,63 @@ internal suspend fun ensureMemoVideoCardPreview(
         return
     }
     val remoteThumbnail = resource.thumbnailUri?.trim().orEmpty()
-    if (!remoteThumbnail.isHttpUrl()) {
+    if (remoteThumbnail.isHttpUrl()) {
+        MemoResourcePreviewLoader.run("thumb:${resource.identifier}") {
+            downloadResourceVariantToTemp(
+                context = context,
+                okHttpClient = okHttpClient,
+                resource = resource,
+                accountKey = resolveResourceAccountKey(resource, currentAccountKey),
+                url = remoteThumbnail,
+                filename = resource.filename,
+                variant = EncryptedBlobVariant.THUMBNAIL,
+                cacheDirName = "thumbnail_cache",
+                prefix = "video_thumb_",
+            )?.let { downloaded ->
+                try {
+                    cacheResourceThumbnail(resource.identifier, downloaded.toUri())
+                } finally {
+                    downloaded.delete()
+                }
+            }
+        }
         return
     }
-    MemoResourcePreviewLoader.run("thumb:${resource.identifier}") {
+
+    val remoteMain = resource.uri.trim()
+    if (!remoteMain.isHttpUrl()) {
+        return
+    }
+    MemoResourcePreviewLoader.run("video-main:${resource.identifier}") {
         downloadResourceVariantToTemp(
             context = context,
             okHttpClient = okHttpClient,
             resource = resource,
             accountKey = resolveResourceAccountKey(resource, currentAccountKey),
-            url = remoteThumbnail,
+            url = remoteMain,
             filename = resource.filename,
-            variant = EncryptedBlobVariant.THUMBNAIL,
-            cacheDirName = "thumbnail_cache",
-            prefix = "video_thumb_",
+            variant = EncryptedBlobVariant.MAIN,
+            cacheDirName = "attachment_cache",
+            prefix = "attachment_",
         )?.let { downloaded ->
             try {
-                cacheResourceThumbnail(resource.identifier, downloaded.toUri())
+                val generatedThumbnailUri = if (resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri).isNullOrBlank()) {
+                    generateThumbnailIfNeeded(
+                        context = context,
+                        resource = resource,
+                        downloadedUri = downloaded.toUri(),
+                        currentAccountKey = currentAccountKey,
+                    )
+                } else {
+                    null
+                }
+                if (generatedThumbnailUri != null) {
+                    persistGeneratedThumbnail(
+                        resource = resource,
+                        generatedThumbnailUri = generatedThumbnailUri,
+                        updateResourceThumbnail = updateResourceThumbnail,
+                    )
+                }
             } finally {
                 downloaded.delete()
             }
@@ -263,11 +315,14 @@ private suspend fun generateThumbnailIfNeeded(
     resource: ResourceEntity,
     downloadedUri: Uri,
     currentAccountKey: String?,
-) {
-    val mimeType = resource.mimeType?.trim()?.lowercase() ?: return
-    val accountKey = currentAccountKey?.trim()?.ifBlank { null } ?: return
+): Uri? {
+    val mimeType = resource.mimeType?.trim()?.lowercase() ?: return null
+    val accountKey = currentAccountKey?.trim()?.ifBlank { null } ?: return null
     val fileStorage = FileStorage(context)
-    val thumbnailFilename = "thumb_${resource.filename}"
+    val thumbnailFilename = buildGeneratedThumbnailFilename(
+        resource = resource,
+        mimeType = mimeType,
+    )
 
     val thumbnailUri = when {
         mimeType.startsWith("image/") -> {
@@ -290,6 +345,31 @@ private suspend fun generateThumbnailIfNeeded(
     thumbnailUri?.let { generatedThumb ->
         MediaPreviewRuntimeCache.rememberPreviewUri(previewCacheKey(resource), generatedThumb.toString())
         Log.d("MemoResourcePreview", "Generated thumbnail for ${resource.identifier}")
+    }
+    return thumbnailUri
+}
+
+private suspend fun persistGeneratedThumbnail(
+    resource: ResourceEntity,
+    generatedThumbnailUri: Uri,
+    updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
+) {
+    val persisted = updateResourceThumbnail(resource.identifier, generatedThumbnailUri.toString())
+    if (persisted !is ApiResponse.Success) {
+        Log.d("MemoResourcePreview", "Failed to persist generated thumbnail for ${resource.identifier}")
+    }
+}
+
+private fun buildGeneratedThumbnailFilename(resource: ResourceEntity, mimeType: String): String {
+    val stableToken = resource.identifier
+        .trim()
+        .ifEmpty { resource.filename.ifBlank { "resource" } }
+        .replace(Regex("[^A-Za-z0-9._-]"), "_")
+    val nonce = UUID.randomUUID().toString().replace("-", "")
+    return if (mimeType.startsWith("video/")) {
+        "video_thumb_${stableToken}_$nonce.jpg"
+    } else {
+        "thumb_${stableToken}_$nonce.jpg"
     }
 }
 

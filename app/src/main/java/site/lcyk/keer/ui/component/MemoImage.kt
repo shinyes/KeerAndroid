@@ -126,7 +126,10 @@ fun MemoImage(
                 },
                 cacheResourceThumbnail = { identifier, downloadedUri ->
                     memosViewModel.cacheResourceThumbnail(identifier, downloadedUri)
-                }
+                },
+                updateResourceThumbnail = { identifier, localThumbnailUri ->
+                    memosViewModel.updateResourceThumbnail(identifier, localThumbnailUri)
+                },
             )
             return@LaunchedEffect
         }

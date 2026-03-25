@@ -237,6 +237,9 @@ fun GroupChatPage(
         cacheResourceThumbnail = { identifier, downloadedUri ->
             memosViewModel.cacheResourceThumbnail(identifier, downloadedUri)
         },
+        updateResourceThumbnail = { identifier, localThumbnailUri ->
+            memosViewModel.updateResourceThumbnail(identifier, localThumbnailUri)
+        },
     )
     MemoPreviewWarmupEffect(
         memos = prefetchMemoEntities,

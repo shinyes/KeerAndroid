@@ -26,6 +26,7 @@ internal fun MediaPreviewPrefetchEffect(
     okHttpClient: OkHttpClient,
     cacheResourceFile: suspend (String, Uri) -> ApiResponse<Unit>,
     cacheResourceThumbnail: suspend (String, Uri) -> ApiResponse<Unit>,
+    updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
 ) {
     val context = LocalContext.current
     LaunchedEffect(memos, prefetchPaused, currentAccountKey, listState, okHttpClient) {
@@ -57,6 +58,7 @@ internal fun MediaPreviewPrefetchEffect(
                 windowBehind = idleWindow.behind,
                 cacheResourceFile = cacheResourceFile,
                 cacheResourceThumbnail = cacheResourceThumbnail,
+                updateResourceThumbnail = updateResourceThumbnail,
             )
         }
         collectPrefetchVisibleWindows(
@@ -79,6 +81,7 @@ internal fun MediaPreviewPrefetchEffect(
                 windowBehind = window.behind,
                 cacheResourceFile = cacheResourceFile,
                 cacheResourceThumbnail = cacheResourceThumbnail,
+                updateResourceThumbnail = updateResourceThumbnail,
             )
         }
     }

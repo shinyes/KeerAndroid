@@ -16,6 +16,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.security.GeneralSecurityException
@@ -62,6 +63,11 @@ data class PreparedEncryptedUpload(
     val mimeType: String,
     val encryptionMetadata: String,
     val thumbnail: PreparedEncryptedThumbnail? = null,
+)
+
+data class PreparedEncryptedThumbnailUpdate(
+    val thumbnail: PreparedEncryptedThumbnail,
+    val blobMetadata: EncryptedBlobMetadata,
 )
 
 @Singleton
@@ -257,6 +263,39 @@ class AttachmentEncryptionManager @Inject constructor(
         }.getOrNull()
     }
 
+    fun prepareEncryptedThumbnailForExistingAttachment(
+        accountKey: String,
+        rawMetadata: String,
+        thumbnailFilename: String,
+        thumbnailContent: String,
+    ): PreparedEncryptedThumbnailUpdate? {
+        val parsedMetadata = parseMetadata(rawMetadata) ?: return null
+        val keySourceBlob = parsedMetadata.thumbnail ?: parsedMetadata.main
+        val fileKey = runCatching {
+            unwrapFileKey(
+                wrappedKeys = keySourceBlob.wrappedKeys,
+                accountKey = accountKey,
+            )
+        }.getOrNull() ?: return null
+        val plaintext = runCatching { base64Decode(thumbnailContent) }.getOrNull() ?: return null
+        if (plaintext.isEmpty()) {
+            return null
+        }
+        val encrypted = encryptByteArrayWithExistingKey(
+            plaintext = plaintext,
+            fileKey = fileKey,
+            wrappedKeys = keySourceBlob.wrappedKeys,
+        )
+        return PreparedEncryptedThumbnailUpdate(
+            thumbnail = PreparedEncryptedThumbnail(
+                filename = thumbnailFilename,
+                type = ENCRYPTED_MIME_TYPE,
+                content = base64Encode(encrypted.first),
+            ),
+            blobMetadata = encrypted.second,
+        )
+    }
+
     private fun encryptByteArrayToFile(
         accountKey: String,
         plaintext: ByteArray,
@@ -293,6 +332,36 @@ class AttachmentEncryptionManager @Inject constructor(
                 chunkSize = DEFAULT_CHUNK_SIZE_BYTES,
             )
         }
+    }
+
+    private fun encryptByteArrayWithExistingKey(
+        plaintext: ByteArray,
+        fileKey: ByteArray,
+        wrappedKeys: List<WrappedContentKey>,
+    ): Pair<ByteArray, EncryptedBlobMetadata> {
+        val noncePrefix = randomBytes(NONCE_PREFIX_BYTES)
+        val output = ByteArrayOutputStream(plaintext.size + DEFAULT_TAG_SIZE_BYTES)
+        var chunkIndex = 0L
+        var offset = 0
+        while (offset < plaintext.size) {
+            val nextOffset = min(offset + DEFAULT_CHUNK_SIZE_BYTES, plaintext.size)
+            val ciphertextChunk = encryptChunk(
+                plaintext = plaintext.copyOfRange(offset, nextOffset),
+                fileKey = fileKey,
+                noncePrefix = noncePrefix,
+                chunkIndex = chunkIndex,
+            )
+            output.write(ciphertextChunk)
+            offset = nextOffset
+            chunkIndex += 1
+        }
+        val ciphertext = output.toByteArray()
+        return ciphertext to EncryptedBlobMetadata(
+            wrappedKeys = wrappedKeys,
+            noncePrefix = base64Encode(noncePrefix),
+            plaintextSize = plaintext.size.toLong(),
+            chunkSize = DEFAULT_CHUNK_SIZE_BYTES,
+        )
     }
 
     private fun encryptInputStreamToFile(

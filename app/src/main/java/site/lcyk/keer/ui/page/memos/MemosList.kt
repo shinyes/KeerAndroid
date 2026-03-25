@@ -199,6 +199,9 @@ fun MemosList(
         cacheResourceThumbnail = { identifier, downloadedUri ->
             viewModel.cacheResourceThumbnail(identifier, downloadedUri)
         },
+        updateResourceThumbnail = { identifier, localThumbnailUri ->
+            viewModel.updateResourceThumbnail(identifier, localThumbnailUri)
+        },
     )
     MemoPreviewWarmupEffect(
         memos = prefetchMemos,
