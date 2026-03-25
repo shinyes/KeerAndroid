@@ -16,6 +16,24 @@ import androidx.compose.ui.unit.dp
 import site.lcyk.keer.data.model.DailyUsageStat
 import java.time.LocalDate
 
+/**
+ * Low-saturation orange color for the first day of each month.
+ * Works well in both light and dark themes.
+ */
+private val HeatmapMonthStartOrange = Color(0xFFE6A57E)
+
+/**
+ * Calculates the border color for month start cells.
+ * Uses a darker shade of the orange for better contrast.
+ */
+private fun calculateHeatmapMonthStartBorderColor(
+    isDarkTheme: Boolean,
+    baseColor: Color
+): Color {
+    // Use a slightly darker version of the orange for border
+    return baseColor.copy(alpha = 0.85f)
+}
+
 @Composable
 fun HeatmapStat(
     day: DailyUsageStat,
@@ -23,29 +41,41 @@ fun HeatmapStat(
 ) {
     val today = LocalDate.now()
     val isToday = day.date == today
-    val isMonthStartHighlight = shouldHighlightHeatmapMonthStart(date = day.date)
+    val isMonthStart = shouldHighlightHeatmapMonthStart(date = day.date)
     val isDarkTheme = isSystemInDarkTheme()
-    val color = when (day.count) {
+    
+    // Determine the base color for the cell
+    val baseColor = when (day.count) {
         0 -> Color(0xffeaeaea)
         1 -> Color(0xff9be9a8)
         2 -> Color(0xff40c463)
         in 3..4 -> Color(0xff30a14e)
         else -> Color(0xff216e39)
     }
+    
+    // For month start days, override with low-saturation orange
+    val cellColor = if (isMonthStart) {
+        HeatmapMonthStartOrange
+    } else {
+        baseColor
+    }
+    
+    // Border configuration
     val borderWidth = when {
         isToday -> HEATMAP_TODAY_BORDER_WIDTH
-        isMonthStartHighlight -> HEATMAP_MONTH_START_BORDER_WIDTH
+        isMonthStart -> HEATMAP_MONTH_START_BORDER_WIDTH
         else -> 0.dp
     }
+    
     val borderColor = when {
         isToday -> MaterialTheme.colorScheme.primary
-        isMonthStartHighlight -> if (isDarkTheme) {
-            Color.White.copy(alpha = HEATMAP_MONTH_START_BORDER_ALPHA)
-        } else {
-            Color.Black.copy(alpha = HEATMAP_MONTH_START_BORDER_ALPHA)
-        }
+        isMonthStart -> calculateHeatmapMonthStartBorderColor(
+            isDarkTheme = isDarkTheme,
+            baseColor = HeatmapMonthStartOrange
+        )
         else -> Color.Transparent
     }
+    
     val density = LocalDensity.current
     val resolvedModifier = modifier
         .drawWithCache {
@@ -61,10 +91,12 @@ fun HeatmapStat(
                 y = (cornerRadiusPx - inset).coerceAtLeast(0f),
             )
             onDrawBehind {
+                // Draw the main cell rectangle
                 drawRoundRect(
-                    color = color,
+                    color = cellColor,
                     cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx),
                 )
+                // Draw border if needed
                 if (strokeWidthPx > 0f) {
                     drawRoundRect(
                         color = borderColor,
@@ -88,5 +120,4 @@ internal fun shouldHighlightHeatmapMonthStart(
 
 internal val HEATMAP_TODAY_BORDER_WIDTH = 1.5.dp
 internal val HEATMAP_MONTH_START_BORDER_WIDTH = 1.dp
-internal const val HEATMAP_MONTH_START_BORDER_ALPHA = 0.98f
 internal val HEATMAP_CELL_CORNER_RADIUS = 2.dp
