@@ -16,6 +16,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,10 +33,15 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.data.model.SyncDomain
+import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.SyncStatusBadge
+import site.lcyk.keer.ui.component.SyncActions
+import site.lcyk.keer.ui.component.LocalSyncStatus
+import site.lcyk.keer.ui.component.LocalSyncActions
 import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.MemosCardActionButton
 import site.lcyk.keer.ui.page.memoinput.QuickMemoComposer
@@ -81,7 +88,25 @@ fun MemosHomePage(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    val syncStatus by memosViewModel.syncStatus.collectAsStateWithLifecycle()
+    
+    val syncActions = remember(memosViewModel) {
+        SyncActions(
+            requestSync = { domains, force ->
+                scope.launch {
+                    memosViewModel.requestSync(SyncTrigger.MANUAL, domains, force)
+                }
+            },
+            cancelSync = { /* TODO: Implement cancel */ },
+            clearError = { }
+        )
+    }
+    
+    CompositionLocalProvider(
+        LocalSyncStatus provides syncStatus,
+        LocalSyncActions provides syncActions
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -184,6 +209,7 @@ fun MemosHomePage(
             visible = showQuickComposer,
             onDismissRequest = { showQuickComposer = false }
         )
+        }
     }
 
     SyncAlertDialog(
@@ -196,8 +222,7 @@ fun MemosHomePage(
 private fun HomeSyncBadgeAction(
     onSync: () -> Unit,
 ) {
-    val memosViewModel = LocalMemos.current
-    val syncState by memosViewModel.syncStatus.collectAsStateWithLifecycle()
+    val syncState = LocalSyncStatus.current
     
     if (!syncState.syncing) {
         return
