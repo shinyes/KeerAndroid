@@ -20,7 +20,7 @@ import java.time.LocalDate
  * Low-saturation orange color for the first day of each month.
  * Works well in both light and dark themes.
  */
-private val HeatmapMonthStartOrange = Color(0xFFE6A57E)
+private val HeatmapMonthStartOrange = Color(0xFFE09A69)
 
 /**
  * Calculates the border color for month start cells.
@@ -120,4 +120,4 @@ internal fun shouldHighlightHeatmapMonthStart(
 internal val HEATMAP_TODAY_BORDER_WIDTH = 1.5.dp
 internal val HEATMAP_MONTH_START_BORDER_WIDTH = 1.dp
 internal val HEATMAP_CELL_CORNER_RADIUS = 2.dp
-internal const val HEATMAP_MONTH_START_BORDER_ALPHA = 0.85f
+internal const val HEATMAP_MONTH_START_BORDER_ALPHA = 0.94f
