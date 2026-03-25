@@ -84,7 +84,6 @@ fun Navigation() {
                             SyncDomain.GROUPS,
                             SyncDomain.PROFILE,
                         ),
-                        bypassCoalesce = true,
                     )
                 }
             },

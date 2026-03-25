@@ -110,19 +110,53 @@ class MemoResourcePreviewTest {
         assertEquals("file:///tmp/usable.jpg", state.retainedModel)
     }
 
+    @Test
+    fun resolveThumbnailSourceMimeTypeForTest_usesFilenameExtensionWhenMimeMissing() {
+        val resource = testResource(
+            identifier = "res-heic",
+            mimeType = null,
+            filename = "capture.heic",
+        )
+
+        val resolved = resolveThumbnailSourceMimeTypeForTest(
+            resource = resource,
+            downloadedPath = "file:///tmp/downloaded.bin",
+        )
+
+        assertEquals("image/heic", resolved)
+    }
+
+    @Test
+    fun resolveThumbnailSourceMimeTypeForTest_fallsBackToDownloadedPathWhenFilenameUnknown() {
+        val resource = testResource(
+            identifier = "res-video",
+            mimeType = null,
+            filename = "resource",
+        )
+
+        val resolved = resolveThumbnailSourceMimeTypeForTest(
+            resource = resource,
+            downloadedPath = "file:///tmp/preview.mov",
+        )
+
+        assertEquals("video/quicktime", resolved)
+    }
+
     private fun testResource(
         identifier: String,
         localUri: String? = null,
+        mimeType: String? = "image/jpeg",
+        filename: String = "$identifier.jpg",
     ): ResourceEntity {
         return ResourceEntity(
             identifier = identifier,
             remoteId = "remote-$identifier",
             accountKey = "acc-1",
             date = Instant.EPOCH,
-            filename = "$identifier.jpg",
+            filename = filename,
             uri = "https://example.com/$identifier",
             localUri = localUri,
-            mimeType = "image/jpeg",
+            mimeType = mimeType,
             memoId = "memo-1",
         )
     }

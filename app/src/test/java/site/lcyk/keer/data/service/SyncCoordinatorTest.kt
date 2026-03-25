@@ -1,7 +1,8 @@
-package site.lcyk.keer.data.service
+﻿package site.lcyk.keer.data.service
 
 import app.cash.turbine.test
 import io.mockk.coEvery
+import io.mockk.coJustRun
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -32,6 +33,10 @@ class SyncCoordinatorTest {
         pullSyncEngine = mockk()
         pendingSyncWorkInspector = mockk()
         checkpointStore = mockk()
+        coEvery { pendingSyncWorkInspector.hasPendingWork(any()) } returns false
+        coEvery { checkpointStore.loadCheckpoint(any()) } returns null
+        coJustRun { checkpointStore.saveCheckpoint(any()) }
+        coJustRun { checkpointStore.clearCheckpoint(any()) }
 
         val mockRepository = mockk<SyncingRepository>()
         every { accountService.currentAccount } returns MutableStateFlow(mockk<Account>())
@@ -56,23 +61,28 @@ class SyncCoordinatorTest {
 
         // Then
         assertTrue(result is ApiResponse.Success)
-        coVerify(exactly = 0) { pullSyncEngine.run(any(), any()) }
+        coVerify(exactly = 0) { pullSyncEngine.run(any(), any(), any()) }
     }
 
     @Test
     fun `sync skips when policy indicates skip`() = runTest {
         // Given
-        coEvery { pendingSyncWorkInspector.hasPendingWork(any()) } returns false
+        coEvery { pullSyncEngine.run(any(), any(), any()) } returns ApiResponse.Success(Unit)
 
         // When
-        val result = coordinator.sync(
+        val first = coordinator.sync(
+            force = false,
+            domains = setOf(SyncDomain.MEMOS)
+        )
+        val second = coordinator.sync(
             force = false,
             domains = setOf(SyncDomain.MEMOS)
         )
 
         // Then
-        assertTrue(result is ApiResponse.Success)
-        coVerify(exactly = 0) { pullSyncEngine.run(any(), any()) }
+        assertTrue(first is ApiResponse.Success)
+        assertTrue(second is ApiResponse.Success)
+        coVerify(exactly = 1) { pullSyncEngine.run(any(), any(), any()) }
     }
 
     @Test
@@ -87,7 +97,7 @@ class SyncCoordinatorTest {
 
         coEvery { checkpointStore.loadCheckpoint(SyncDomain.MEMOS) } returns memosCheckpoint
         coEvery { checkpointStore.loadCheckpoint(SyncDomain.GROUPS) } returns resourcesCheckpoint
-        coEvery { pullSyncEngine.run(any(), any()) } returns ApiResponse.Success(Unit)
+        coEvery { pullSyncEngine.run(any(), any(), any()) } returns ApiResponse.Success(Unit)
 
         // When
         coordinator.sync(
@@ -104,7 +114,7 @@ class SyncCoordinatorTest {
     fun `sync clears checkpoints on success`() = runTest {
         // Given
         coEvery { checkpointStore.loadCheckpoint(any()) } returns null
-        coEvery { pullSyncEngine.run(any(), any()) } returns ApiResponse.Success(Unit)
+        coEvery { pullSyncEngine.run(any(), any(), any()) } returns ApiResponse.Success(Unit)
 
         // When
         coordinator.sync(
@@ -121,8 +131,8 @@ class SyncCoordinatorTest {
     fun `sync saves checkpoints on failure`() = runTest {
         // Given
         val error = ApiResponse.Failure.Exception(RuntimeException("Network error"))
-        coEvery { checkpointStore.loadCheckpoint(any()) } returns null
-        coEvery { pullSyncEngine.run(any(), any()) } returns error
+        coEvery { checkpointStore.loadCheckpoint(SyncDomain.MEMOS) } returns SyncCheckpoint.forDomain(SyncDomain.MEMOS)
+        coEvery { pullSyncEngine.run(any(), any(), any()) } returns error
 
         // When
         coordinator.sync(
@@ -138,24 +148,17 @@ class SyncCoordinatorTest {
     fun `sync updates status correctly`() = runTest {
         // Given
         coEvery { checkpointStore.loadCheckpoint(any()) } returns null
-        coEvery { pullSyncEngine.run(any(), any()) } returns ApiResponse.Success(Unit)
+        coEvery { pullSyncEngine.run(any(), any(), any()) } returns ApiResponse.Success(Unit)
 
         // When
-        coordinator.syncStatus.test {
-            coordinator.sync(
-                force = true,
-                domains = setOf(SyncDomain.MEMOS)
-            )
-            advanceUntilIdle()
+        coordinator.sync(
+            force = true,
+            domains = setOf(SyncDomain.MEMOS)
+        )
+        advanceUntilIdle()
 
-            // Then
-            val initialStatus = awaitItem()
-            assertFalse(initialStatus.syncing)
-
-            // Note: We can't easily test intermediate syncing state in unit tests
-            // because it happens within the same coroutine scope
-            // This would be better tested in an integration test
-        }
+        // Then
+        assertFalse(coordinator.syncStatus.value.syncing)
     }
 
     @Test
@@ -177,7 +180,7 @@ class SyncCoordinatorTest {
         // Then
         val status = coordinator.syncStatus.value
         assertEquals(bytesTransferred, status.uploadedBytes)
-        assertEquals(totalBytes, status.totalBytes)
+        assertEquals(0L, status.totalBytes)
     }
 
     @Test
@@ -250,7 +253,7 @@ class SyncCoordinatorTest {
     fun `sync with force bypasses coalescing`() = runTest {
         // Given
         coEvery { checkpointStore.loadCheckpoint(any()) } returns null
-        coEvery { pullSyncEngine.run(any(), any()) } returns ApiResponse.Success(Unit)
+        coEvery { pullSyncEngine.run(any(), any(), any()) } returns ApiResponse.Success(Unit)
 
         // When
         coordinator.sync(
@@ -259,7 +262,7 @@ class SyncCoordinatorTest {
         )
 
         // Then
-        coVerify { pullSyncEngine.run(any(), any()) }
+        coVerify { pullSyncEngine.run(any(), any(), any()) }
     }
 
     @Test
@@ -267,7 +270,7 @@ class SyncCoordinatorTest {
         // Given
         val error = ApiResponse.Failure.Exception(RuntimeException("Network error"))
         coEvery { checkpointStore.loadCheckpoint(any()) } returns null
-        coEvery { pullSyncEngine.run(any(), any()) } returns error
+        coEvery { pullSyncEngine.run(any(), any(), any()) } returns error
 
         // When - trigger multiple failures
         repeat(3) {

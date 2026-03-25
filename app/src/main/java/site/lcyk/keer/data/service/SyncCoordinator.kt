@@ -144,7 +144,11 @@ class SyncCoordinator @Inject constructor(
             publishStatus()
 
             val normalizedGroupId = groupId?.trim()?.takeIf(String::isNotBlank)
-            val result = pullSyncEngine.run(domains, normalizedGroupId)
+            val result = pullSyncEngine.run(
+                domains = domains,
+                groupId = normalizedGroupId,
+                trigger = trigger,
+            )
 
             if (result is ApiResponse.Success) {
                 consecutiveFailureCount = 0

@@ -16,6 +16,7 @@ import site.lcyk.keer.data.model.ResourceRepresentable
 import site.lcyk.keer.data.security.EncryptedBlobVariant
 import java.io.File
 import okhttp3.OkHttpClient
+import timber.log.Timber
 
 internal object MediaPreviewPrefetchCoordinator {
     private val networkSemaphore = Semaphore(permits = PREFETCH_NETWORK_CONCURRENCY)
@@ -23,6 +24,8 @@ internal object MediaPreviewPrefetchCoordinator {
     private val writeSemaphore = Semaphore(permits = PREFETCH_WRITE_CONCURRENCY)
     private val inFlightMutex = Mutex()
     private val inFlightKeys = linkedSetOf<String>()
+    private val lifecycleStateMutex = Mutex()
+    private val lifecycleStates = linkedMapOf<String, ResourcePrefetchLifecycleState>()
 
     suspend fun prefetchMemoWindowResources(
         context: Context,
@@ -106,18 +109,26 @@ internal object MediaPreviewPrefetchCoordinator {
             )
             return
         }
-        resolveExistingPreviewUri(resource)?.let { previewUri ->
-            MediaPreviewRuntimeCache.rememberPreviewUri(previewCacheKey(resource), previewUri)
+        resolvePreviewSnapshot(resource)?.let { snapshot ->
+            MediaPreviewRuntimeCache.rememberPreviewUri(previewCacheKey(resource), snapshot.uri)
+            markLifecycleReady(resource)
+            logPrefetchDecision(resource, snapshot.source)
             return
         }
-        val inFlightKey = "${resource.identifier}|${resource.thumbnailUri.orEmpty()}|${resource.uri}"
+        val lifecycleDecision = resolveLifecycleDecision(resource)
+        if (lifecycleDecision == MainFallbackLifecycleDecision.COOLDOWN) {
+            logPrefetchDecision(resource, "cooldown")
+            return
+        }
+        val inFlightKey = "tracked:${resolveResourceStableKey(resource)}"
         if (!acquireInFlight(inFlightKey)) {
             return
         }
         try {
+            var ensureResult = PreviewEnsureResult(source = PreviewEnsureSource.NONE)
             networkSemaphore.withPermit {
                 decryptSemaphore.withPermit {
-                    when {
+                    ensureResult = when {
                         resource.isVideoResource() -> {
                             ensureMemoVideoCardPreview(
                                 context = context,
@@ -134,6 +145,7 @@ internal object MediaPreviewPrefetchCoordinator {
                                         updateResourceThumbnail(identifier, localThumbnailUri)
                                     }
                                 },
+                                allowMainFallback = lifecycleDecision == MainFallbackLifecycleDecision.ALLOWED,
                             )
                         }
                         else -> {
@@ -157,13 +169,45 @@ internal object MediaPreviewPrefetchCoordinator {
                                         updateResourceThumbnail(identifier, localThumbnailUri)
                                     }
                                 },
+                                allowMainFallback = lifecycleDecision == MainFallbackLifecycleDecision.ALLOWED,
                             )
                         }
                     }
                 }
             }
-            resolveExistingPreviewUri(resource)?.let { previewUri ->
-                MediaPreviewRuntimeCache.rememberPreviewUri(previewCacheKey(resource), previewUri)
+            resolvePreviewSnapshot(resource)?.let { snapshot ->
+                MediaPreviewRuntimeCache.rememberPreviewUri(previewCacheKey(resource), snapshot.uri)
+                markLifecycleReady(resource)
+                logPrefetchDecision(resource, snapshot.source)
+                return
+            }
+
+            if (ensureResult.mainFallbackAttempted) {
+                markMainFallbackFetched(resource)
+            }
+
+            if (ensureResult.source == PreviewEnsureSource.REMOTE_THUMB && !ensureResult.previewReady) {
+                markLifecycleCooldown(
+                    resource = resource,
+                    nowMillis = System.currentTimeMillis(),
+                    cooldownMillis = REMOTE_THUMBNAIL_FAILURE_COOLDOWN_MILLIS,
+                )
+            }
+
+            when {
+                ensureResult.mainFallbackAttempted -> {
+                    logPrefetchDecision(resource, "main_fallback")
+                }
+                ensureResult.source == PreviewEnsureSource.MAIN_FALLBACK_SKIPPED &&
+                    lifecycleDecision == MainFallbackLifecycleDecision.SKIPPED_ONCE -> {
+                    logPrefetchDecision(resource, "skipped_once")
+                }
+                ensureResult.source == PreviewEnsureSource.MAIN_FALLBACK_SKIPPED -> {
+                    logPrefetchDecision(resource, "skipped")
+                }
+                else -> {
+                    logPrefetchDecision(resource, ensureResult.source.logLabel)
+                }
             }
         } finally {
             releaseInFlight(inFlightKey)
@@ -267,6 +311,35 @@ internal object MediaPreviewPrefetchCoordinator {
         )
     }
 
+    internal fun resolveResourceLifecycleKeyForTest(resource: ResourceEntity): String {
+        return resolveResourceLifecycleKey(resource)
+    }
+
+    internal suspend fun resolveLifecycleDecisionForTest(resource: ResourceEntity): String {
+        return resolveLifecycleDecision(resource).name
+    }
+
+    internal suspend fun markMainFallbackFetchedForTest(resource: ResourceEntity) {
+        markMainFallbackFetched(resource)
+    }
+
+    internal suspend fun markLifecycleCooldownForTest(
+        resource: ResourceEntity,
+        nowMillis: Long,
+        cooldownMillis: Long,
+    ) {
+        markLifecycleCooldown(resource, nowMillis, cooldownMillis)
+    }
+
+    internal suspend fun clearPrefetchStateForTest() {
+        lifecycleStateMutex.withLock {
+            lifecycleStates.clear()
+        }
+        inFlightMutex.withLock {
+            inFlightKeys.clear()
+        }
+    }
+
     private fun collectWindowResources(
         memos: List<MemoEntity>,
         visibleIndices: List<Int>,
@@ -289,23 +362,117 @@ internal object MediaPreviewPrefetchCoordinator {
             .toList()
     }
 
-    private fun resolveExistingPreviewUri(resource: ResourceEntity): String? {
+    private fun resolvePreviewSnapshot(resource: ResourceEntity): PreviewSnapshot? {
+        MediaPreviewRuntimeCache.resolvePreviewUri(previewCacheKey(resource))?.let { runtimeCached ->
+            return PreviewSnapshot(
+                uri = runtimeCached,
+                source = "runtime_cache",
+            )
+        }
         val localThumbnail = resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)
         if (!localThumbnail.isNullOrBlank()) {
-            return localThumbnail
+            return PreviewSnapshot(
+                uri = localThumbnail,
+                source = "local_thumb",
+            )
         }
         val localUri = resource.localUri?.trim().orEmpty()
         if (localUri.isNotEmpty()) {
             val uri = localUri.toUri()
             if (uri.scheme != "file") {
-                return localUri
+                return PreviewSnapshot(
+                    uri = localUri,
+                    source = "local_main",
+                )
             }
             val file = uri.path?.let(::File)
             if (file != null && file.exists() && file.length() > 0L) {
-                return localUri
+                return PreviewSnapshot(
+                    uri = localUri,
+                    source = "local_main",
+                )
             }
         }
         return null
+    }
+
+    private suspend fun resolveLifecycleDecision(resource: ResourceEntity): MainFallbackLifecycleDecision {
+        val nowMillis = System.currentTimeMillis()
+        return lifecycleStateMutex.withLock {
+            val state = lifecycleStates[resolveResourceLifecycleKey(resource)] ?: return@withLock MainFallbackLifecycleDecision.ALLOWED
+            when {
+                state.mainFetchedOnce -> MainFallbackLifecycleDecision.SKIPPED_ONCE
+                nowMillis < state.cooldownUntilMillis -> MainFallbackLifecycleDecision.COOLDOWN
+                else -> MainFallbackLifecycleDecision.ALLOWED
+            }
+        }
+    }
+
+    private suspend fun markLifecycleReady(resource: ResourceEntity) {
+        lifecycleStateMutex.withLock {
+            val key = resolveResourceLifecycleKey(resource)
+            val state = lifecycleStates.getOrPut(key) { ResourcePrefetchLifecycleState() }
+            state.ready = true
+            state.cooldownUntilMillis = 0L
+            trimLifecycleStateIfNeeded()
+        }
+    }
+
+    private suspend fun markMainFallbackFetched(resource: ResourceEntity) {
+        lifecycleStateMutex.withLock {
+            val key = resolveResourceLifecycleKey(resource)
+            val state = lifecycleStates.getOrPut(key) { ResourcePrefetchLifecycleState() }
+            state.mainFetchedOnce = true
+            trimLifecycleStateIfNeeded()
+        }
+    }
+
+    private suspend fun markLifecycleCooldown(
+        resource: ResourceEntity,
+        nowMillis: Long,
+        cooldownMillis: Long,
+    ) {
+        lifecycleStateMutex.withLock {
+            val key = resolveResourceLifecycleKey(resource)
+            val state = lifecycleStates.getOrPut(key) { ResourcePrefetchLifecycleState() }
+            state.cooldownUntilMillis = nowMillis + cooldownMillis
+            trimLifecycleStateIfNeeded()
+        }
+    }
+
+    private fun resolveResourceStableKey(resource: ResourceEntity): String {
+        val normalizedIdentifier = resource.identifier.trim()
+        if (normalizedIdentifier.isNotEmpty()) {
+            return normalizedIdentifier
+        }
+        return resolveResourceLifecycleKey(resource)
+    }
+
+    private fun resolveResourceLifecycleKey(resource: ResourceEntity): String {
+        val normalizedRemoteId = resource.remoteId?.trim().orEmpty()
+        if (normalizedRemoteId.isNotEmpty()) {
+            return "remote:$normalizedRemoteId"
+        }
+        val normalizedLocalUri = resource.localUri?.trim().orEmpty()
+        if (normalizedLocalUri.isNotEmpty()) {
+            return "local:$normalizedLocalUri"
+        }
+        return "uri:${resource.uri.trim()}"
+    }
+
+    private fun trimLifecycleStateIfNeeded() {
+        while (lifecycleStates.size > MAX_LIFECYCLE_STATE_ENTRIES) {
+            val eldestKey = lifecycleStates.entries.firstOrNull()?.key ?: return
+            lifecycleStates.remove(eldestKey)
+        }
+    }
+
+    private fun logPrefetchDecision(resource: ResourceEntity, source: String) {
+        Timber.tag(PREFETCH_LOG_TAG).d(
+            "resource=%s source=%s",
+            resource.identifier,
+            source,
+        )
     }
 
     private const val PREFETCH_WINDOW_AHEAD = 10
@@ -313,4 +480,34 @@ internal object MediaPreviewPrefetchCoordinator {
     private const val PREFETCH_NETWORK_CONCURRENCY = 4
     private const val PREFETCH_DECRYPT_CONCURRENCY = 2
     private const val PREFETCH_WRITE_CONCURRENCY = 2
+    private const val REMOTE_THUMBNAIL_FAILURE_COOLDOWN_MILLIS = 30_000L
+    private const val MAX_LIFECYCLE_STATE_ENTRIES = 6_000
+    private const val PREFETCH_LOG_TAG = "MediaPreviewPrefetch"
+
+    private data class PreviewSnapshot(
+        val uri: String,
+        val source: String,
+    )
+
+    private data class ResourcePrefetchLifecycleState(
+        var ready: Boolean = false,
+        var mainFetchedOnce: Boolean = false,
+        var cooldownUntilMillis: Long = 0L,
+    )
+
+    private enum class MainFallbackLifecycleDecision {
+        ALLOWED,
+        SKIPPED_ONCE,
+        COOLDOWN,
+    }
 }
+
+private val PreviewEnsureSource.logLabel: String
+    get() = when (this) {
+        PreviewEnsureSource.LOCAL_THUMB -> "local_thumb"
+        PreviewEnsureSource.LOCAL_MAIN -> "local_main"
+        PreviewEnsureSource.REMOTE_THUMB -> "remote_thumb"
+        PreviewEnsureSource.MAIN_FALLBACK -> "main_fallback"
+        PreviewEnsureSource.MAIN_FALLBACK_SKIPPED -> "skipped"
+        PreviewEnsureSource.NONE -> "none"
+    }

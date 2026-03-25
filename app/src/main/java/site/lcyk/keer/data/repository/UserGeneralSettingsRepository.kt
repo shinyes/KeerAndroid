@@ -1,7 +1,10 @@
 package site.lcyk.keer.data.repository
 
 import com.skydoves.sandwich.ApiResponse
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.ExploreDrawerEntryConfig
 import site.lcyk.keer.data.model.UserGeneralSettings
@@ -11,6 +14,7 @@ import site.lcyk.keer.data.model.withoutTagDrawerEntries
 import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.ext.string
+import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -19,21 +23,55 @@ class UserGeneralSettingsRepository @Inject constructor(
     private val accountService: AccountService,
     private val accountLocalSettingsStore: AccountLocalSettingsStore,
 ) {
+    private val refreshMutex = Mutex()
+    private var refreshInFlight: CompletableDeferred<ApiResponse<UserGeneralSettings>>? = null
+
+    @Volatile
+    private var lastSuccessfulRefreshAtMillis: Long = 0L
+
     fun observeCurrentGeneralSettings(): Flow<UserGeneralSettings> {
         return accountLocalSettingsStore.observeCurrentGeneralSettings()
     }
 
-    suspend fun refreshCurrentGeneralSettings(): ApiResponse<UserGeneralSettings> {
-        val remoteRepository = accountService.getRemoteRepository()
-            ?: return ApiResponse.Success(readCurrentCachedGeneralSettings())
-        return when (val response = remoteRepository.getCurrentUserGeneralSettings()) {
-            is ApiResponse.Success -> {
-                updateCurrentCachedGeneralSettings(response.data)
-                ApiResponse.Success(response.data)
-            }
-            is ApiResponse.Failure.Error -> response
-            is ApiResponse.Failure.Exception -> response
+    suspend fun refreshCurrentGeneralSettings(
+        forceNetwork: Boolean = false,
+        reason: String = "auto",
+    ): ApiResponse<UserGeneralSettings> {
+        val nowMillis = System.currentTimeMillis()
+        if (!forceNetwork && nowMillis - lastSuccessfulRefreshAtMillis < GENERAL_SETTINGS_REFRESH_MIN_INTERVAL_MILLIS) {
+            Timber.tag(GENERAL_SETTINGS_SYNC_TAG).d("throttled reason=%s", reason)
+            return ApiResponse.Success(readCurrentCachedGeneralSettings())
         }
+
+        var createdDeferred: CompletableDeferred<ApiResponse<UserGeneralSettings>>? = null
+        val pendingDeferred = refreshMutex.withLock {
+            refreshInFlight?.also { inFlight ->
+                return@withLock inFlight
+            }
+            CompletableDeferred<ApiResponse<UserGeneralSettings>>().also { deferred ->
+                refreshInFlight = deferred
+                createdDeferred = deferred
+            }
+        }
+        if (createdDeferred == null) {
+            Timber.tag(GENERAL_SETTINGS_SYNC_TAG).d("coalesced reason=%s", reason)
+            return pendingDeferred.await()
+        }
+
+        if (forceNetwork) {
+            Timber.tag(GENERAL_SETTINGS_SYNC_TAG).d("forced reason=%s", reason)
+        }
+
+        val result = runCatching { fetchRemoteGeneralSettings() }
+            .getOrElse(ApiResponse.Companion::exception)
+        refreshMutex.withLock {
+            if (result is ApiResponse.Success) {
+                lastSuccessfulRefreshAtMillis = System.currentTimeMillis()
+            }
+            refreshInFlight?.complete(result)
+            refreshInFlight = null
+        }
+        return result
     }
 
     suspend fun updateMemoEditGesture(
@@ -119,5 +157,23 @@ class UserGeneralSettingsRepository @Inject constructor(
 
     private suspend fun updateCurrentCachedGeneralSettings(value: UserGeneralSettings) {
         accountLocalSettingsStore.updateCurrentGeneralSettings(value)
+    }
+
+    private suspend fun fetchRemoteGeneralSettings(): ApiResponse<UserGeneralSettings> {
+        val remoteRepository = accountService.getRemoteRepository()
+            ?: return ApiResponse.Success(readCurrentCachedGeneralSettings())
+        return when (val response = remoteRepository.getCurrentUserGeneralSettings()) {
+            is ApiResponse.Success -> {
+                updateCurrentCachedGeneralSettings(response.data)
+                ApiResponse.Success(response.data)
+            }
+            is ApiResponse.Failure.Error -> response
+            is ApiResponse.Failure.Exception -> response
+        }
+    }
+
+    private companion object {
+        private const val GENERAL_SETTINGS_REFRESH_MIN_INTERVAL_MILLIS = 60_000L
+        private const val GENERAL_SETTINGS_SYNC_TAG = "GeneralSettingsSync"
     }
 }

@@ -151,6 +151,21 @@ internal object MemoResourcePreviewLoader {
     }
 }
 
+internal enum class PreviewEnsureSource {
+    LOCAL_THUMB,
+    LOCAL_MAIN,
+    REMOTE_THUMB,
+    MAIN_FALLBACK,
+    MAIN_FALLBACK_SKIPPED,
+    NONE,
+}
+
+internal data class PreviewEnsureResult(
+    val source: PreviewEnsureSource,
+    val mainFallbackAttempted: Boolean = false,
+    val previewReady: Boolean = false,
+)
+
 internal suspend fun ensureMemoImageCardPreview(
     context: Context,
     okHttpClient: OkHttpClient,
@@ -159,19 +174,27 @@ internal suspend fun ensureMemoImageCardPreview(
     cacheResourceFile: suspend (String, Uri) -> ApiResponse<Unit>,
     cacheResourceThumbnail: suspend (String, Uri) -> ApiResponse<Unit>,
     updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
-) {
+    allowMainFallback: Boolean = true,
+): PreviewEnsureResult {
     val previewKey = previewCacheKey(resource)
     resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)?.let { localThumbnail ->
         MediaPreviewRuntimeCache.rememberPreviewUri(previewKey, localThumbnail)
-        return
+        return PreviewEnsureResult(
+            source = PreviewEnsureSource.LOCAL_THUMB,
+            previewReady = true,
+        )
     }
     resolveExistingLocalFileUri(resource.localUri)?.let { localMain ->
         MediaPreviewRuntimeCache.rememberPreviewUri(previewKey, localMain)
-        return
+        return PreviewEnsureResult(
+            source = PreviewEnsureSource.LOCAL_MAIN,
+            previewReady = true,
+        )
     }
 
     val remoteThumbnail = resource.thumbnailUri?.trim().orEmpty()
     if (remoteThumbnail.isHttpUrl()) {
+        var downloadedAndCached = false
         MemoResourcePreviewLoader.run("thumb:${resource.identifier}") {
             downloadResourceVariantToTemp(
                 context = context,
@@ -186,22 +209,39 @@ internal suspend fun ensureMemoImageCardPreview(
             )?.let { downloaded ->
                 try {
                     cacheResourceThumbnail(resource.identifier, downloaded.toUri())
+                    downloadedAndCached = true
                 } finally {
                     downloaded.delete()
                 }
             }
         }
-        return
+        return PreviewEnsureResult(
+            source = PreviewEnsureSource.REMOTE_THUMB,
+            previewReady = downloadedAndCached,
+        )
+    }
+
+    if (!allowMainFallback) {
+        return PreviewEnsureResult(
+            source = PreviewEnsureSource.MAIN_FALLBACK_SKIPPED,
+        )
     }
 
     val remoteMain = resource.uri.trim()
     if (resource.isUntrackedMemoScope()) {
-        return
+        return PreviewEnsureResult(
+            source = PreviewEnsureSource.MAIN_FALLBACK_SKIPPED,
+        )
     }
     if (!remoteMain.isHttpUrl()) {
-        return
+        return PreviewEnsureResult(
+            source = PreviewEnsureSource.NONE,
+        )
     }
+    var attemptedMainFallback = false
+    var generatedOrCachedPreview = false
     MemoResourcePreviewLoader.run("main:${resource.identifier}") {
+        attemptedMainFallback = true
         downloadResourceVariantToTemp(
             context = context,
             okHttpClient = okHttpClient,
@@ -215,6 +255,7 @@ internal suspend fun ensureMemoImageCardPreview(
         )?.let { downloaded ->
             try {
                 cacheResourceFile(resource.identifier, downloaded.toUri())
+                generatedOrCachedPreview = true
                 val generatedThumbnailUri = if (resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri).isNullOrBlank()) {
                     generateThumbnailIfNeeded(
                         context = context,
@@ -231,12 +272,18 @@ internal suspend fun ensureMemoImageCardPreview(
                         generatedThumbnailUri = generatedThumbnailUri,
                         updateResourceThumbnail = updateResourceThumbnail,
                     )
+                    generatedOrCachedPreview = true
                 }
             } finally {
                 downloaded.delete()
             }
         }
     }
+    return PreviewEnsureResult(
+        source = PreviewEnsureSource.MAIN_FALLBACK,
+        mainFallbackAttempted = attemptedMainFallback,
+        previewReady = generatedOrCachedPreview,
+    )
 }
 
 internal suspend fun ensureMemoVideoCardPreview(
@@ -246,14 +293,19 @@ internal suspend fun ensureMemoVideoCardPreview(
     currentAccountKey: String?,
     cacheResourceThumbnail: suspend (String, Uri) -> ApiResponse<Unit>,
     updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
-) {
+    allowMainFallback: Boolean = true,
+): PreviewEnsureResult {
     val previewKey = previewCacheKey(resource)
     resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)?.let { localThumbnail ->
         MediaPreviewRuntimeCache.rememberPreviewUri(previewKey, localThumbnail)
-        return
+        return PreviewEnsureResult(
+            source = PreviewEnsureSource.LOCAL_THUMB,
+            previewReady = true,
+        )
     }
     val remoteThumbnail = resource.thumbnailUri?.trim().orEmpty()
     if (remoteThumbnail.isHttpUrl()) {
+        var downloadedAndCached = false
         MemoResourcePreviewLoader.run("thumb:${resource.identifier}") {
             downloadResourceVariantToTemp(
                 context = context,
@@ -268,22 +320,39 @@ internal suspend fun ensureMemoVideoCardPreview(
             )?.let { downloaded ->
                 try {
                     cacheResourceThumbnail(resource.identifier, downloaded.toUri())
+                    downloadedAndCached = true
                 } finally {
                     downloaded.delete()
                 }
             }
         }
-        return
+        return PreviewEnsureResult(
+            source = PreviewEnsureSource.REMOTE_THUMB,
+            previewReady = downloadedAndCached,
+        )
+    }
+
+    if (!allowMainFallback) {
+        return PreviewEnsureResult(
+            source = PreviewEnsureSource.MAIN_FALLBACK_SKIPPED,
+        )
     }
 
     val remoteMain = resource.uri.trim()
     if (resource.isUntrackedMemoScope()) {
-        return
+        return PreviewEnsureResult(
+            source = PreviewEnsureSource.MAIN_FALLBACK_SKIPPED,
+        )
     }
     if (!remoteMain.isHttpUrl()) {
-        return
+        return PreviewEnsureResult(
+            source = PreviewEnsureSource.NONE,
+        )
     }
+    var attemptedMainFallback = false
+    var generatedPreview = false
     MemoResourcePreviewLoader.run("video-main:${resource.identifier}") {
+        attemptedMainFallback = true
         downloadResourceVariantToTemp(
             context = context,
             okHttpClient = okHttpClient,
@@ -312,12 +381,18 @@ internal suspend fun ensureMemoVideoCardPreview(
                         generatedThumbnailUri = generatedThumbnailUri,
                         updateResourceThumbnail = updateResourceThumbnail,
                     )
+                    generatedPreview = true
                 }
             } finally {
                 downloaded.delete()
             }
         }
     }
+    return PreviewEnsureResult(
+        source = PreviewEnsureSource.MAIN_FALLBACK,
+        mainFallbackAttempted = attemptedMainFallback,
+        previewReady = generatedPreview,
+    )
 }
 
 
@@ -327,8 +402,8 @@ private suspend fun generateThumbnailIfNeeded(
     downloadedUri: Uri,
     currentAccountKey: String?,
 ): Uri? {
-    val mimeType = resource.mimeType?.trim()?.lowercase() ?: return null
-    val accountKey = currentAccountKey?.trim()?.ifBlank { null } ?: return null
+    val mimeType = resolveThumbnailSourceMimeType(resource, downloadedUri.toString()) ?: return null
+    val accountKey = resolveResourceAccountKey(resource, currentAccountKey) ?: return null
     val fileStorage = FileStorage(context)
     val thumbnailFilename = buildGeneratedThumbnailFilename(
         resource = resource,
@@ -358,6 +433,45 @@ private suspend fun generateThumbnailIfNeeded(
         Log.d("MemoResourcePreview", "Generated thumbnail for ${resource.identifier}")
     }
     return thumbnailUri
+}
+
+private fun resolveThumbnailSourceMimeType(resource: ResourceEntity, downloadedPath: String): String? {
+    val explicitMimeType = resource.mimeType
+        ?.trim()
+        ?.lowercase()
+        ?.takeIf { it.isNotEmpty() }
+    if (explicitMimeType != null) {
+        return explicitMimeType
+    }
+    return inferMimeTypeFromFilename(resource.filename)
+        ?: inferMimeTypeFromPath(downloadedPath)
+        ?: when {
+            resource.isImageResource() -> "image/jpeg"
+            resource.isVideoResource() -> "video/mp4"
+            else -> null
+        }
+}
+
+internal fun resolveThumbnailSourceMimeTypeForTest(
+    resource: ResourceEntity,
+    downloadedPath: String,
+): String? {
+    return resolveThumbnailSourceMimeType(resource, downloadedPath)
+}
+
+private fun inferMimeTypeFromFilename(filename: String): String? {
+    val extension = filename
+        .substringAfterLast('.', "")
+        .lowercase()
+    return extensionMimeTypeMap[extension]
+}
+
+private fun inferMimeTypeFromPath(path: String): String? {
+    val extension = path
+        .substringBefore('?')
+        .substringAfterLast('.', "")
+        .lowercase()
+    return extensionMimeTypeMap[extension]
 }
 
 private suspend fun persistGeneratedThumbnail(
@@ -393,4 +507,25 @@ private fun resolveExistingLocalFileUri(rawLocalUri: String?): String? {
     val file = uri.path?.let(::File)?.takeIf(File::exists) ?: return null
     return if (file.length() > 0L) local else null
 }
+
+private val extensionMimeTypeMap = mapOf(
+    "jpg" to "image/jpeg",
+    "jpeg" to "image/jpeg",
+    "png" to "image/png",
+    "gif" to "image/gif",
+    "webp" to "image/webp",
+    "bmp" to "image/bmp",
+    "heic" to "image/heic",
+    "heif" to "image/heif",
+    "avif" to "image/avif",
+    "mp4" to "video/mp4",
+    "mov" to "video/quicktime",
+    "m4v" to "video/x-m4v",
+    "webm" to "video/webm",
+    "mkv" to "video/x-matroska",
+    "avi" to "video/x-msvideo",
+    "3gp" to "video/3gpp",
+    "mpeg" to "video/mpeg",
+    "mpg" to "video/mpeg",
+)
 

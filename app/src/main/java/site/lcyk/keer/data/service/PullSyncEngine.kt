@@ -27,6 +27,7 @@ class PullSyncEngine @Inject constructor(
     suspend fun run(
         domains: Set<SyncDomain>,
         groupId: String?,
+        trigger: SyncTrigger = SyncTrigger.AUTO,
     ): ApiResponse<Unit> {
         return withContext(Dispatchers.IO) {
             // Separate independent domains that can run in parallel
@@ -40,7 +41,7 @@ class PullSyncEngine @Inject constructor(
             if (profileAndUsers.isNotEmpty()) {
                 val results = coroutineScope {
                     val profileJob = if (SyncDomain.PROFILE in profileAndUsers) {
-                        async { syncProfile() }
+                        async { syncProfile(trigger) }
                     } else null
                     
                     val usersJob = if (SyncDomain.USERS in profileAndUsers) {
@@ -76,11 +77,17 @@ class PullSyncEngine @Inject constructor(
         }
     }
 
-    private suspend fun syncProfile(): ApiResponse<Unit> {
+    private suspend fun syncProfile(trigger: SyncTrigger): ApiResponse<Unit> {
+        val forceGeneralSettingsRefresh = trigger == SyncTrigger.AUTH_BOOTSTRAP || trigger == SyncTrigger.MANUAL
         return coroutineScope {
             // Parallel execution of independent operations
             val avatarJob = async { accountService.syncPendingAvatarIfNeeded() }
-            val settingsJob = async { userGeneralSettingsRepository.refreshCurrentGeneralSettings() }
+            val settingsJob = async {
+                userGeneralSettingsRepository.refreshCurrentGeneralSettings(
+                    forceNetwork = forceGeneralSettingsRefresh,
+                    reason = "profile_sync:$trigger",
+                )
+            }
 
             val avatarResult = avatarJob.await()
             val settingsResult = settingsJob.await()

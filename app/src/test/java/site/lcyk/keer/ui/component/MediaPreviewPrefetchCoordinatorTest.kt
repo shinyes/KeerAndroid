@@ -2,6 +2,7 @@ package site.lcyk.keer.ui.component
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
@@ -96,6 +97,93 @@ class MediaPreviewPrefetchCoordinatorTest {
         )
 
         assertTrue(collected.isEmpty())
+    }
+
+    @Test
+    fun resolveResourceLifecycleKeyForTest_prioritizesRemoteIdThenLocalUriThenUri() {
+        val withRemoteId = resource(
+            memoIndex = 1,
+            resourceIndex = 1,
+            filename = "img.jpg",
+            mimeType = "image/jpeg",
+        ).copy(
+            remoteId = "remote-attachment-1",
+            localUri = "file:///tmp/local-1.jpg",
+            uri = "https://example.com/blob-1",
+        )
+        val withLocalUri = resource(
+            memoIndex = 1,
+            resourceIndex = 2,
+            filename = "img.jpg",
+            mimeType = "image/jpeg",
+        ).copy(
+            remoteId = null,
+            localUri = "file:///tmp/local-2.jpg",
+            uri = "https://example.com/blob-2",
+        )
+        val withOnlyUri = resource(
+            memoIndex = 1,
+            resourceIndex = 3,
+            filename = "img.jpg",
+            mimeType = "image/jpeg",
+        ).copy(
+            remoteId = null,
+            localUri = null,
+            uri = "https://example.com/blob-3",
+        )
+
+        assertEquals(
+            "remote:remote-attachment-1",
+            MediaPreviewPrefetchCoordinator.resolveResourceLifecycleKeyForTest(withRemoteId),
+        )
+        assertEquals(
+            "local:file:///tmp/local-2.jpg",
+            MediaPreviewPrefetchCoordinator.resolveResourceLifecycleKeyForTest(withLocalUri),
+        )
+        assertEquals(
+            "uri:https://example.com/blob-3",
+            MediaPreviewPrefetchCoordinator.resolveResourceLifecycleKeyForTest(withOnlyUri),
+        )
+    }
+
+    @Test
+    fun lifecycleDecision_changesFromAllowedToSkippedOnceAndCooldown() = runTest {
+        val resource = resource(
+            memoIndex = 2,
+            resourceIndex = 1,
+            filename = "img.jpg",
+            mimeType = "image/jpeg",
+        )
+        MediaPreviewPrefetchCoordinator.clearPrefetchStateForTest()
+
+        assertEquals(
+            "ALLOWED",
+            MediaPreviewPrefetchCoordinator.resolveLifecycleDecisionForTest(resource),
+        )
+
+        MediaPreviewPrefetchCoordinator.markMainFallbackFetchedForTest(resource)
+
+        assertEquals(
+            "SKIPPED_ONCE",
+            MediaPreviewPrefetchCoordinator.resolveLifecycleDecisionForTest(resource),
+        )
+
+        val anotherResource = resource(
+            memoIndex = 3,
+            resourceIndex = 1,
+            filename = "img.jpg",
+            mimeType = "image/jpeg",
+        ).copy(remoteId = null)
+        val nowMillis = System.currentTimeMillis()
+        MediaPreviewPrefetchCoordinator.markLifecycleCooldownForTest(
+            resource = anotherResource,
+            nowMillis = nowMillis,
+            cooldownMillis = 60_000L,
+        )
+        assertEquals(
+            "COOLDOWN",
+            MediaPreviewPrefetchCoordinator.resolveLifecycleDecisionForTest(anotherResource),
+        )
     }
 
     private fun memoWithResources(index: Int, resources: List<ResourceEntity>): MemoEntity {

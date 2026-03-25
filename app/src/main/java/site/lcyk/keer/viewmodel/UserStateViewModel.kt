@@ -105,7 +105,9 @@ class UserStateViewModel @Inject constructor(
                 }
                 userDirectoryRepository.reset()
                 if (it != null) {
-                    userGeneralSettingsRepository.refreshCurrentGeneralSettings()
+                    userGeneralSettingsRepository.refreshCurrentGeneralSettings(
+                        reason = "account_changed",
+                    )
                 }
             }
         }
@@ -174,7 +176,10 @@ class UserStateViewModel @Inject constructor(
 
     suspend fun switchAccount(accountKey: String) = withContext(Dispatchers.IO) {
         accountService.switchAccount(accountKey)
-        userGeneralSettingsRepository.refreshCurrentGeneralSettings()
+        userGeneralSettingsRepository.refreshCurrentGeneralSettings(
+            forceNetwork = true,
+            reason = "switch_account",
+        )
         loadCurrentUser()
     }
 
@@ -213,7 +218,10 @@ class UserStateViewModel @Inject constructor(
     }
 
     suspend fun refreshGeneralSettings(): ApiResponse<UserGeneralSettings> = withContext(Dispatchers.IO) {
-        userGeneralSettingsRepository.refreshCurrentGeneralSettings()
+        userGeneralSettingsRepository.refreshCurrentGeneralSettings(
+            forceNetwork = true,
+            reason = "manual_refresh",
+        )
     }
 
     suspend fun updateMemoEditGesture(
@@ -332,7 +340,10 @@ class UserStateViewModel @Inject constructor(
     }
 
     private suspend fun completeAuthenticatedSession(): ApiResponse<Unit> {
-        userGeneralSettingsRepository.refreshCurrentGeneralSettings()
+        userGeneralSettingsRepository.refreshCurrentGeneralSettings(
+            forceNetwork = true,
+            reason = "authenticated_session",
+        )
         return when (val response = loadCurrentUser()) {
             is ApiResponse.Success -> {
                 memoService.requestSync(
