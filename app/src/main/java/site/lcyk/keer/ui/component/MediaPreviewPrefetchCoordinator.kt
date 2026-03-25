@@ -97,7 +97,7 @@ internal object MediaPreviewPrefetchCoordinator {
         if (!resource.isMediaResource()) {
             return
         }
-        if (resource.shouldUseUntrackedPrefetch()) {
+        if (resource.isUntrackedMemoScope()) {
             prefetchUntrackedResourcePreview(
                 context = context,
                 okHttpClient = okHttpClient,
@@ -208,7 +208,10 @@ internal object MediaPreviewPrefetchCoordinator {
                         }
                         else -> {
                             val remoteThumbnail = resource.thumbnailUri?.trim().orEmpty()
-                            if (remoteThumbnail.isHttpUrl()) {
+                            if (!remoteThumbnail.isHttpUrl()) {
+                                // Keep list/explore preview lightweight: do not pull original blobs here.
+                                null
+                            } else {
                                 downloadResourceVariantToTemp(
                                     context = context,
                                     okHttpClient = okHttpClient,
@@ -220,23 +223,6 @@ internal object MediaPreviewPrefetchCoordinator {
                                     cacheDirName = "thumbnail_cache",
                                     prefix = "thumb_",
                                 )
-                            } else {
-                                val remoteMain = resource.uri.trim()
-                                if (!remoteMain.isHttpUrl()) {
-                                    null
-                                } else {
-                                    downloadResourceVariantToTemp(
-                                        context = context,
-                                        okHttpClient = okHttpClient,
-                                        resource = resource,
-                                        accountKey = resolveResourceAccountKey(resource, currentAccountKey),
-                                        url = remoteMain,
-                                        filename = resource.filename,
-                                        variant = EncryptedBlobVariant.MAIN,
-                                        cacheDirName = "attachment_cache",
-                                        prefix = "attachment_",
-                                    )
-                                }
                             }
                         }
                     }
@@ -327,9 +313,4 @@ internal object MediaPreviewPrefetchCoordinator {
     private const val PREFETCH_NETWORK_CONCURRENCY = 4
     private const val PREFETCH_DECRYPT_CONCURRENCY = 2
     private const val PREFETCH_WRITE_CONCURRENCY = 2
-}
-
-private fun ResourceEntity.shouldUseUntrackedPrefetch(): Boolean {
-    val memoKey = memoId?.trim().orEmpty()
-    return memoKey.startsWith("explore:") || memoKey.startsWith("group:")
 }

@@ -9,7 +9,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import site.lcyk.keer.BuildConfig
 import site.lcyk.keer.data.model.SyncCheckpoint
 import site.lcyk.keer.data.model.SyncDomain
 import site.lcyk.keer.data.model.UploadProgress
@@ -33,7 +32,7 @@ class SyncCheckpointStoreIntegrationTest {
         val domain = SyncDomain.MEMOS
         val originalCheckpoint = SyncCheckpoint.forDomain(domain).copy(
             lastSyncTimestamp = 1234567890L,
-            processedIds = listOf("memo1", "memo2", "memo3"),
+            processedIds = setOf("memo1", "memo2", "memo3"),
             pendingMutations = emptyList()
         )
 
@@ -56,7 +55,7 @@ class SyncCheckpointStoreIntegrationTest {
     @Test
     fun `checkpoint with upload progress survives process death`() = runTest {
         // Given
-        val domain = SyncDomain.RESOURCES
+        val domain = SyncDomain.GROUPS
         val fileId = "resource-abc-123"
         val uploadedBytes = 524288L // 512KB
         val totalBytes = 1048576L // 1MB
@@ -91,7 +90,7 @@ class SyncCheckpointStoreIntegrationTest {
             lastSyncTimestamp = 1000L
         )
 
-        val resourcesCheckpoint = SyncCheckpoint.forDomain(SyncDomain.RESOURCES).copy(
+        val resourcesCheckpoint = SyncCheckpoint.forDomain(SyncDomain.GROUPS).copy(
             uploadProgress = UploadProgress("file1", 100, 200)
         )
 
@@ -109,7 +108,7 @@ class SyncCheckpointStoreIntegrationTest {
 
         // Then - load each independently
         val loadedMemos = newStore.loadCheckpoint(SyncDomain.MEMOS)
-        val loadedResources = newStore.loadCheckpoint(SyncDomain.RESOURCES)
+        val loadedResources = newStore.loadCheckpoint(SyncDomain.GROUPS)
         val loadedUsers = newStore.loadCheckpoint(SyncDomain.USERS)
 
         assertNotNull(loadedMemos)
@@ -117,7 +116,7 @@ class SyncCheckpointStoreIntegrationTest {
         assertNotNull(loadedUsers)
 
         assertEquals(SyncDomain.MEMOS.name, loadedMemos!!.domain)
-        assertEquals(SyncDomain.RESOURCES.name, loadedResources!!.domain)
+        assertEquals(SyncDomain.GROUPS.name, loadedResources!!.domain)
         assertEquals(SyncDomain.USERS.name, loadedUsers!!.domain)
     }
 
@@ -128,7 +127,7 @@ class SyncCheckpointStoreIntegrationTest {
             lastSyncTimestamp = 1000L
         )
 
-        val resourcesCheckpoint = SyncCheckpoint.forDomain(SyncDomain.RESOURCES).copy(
+        val resourcesCheckpoint = SyncCheckpoint.forDomain(SyncDomain.GROUPS).copy(
             uploadProgress = UploadProgress("file1", 100, 200)
         )
 
@@ -145,7 +144,7 @@ class SyncCheckpointStoreIntegrationTest {
         // Then
         assertEquals(2, allCheckpoints.size)
         assertTrue(allCheckpoints.containsKey(SyncDomain.MEMOS))
-        assertTrue(allCheckpoints.containsKey(SyncDomain.RESOURCES))
+        assertTrue(allCheckpoints.containsKey(SyncDomain.GROUPS))
     }
 
     @Test
@@ -155,7 +154,7 @@ class SyncCheckpointStoreIntegrationTest {
             lastSyncTimestamp = 1000L
         )
 
-        val resourcesCheckpoint = SyncCheckpoint.forDomain(SyncDomain.RESOURCES).copy(
+        val resourcesCheckpoint = SyncCheckpoint.forDomain(SyncDomain.GROUPS).copy(
             uploadProgress = UploadProgress("file1", 100, 200)
         )
 
@@ -170,7 +169,7 @@ class SyncCheckpointStoreIntegrationTest {
 
         // Then
         assertNull(newStore.loadCheckpoint(SyncDomain.MEMOS))
-        assertNotNull(newStore.loadCheckpoint(SyncDomain.RESOURCES))
+        assertNotNull(newStore.loadCheckpoint(SyncDomain.GROUPS))
     }
 
     @Test
@@ -180,7 +179,7 @@ class SyncCheckpointStoreIntegrationTest {
             SyncCheckpoint.forDomain(SyncDomain.MEMOS).copy(lastSyncTimestamp = 1000L)
         )
         checkpointStore.saveCheckpoint(
-            SyncCheckpoint.forDomain(SyncDomain.RESOURCES).copy(
+            SyncCheckpoint.forDomain(SyncDomain.GROUPS).copy(
                 uploadProgress = UploadProgress("file1", 100, 200)
             )
         )
@@ -214,7 +213,7 @@ class SyncCheckpointStoreIntegrationTest {
             lastSyncTimestamp = 1000L
         )
 
-        val resourcesCheckpoint = SyncCheckpoint.forDomain(SyncDomain.RESOURCES).copy(
+        val resourcesCheckpoint = SyncCheckpoint.forDomain(SyncDomain.GROUPS).copy(
             uploadProgress = UploadProgress("file1", 100, 200)
         )
 
@@ -232,7 +231,7 @@ class SyncCheckpointStoreIntegrationTest {
 
         // Then - RESOURCES should still exist
         val loadedMemos = newStore.loadCheckpoint(SyncDomain.MEMOS)
-        val loadedResources = newStore.loadCheckpoint(SyncDomain.RESOURCES)
+        val loadedResources = newStore.loadCheckpoint(SyncDomain.GROUPS)
 
         assertEquals(2000L, loadedMemos!!.lastSyncTimestamp)
         assertNotNull(loadedResources)
@@ -248,7 +247,7 @@ class SyncCheckpointStoreIntegrationTest {
         // 4. App restarts and loads checkpoint
 
         // Phase 1: Start sync and save checkpoint
-        val initialCheckpoint = SyncCheckpoint.forDomain(SyncDomain.RESOURCES).copy(
+        val initialCheckpoint = SyncCheckpoint.forDomain(SyncDomain.GROUPS).copy(
             uploadProgress = UploadProgress("large-video.mp4", 5_000_000L, 10_000_000L)
         )
         checkpointStore.saveCheckpoint(initialCheckpoint)
@@ -257,7 +256,7 @@ class SyncCheckpointStoreIntegrationTest {
         val restartedStore = SyncCheckpointStore(context)
 
         // Phase 3: Load checkpoint and verify resume point
-        val resumedCheckpoint = restartedStore.loadCheckpoint(SyncDomain.RESOURCES)
+        val resumedCheckpoint = restartedStore.loadCheckpoint(SyncDomain.GROUPS)
 
         assertNotNull(resumedCheckpoint)
         assertEquals("large-video.mp4", resumedCheckpoint!!.uploadProgress?.fileId)
@@ -265,10 +264,10 @@ class SyncCheckpointStoreIntegrationTest {
         assertEquals(10_000_000L, resumedCheckpoint.uploadProgress!!.totalBytes)
 
         // Phase 4: Complete sync and clear checkpoint
-        restartedStore.clearCheckpoint(SyncDomain.RESOURCES)
+        restartedStore.clearCheckpoint(SyncDomain.GROUPS)
 
         // Phase 5: Verify checkpoint cleared
-        val finalCheckpoint = restartedStore.loadCheckpoint(SyncDomain.RESOURCES)
+        val finalCheckpoint = restartedStore.loadCheckpoint(SyncDomain.GROUPS)
         assertNull(finalCheckpoint)
     }
 }

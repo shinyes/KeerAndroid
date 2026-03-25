@@ -82,6 +82,11 @@ internal fun resolveObservedMemoResource(
     )
 }
 
+internal fun ResourceEntity.isUntrackedMemoScope(): Boolean {
+    val memoKey = memoId?.trim().orEmpty()
+    return memoKey.startsWith("explore:") || memoKey.startsWith("group:")
+}
+
 internal data class StablePreviewModelState(
     val model: String?,
     val retainedModel: String?,
@@ -190,6 +195,9 @@ internal suspend fun ensureMemoImageCardPreview(
     }
 
     val remoteMain = resource.uri.trim()
+    if (resource.isUntrackedMemoScope()) {
+        return
+    }
     if (!remoteMain.isHttpUrl()) {
         return
     }
@@ -269,6 +277,9 @@ internal suspend fun ensureMemoVideoCardPreview(
     }
 
     val remoteMain = resource.uri.trim()
+    if (resource.isUntrackedMemoScope()) {
+        return
+    }
     if (!remoteMain.isHttpUrl()) {
         return
     }

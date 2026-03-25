@@ -5,27 +5,20 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import com.skydoves.sandwich.ApiResponse
 import site.lcyk.keer.data.local.SyncCheckpointStore
 import site.lcyk.keer.data.model.*
-import site.lcyk.keer.data.remote.RemoteRepository
-import site.lcyk.keer.data.service.AccountService
+import site.lcyk.keer.data.repository.SyncingRepository
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SyncCoordinatorTest {
-
-    private lateinit var testDispatcher: StandardTestDispatcher
-    private lateinit var testScope: TestScope
 
     private lateinit var accountService: AccountService
     private lateinit var pullSyncEngine: PullSyncEngine
@@ -35,9 +28,6 @@ class SyncCoordinatorTest {
 
     @Before
     fun setup() {
-        testDispatcher = StandardTestDispatcher()
-        testScope = TestScope(testDispatcher)
-
         accountService = mockk()
         pullSyncEngine = mockk()
         pendingSyncWorkInspector = mockk()
@@ -45,7 +35,7 @@ class SyncCoordinatorTest {
 
         val mockRepository = mockk<SyncingRepository>()
         every { accountService.currentAccount } returns MutableStateFlow(mockk<Account>())
-        every { accountService.getRepository() } returns mockRepository
+        coEvery { accountService.getRepository() } returns mockRepository
         every { mockRepository.syncStatus } returns MutableStateFlow(SyncStatus())
 
         coordinator = SyncCoordinator(
@@ -57,7 +47,7 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun `sync with empty domains returns success immediately`() = testScope.runTest {
+    fun `sync with empty domains returns success immediately`() = runTest {
         // When
         val result = coordinator.sync(
             force = false,
@@ -70,9 +60,9 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun `sync skips when policy indicates skip`() = testScope.runTest {
+    fun `sync skips when policy indicates skip`() = runTest {
         // Given
-        every { pendingSyncWorkInspector.hasPendingWork(any()) } returns false
+        coEvery { pendingSyncWorkInspector.hasPendingWork(any()) } returns false
 
         // When
         val result = coordinator.sync(
@@ -86,32 +76,32 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun `sync loads checkpoints before execution`() = testScope.runTest {
+    fun `sync loads checkpoints before execution`() = runTest {
         // Given
         val memosCheckpoint = SyncCheckpoint.forDomain(SyncDomain.MEMOS).copy(
             lastSyncTimestamp = 1000L
         )
-        val resourcesCheckpoint = SyncCheckpoint.forDomain(SyncDomain.RESOURCES).copy(
+        val resourcesCheckpoint = SyncCheckpoint.forDomain(SyncDomain.GROUPS).copy(
             uploadProgress = UploadProgress("file123", 500, 1000)
         )
 
         coEvery { checkpointStore.loadCheckpoint(SyncDomain.MEMOS) } returns memosCheckpoint
-        coEvery { checkpointStore.loadCheckpoint(SyncDomain.RESOURCES) } returns resourcesCheckpoint
+        coEvery { checkpointStore.loadCheckpoint(SyncDomain.GROUPS) } returns resourcesCheckpoint
         coEvery { pullSyncEngine.run(any(), any()) } returns ApiResponse.Success(Unit)
 
         // When
         coordinator.sync(
             force = true,
-            domains = setOf(SyncDomain.MEMOS, SyncDomain.RESOURCES)
+            domains = setOf(SyncDomain.MEMOS, SyncDomain.GROUPS)
         )
 
         // Then
         coVerify { checkpointStore.loadCheckpoint(SyncDomain.MEMOS) }
-        coVerify { checkpointStore.loadCheckpoint(SyncDomain.RESOURCES) }
+        coVerify { checkpointStore.loadCheckpoint(SyncDomain.GROUPS) }
     }
 
     @Test
-    fun `sync clears checkpoints on success`() = testScope.runTest {
+    fun `sync clears checkpoints on success`() = runTest {
         // Given
         coEvery { checkpointStore.loadCheckpoint(any()) } returns null
         coEvery { pullSyncEngine.run(any(), any()) } returns ApiResponse.Success(Unit)
@@ -119,16 +109,16 @@ class SyncCoordinatorTest {
         // When
         coordinator.sync(
             force = true,
-            domains = setOf(SyncDomain.MEMOS, SyncDomain.RESOURCES)
+            domains = setOf(SyncDomain.MEMOS, SyncDomain.GROUPS)
         )
 
         // Then
         coVerify { checkpointStore.clearCheckpoint(SyncDomain.MEMOS) }
-        coVerify { checkpointStore.clearCheckpoint(SyncDomain.RESOURCES) }
+        coVerify { checkpointStore.clearCheckpoint(SyncDomain.GROUPS) }
     }
 
     @Test
-    fun `sync saves checkpoints on failure`() = testScope.runTest {
+    fun `sync saves checkpoints on failure`() = runTest {
         // Given
         val error = ApiResponse.Failure.Exception(RuntimeException("Network error"))
         coEvery { checkpointStore.loadCheckpoint(any()) } returns null
@@ -145,7 +135,7 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun `sync updates status correctly`() = testScope.runTest {
+    fun `sync updates status correctly`() = runTest {
         // Given
         coEvery { checkpointStore.loadCheckpoint(any()) } returns null
         coEvery { pullSyncEngine.run(any(), any()) } returns ApiResponse.Success(Unit)
@@ -169,9 +159,9 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun `updateFileProgress updates status with file-level granularity`() = testScope.runTest {
+    fun `updateFileProgress updates status with file-level granularity`() = runTest {
         // Given
-        val domain = SyncDomain.RESOURCES
+        val domain = SyncDomain.GROUPS
         val fileId = "test-file-123"
         val bytesTransferred = 512L
         val totalBytes = 1024L
@@ -191,9 +181,9 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun `updateFileProgress saves checkpoint for resume`() = testScope.runTest {
+    fun `updateFileProgress saves checkpoint for resume`() = runTest {
         // Given
-        val domain = SyncDomain.RESOURCES
+        val domain = SyncDomain.GROUPS
         val fileId = "test-file-123"
         val bytesTransferred = 512L
         val totalBytes = 1024L
@@ -215,7 +205,7 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun `saveCheckpoint persists checkpoint to storage`() = testScope.runTest {
+    fun `saveCheckpoint persists checkpoint to storage`() = runTest {
         // Given
         val domain = SyncDomain.MEMOS
         val checkpoint = SyncCheckpoint.forDomain(domain).copy(
@@ -235,9 +225,9 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun `getCheckpoint returns active checkpoint for domain`() = testScope.runTest {
+    fun `getCheckpoint returns active checkpoint for domain`() = runTest {
         // Given
-        val domain = SyncDomain.RESOURCES
+        val domain = SyncDomain.GROUPS
         val fileId = "file-456"
 
         // When - first update progress to create checkpoint
@@ -257,7 +247,7 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun `sync with force bypasses coalescing`() = testScope.runTest {
+    fun `sync with force bypasses coalescing`() = runTest {
         // Given
         coEvery { checkpointStore.loadCheckpoint(any()) } returns null
         coEvery { pullSyncEngine.run(any(), any()) } returns ApiResponse.Success(Unit)
@@ -273,7 +263,7 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun `consecutive failures trigger backoff`() = testScope.runTest {
+    fun `consecutive failures trigger backoff`() = runTest {
         // Given
         val error = ApiResponse.Failure.Exception(RuntimeException("Network error"))
         coEvery { checkpointStore.loadCheckpoint(any()) } returns null
@@ -291,3 +281,4 @@ class SyncCoordinatorTest {
         // This is tested indirectly through the sync being skipped
     }
 }
+

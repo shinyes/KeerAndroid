@@ -31,7 +31,7 @@ class SyncProgressHelperTest {
     @Test
     fun `uploadFileWithProgress calls uploadBlock with correct parameters`() = runTest {
         // Given
-        val domain = SyncDomain.RESOURCES
+        val domain = SyncDomain.GROUPS
         val fileId = "test-file-123"
         val fileBytes = 1024L
         var uploadBlockCalled = false
@@ -67,7 +67,7 @@ class SyncProgressHelperTest {
     @Test
     fun `uploadFileWithProgress resumes from checkpoint if exists`() = runTest {
         // Given
-        val domain = SyncDomain.RESOURCES
+        val domain = SyncDomain.GROUPS
         val fileId = "test-file-456"
         val fileBytes = 2048L
         val uploadedBytes = 512L
@@ -99,7 +99,7 @@ class SyncProgressHelperTest {
     @Test
     fun `uploadFileWithProgress saves checkpoint on failure`() = runTest {
         // Given
-        val domain = SyncDomain.RESOURCES
+        val domain = SyncDomain.GROUPS
         val fileId = "test-file-789"
         val fileBytes = 1024L
 
@@ -121,7 +121,7 @@ class SyncProgressHelperTest {
     @Test
     fun `uploadFileWithProgress saves checkpoint on exception`() = runTest {
         // Given
-        val domain = SyncDomain.RESOURCES
+        val domain = SyncDomain.GROUPS
         val fileId = "test-file-exception"
         val fileBytes = 1024L
 
@@ -211,7 +211,7 @@ class SyncProgressHelperTest {
     @Test
     fun `downloadFileWithProgress tracks download progress`() = runTest {
         // Given
-        val domain = SyncDomain.RESOURCES
+        val domain = SyncDomain.GROUPS
         val fileId = "download-test"
         val fileBytes = 5000L
 
@@ -237,7 +237,7 @@ class SyncProgressHelperTest {
     @Test
     fun `downloadFileWithProgress saves checkpoint on exception`() = runTest {
         // Given
-        val domain = SyncDomain.RESOURCES
+        val domain = SyncDomain.GROUPS
         val fileId = "download-exception-test"
         val fileBytes = 5000L
 
@@ -298,3 +298,4 @@ class SyncProgressHelperTest {
         assertNotNull(helper)
     }
 }
+

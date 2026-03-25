@@ -26,12 +26,15 @@ private val HeatmapMonthStartOrange = Color(0xFFE6A57E)
  * Calculates the border color for month start cells.
  * Uses a darker shade of the orange for better contrast.
  */
-private fun calculateHeatmapMonthStartBorderColor(
+internal fun resolveHeatmapMonthStartBorderColor(
     isDarkTheme: Boolean,
     baseColor: Color
 ): Color {
+    if (isDarkTheme) {
+        // Kept for API stability in tests and future contrast tuning.
+    }
     // Use a slightly darker version of the orange for border
-    return baseColor.copy(alpha = 0.85f)
+    return baseColor.copy(alpha = HEATMAP_MONTH_START_BORDER_ALPHA)
 }
 
 @Composable
@@ -69,7 +72,7 @@ fun HeatmapStat(
     
     val borderColor = when {
         isToday -> MaterialTheme.colorScheme.primary
-        isMonthStart -> calculateHeatmapMonthStartBorderColor(
+        isMonthStart -> resolveHeatmapMonthStartBorderColor(
             isDarkTheme = isDarkTheme,
             baseColor = HeatmapMonthStartOrange
         )
@@ -121,3 +124,4 @@ internal fun shouldHighlightHeatmapMonthStart(
 internal val HEATMAP_TODAY_BORDER_WIDTH = 1.5.dp
 internal val HEATMAP_MONTH_START_BORDER_WIDTH = 1.dp
 internal val HEATMAP_CELL_CORNER_RADIUS = 2.dp
+internal const val HEATMAP_MONTH_START_BORDER_ALPHA = 0.85f

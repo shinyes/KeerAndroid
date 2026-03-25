@@ -316,7 +316,7 @@ private fun MemoVideoPlayerDialog(
     }
 }
 
-private fun resolveMemoVideoPreviewUri(resource: ResourceRepresentable): String {
+internal fun resolveMemoVideoPreviewUri(resource: ResourceRepresentable): String {
     MediaPreviewRuntimeCache.resolvePreviewUri(previewCacheKey(resource))?.let { runtimePreview ->
         return runtimePreview
     }
@@ -339,7 +339,8 @@ private fun resolveMemoVideoPreviewUri(resource: ResourceRepresentable): String 
     if (local.isNotEmpty()) {
         return local
     }
-    return resource.uri
+    // Do not fallback to remote main blob in card previews.
+    return ""
 }
 
 @UnstableApi

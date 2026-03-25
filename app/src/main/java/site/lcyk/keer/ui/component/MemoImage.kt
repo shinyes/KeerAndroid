@@ -248,7 +248,7 @@ fun MemoImage(
     }
 }
 
-private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String {
+internal fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String {
     MediaPreviewRuntimeCache.resolvePreviewUri(previewCacheKey(resource))?.let { runtimePreview ->
         return runtimePreview
     }
@@ -264,7 +264,8 @@ private fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String 
     if (local.isNotEmpty()) {
         return local
     }
-    return resource.uri
+    // Do not fallback to remote main blob in card previews.
+    return ""
 }
 
 private const val IMAGE_VIEWER_PREFS_FILE = "image_viewer_preferences"

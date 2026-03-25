@@ -27,7 +27,8 @@ class LocalSyncUiTest {
         val syncStatus = SyncStatus(
             syncing = true,
             unsyncedCount = 5,
-            progress = 0.5f
+            uploadedBytes = 50L,
+            totalBytes = 100L,
         )
 
         var receivedSyncingState = false
@@ -52,7 +53,8 @@ class LocalSyncUiTest {
         // Given
         val syncStatus = SyncStatus(
             syncing = true,
-            progress = 0.75f
+            uploadedBytes = 75L,
+            totalBytes = 100L,
         )
 
         var receivedProgress = -1f
@@ -167,7 +169,8 @@ class LocalSyncUiTest {
         val syncStatus = SyncStatus(
             syncing = true,
             unsyncedCount = 3,
-            progress = 0.33f
+            uploadedBytes = 33L,
+            totalBytes = 100L,
         )
 
         // When
@@ -178,7 +181,7 @@ class LocalSyncUiTest {
                 Column {
                     Text(text = "Syncing...")
                     LinearProgressIndicator(
-                        progress = syncStatus.progress ?: 0f,
+                        progress = { syncStatus.progress ?: 0f },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Text(text = "${syncStatus.unsyncedCount} items pending")
@@ -196,7 +199,8 @@ class LocalSyncUiTest {
         // Given
         val syncStatus = SyncStatus(
             syncing = true,
-            progress = 0.5f,
+            uploadedBytes = 50L,
+            totalBytes = 100L,
             unsyncedCount = 10
         )
 
@@ -232,8 +236,12 @@ class LocalSyncUiTest {
     @Test
     fun `sync status updates propagate to all observers`() {
         // Given
-        val initialStatus = SyncStatus(syncing = false, progress = null)
-        val updatedStatus = SyncStatus(syncing = true, progress = 0.25f)
+        val initialStatus = SyncStatus(syncing = false)
+        val updatedStatus = SyncStatus(
+            syncing = true,
+            uploadedBytes = 25L,
+            totalBytes = 100L,
+        )
 
         var currentSyncing = false
 
@@ -275,7 +283,7 @@ class LocalSyncUiTest {
         val syncStatus = LocalSyncStatus.current
         val progress = syncStatus.progress ?: 0f
         onProgressChange(progress)
-        LinearProgressIndicator(progress = progress)
+        LinearProgressIndicator(progress = { progress })
     }
 
     @Composable
@@ -291,10 +299,7 @@ class LocalSyncUiTest {
         
         androidx.compose.material3.Button(
             onClick = {
-                syncActions.requestSync(
-                    domains = setOf(SyncDomain.MEMOS),
-                    force = true
-                )
+                syncActions.requestSync(setOf(SyncDomain.MEMOS), true)
             }
         ) {
             Text("Sync Now")

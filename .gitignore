@@ -23,6 +23,7 @@ build/
 release/
 gradle/gradle-daemon-jvm.properties
 .gradle-user-home
+.gradle-home
 
 # Local configuration file (sdk path, etc)
 local.properties

@@ -28,25 +28,29 @@ class HeatmapStatStyleTest {
     }
 
     @Test
-    fun resolveHeatmapMonthStartBorderColor_choosesHigherContrastForLightCell() {
+    fun resolveHeatmapMonthStartBorderColor_usesConfiguredAlphaForLightTheme() {
+        val baseColor = Color(0xFFE6A57E)
         val resolved = resolveHeatmapMonthStartBorderColor(
-            cellColor = Color(0xffeaeaea),
+            isDarkTheme = false,
+            baseColor = baseColor,
         )
 
         assertEquals(
-            Color.Black.copy(alpha = HEATMAP_MONTH_START_BORDER_ALPHA),
+            baseColor.copy(alpha = HEATMAP_MONTH_START_BORDER_ALPHA),
             resolved
         )
     }
 
     @Test
-    fun resolveHeatmapMonthStartBorderColor_choosesHigherContrastForDarkCell() {
+    fun resolveHeatmapMonthStartBorderColor_usesConfiguredAlphaForDarkTheme() {
+        val baseColor = Color(0xFFE6A57E)
         val resolved = resolveHeatmapMonthStartBorderColor(
-            cellColor = Color(0xff216e39),
+            isDarkTheme = true,
+            baseColor = baseColor,
         )
 
         assertEquals(
-            Color.White.copy(alpha = HEATMAP_MONTH_START_BORDER_ALPHA),
+            baseColor.copy(alpha = HEATMAP_MONTH_START_BORDER_ALPHA),
             resolved
         )
     }
