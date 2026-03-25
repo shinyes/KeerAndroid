@@ -109,11 +109,18 @@ internal object MediaPreviewPrefetchCoordinator {
             )
             return
         }
-        resolvePreviewSnapshot(resource)?.let { snapshot ->
-            MediaPreviewRuntimeCache.rememberPreviewUri(previewCacheKey(resource), snapshot.uri)
-            markLifecycleReady(resource)
-            logPrefetchDecision(resource, snapshot.source)
-            return
+        val previewSnapshot = resolvePreviewSnapshot(resource)
+        if (previewSnapshot != null) {
+            MediaPreviewRuntimeCache.rememberPreviewUri(previewCacheKey(resource), previewSnapshot.uri)
+            val shouldBackfillFromLocalMain = previewSnapshot.source == "local_main" &&
+                resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri).isNullOrBlank() &&
+                resource.thumbnailUri?.trim().isNullOrEmpty()
+            if (!shouldBackfillFromLocalMain) {
+                markLifecycleReady(resource)
+                logPrefetchDecision(resource, previewSnapshot.source)
+                return
+            }
+            logPrefetchDecision(resource, "local_main_backfill")
         }
         val lifecycleDecision = resolveLifecycleDecision(resource)
         if (lifecycleDecision == MainFallbackLifecycleDecision.COOLDOWN) {

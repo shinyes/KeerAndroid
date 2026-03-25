@@ -20,6 +20,7 @@ import okhttp3.OkHttpClient
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.local.FileStorage
 import site.lcyk.keer.data.model.ResourceRepresentable
+import site.lcyk.keer.data.security.AttachmentEncryptionManager
 import site.lcyk.keer.data.security.EncryptedBlobVariant
 import site.lcyk.keer.viewmodel.LocalMemos
 import java.io.File
@@ -186,8 +187,19 @@ internal suspend fun ensureMemoImageCardPreview(
     }
     resolveExistingLocalFileUri(resource.localUri)?.let { localMain ->
         MediaPreviewRuntimeCache.rememberPreviewUri(previewKey, localMain)
+        val generatedFromLocalMain = generateThumbnailFromExistingLocalMainIfNeeded(
+            context = context,
+            resource = resource,
+            localMainUri = localMain,
+            currentAccountKey = currentAccountKey,
+            updateResourceThumbnail = updateResourceThumbnail,
+        )
         return PreviewEnsureResult(
-            source = PreviewEnsureSource.LOCAL_MAIN,
+            source = if (generatedFromLocalMain != null) {
+                PreviewEnsureSource.LOCAL_THUMB
+            } else {
+                PreviewEnsureSource.LOCAL_MAIN
+            },
             previewReady = true,
         )
     }
@@ -303,6 +315,24 @@ internal suspend fun ensureMemoVideoCardPreview(
             previewReady = true,
         )
     }
+    resolveExistingLocalFileUri(resource.localUri)?.let { localMain ->
+        val generatedFromLocalMain = generateThumbnailFromExistingLocalMainIfNeeded(
+            context = context,
+            resource = resource,
+            localMainUri = localMain,
+            currentAccountKey = currentAccountKey,
+            updateResourceThumbnail = updateResourceThumbnail,
+        )
+        MediaPreviewRuntimeCache.rememberPreviewUri(previewKey, localMain)
+        return PreviewEnsureResult(
+            source = if (generatedFromLocalMain != null) {
+                PreviewEnsureSource.LOCAL_THUMB
+            } else {
+                PreviewEnsureSource.LOCAL_MAIN
+            },
+            previewReady = true,
+        )
+    }
     val remoteThumbnail = resource.thumbnailUri?.trim().orEmpty()
     if (remoteThumbnail.isHttpUrl()) {
         var downloadedAndCached = false
@@ -395,6 +425,44 @@ internal suspend fun ensureMemoVideoCardPreview(
     )
 }
 
+private suspend fun generateThumbnailFromExistingLocalMainIfNeeded(
+    context: Context,
+    resource: ResourceEntity,
+    localMainUri: String,
+    currentAccountKey: String?,
+    updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
+): Uri? {
+    if (!resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri).isNullOrBlank()) {
+        return null
+    }
+    val remoteThumbnail = resource.thumbnailUri?.trim().orEmpty()
+    if (remoteThumbnail.isHttpUrl()) {
+        return null
+    }
+    val sourceUri = localMainUri.toUri()
+    if (sourceUri.scheme != "file") {
+        return null
+    }
+
+    var generatedThumbnailUri: Uri? = null
+    MemoResourcePreviewLoader.run("local-thumb:${resource.identifier}") {
+        generatedThumbnailUri = generateThumbnailIfNeeded(
+            context = context,
+            resource = resource,
+            downloadedUri = sourceUri,
+            currentAccountKey = currentAccountKey,
+        )
+        generatedThumbnailUri?.let { generated ->
+            persistGeneratedThumbnail(
+                resource = resource,
+                generatedThumbnailUri = generated,
+                updateResourceThumbnail = updateResourceThumbnail,
+            )
+        }
+    }
+    return generatedThumbnailUri
+}
+
 
 private suspend fun generateThumbnailIfNeeded(
     context: Context,
@@ -436,10 +504,21 @@ private suspend fun generateThumbnailIfNeeded(
 }
 
 private fun resolveThumbnailSourceMimeType(resource: ResourceEntity, downloadedPath: String): String? {
+    val decryptedMimeType = AttachmentEncryptionManager.resolveOriginalMimeType(
+        resource.encryptionMetadata,
+        resource.mimeType,
+    )
+        ?.trim()
+        ?.lowercase()
+        ?.takeIf { mime -> mime.startsWith("image/") || mime.startsWith("video/") }
+    if (decryptedMimeType != null) {
+        return decryptedMimeType
+    }
+
     val explicitMimeType = resource.mimeType
         ?.trim()
         ?.lowercase()
-        ?.takeIf { it.isNotEmpty() }
+        ?.takeIf { mime -> mime.startsWith("image/") || mime.startsWith("video/") }
     if (explicitMimeType != null) {
         return explicitMimeType
     }

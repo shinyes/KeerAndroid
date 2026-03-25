@@ -142,6 +142,40 @@ class MemoResourcePreviewTest {
         assertEquals("video/quicktime", resolved)
     }
 
+    @Test
+    fun resolveThumbnailSourceMimeTypeForTest_prefersOriginalMimeTypeFromEncryptionMetadata() {
+        val resource = testResource(
+            identifier = "res-encrypted",
+            mimeType = "application/octet-stream",
+            filename = "blob.bin",
+        ).copy(
+            encryptionMetadata = encryptedMetadataWithOriginalMimeType("image/heic")
+        )
+
+        val resolved = resolveThumbnailSourceMimeTypeForTest(
+            resource = resource,
+            downloadedPath = "file:///tmp/blob.bin",
+        )
+
+        assertEquals("image/heic", resolved)
+    }
+
+    @Test
+    fun resolveThumbnailSourceMimeTypeForTest_ignoresGenericMimeTypeAndFallsBackToPath() {
+        val resource = testResource(
+            identifier = "res-generic",
+            mimeType = "application/octet-stream",
+            filename = "blob.bin",
+        )
+
+        val resolved = resolveThumbnailSourceMimeTypeForTest(
+            resource = resource,
+            downloadedPath = "file:///tmp/preview.mov",
+        )
+
+        assertEquals("video/quicktime", resolved)
+    }
+
     private fun testResource(
         identifier: String,
         localUri: String? = null,
@@ -159,5 +193,29 @@ class MemoResourcePreviewTest {
             mimeType = mimeType,
             memoId = "memo-1",
         )
+    }
+
+    private fun encryptedMetadataWithOriginalMimeType(originalMimeType: String): String {
+        return """
+            {
+              "version": 1,
+              "algorithm": "AES_GCM_CHUNKED_V1",
+              "originalMimeType": "$originalMimeType",
+              "main": {
+                "wrappedKeys": [
+                  {
+                    "slotType": "account_master",
+                    "slotRef": "test-account",
+                    "wrapAlgorithm": "AES_GCM_ACCOUNT_MASTER_KEY_V1",
+                    "wrappedKey": "AA=="
+                  }
+                ],
+                "noncePrefix": "AAAAAAAAAAA=",
+                "plaintextSize": 1,
+                "chunkSize": 1024,
+                "tagSize": 16
+              }
+            }
+        """.trimIndent()
     }
 }
