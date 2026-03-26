@@ -24,6 +24,7 @@ class UserGeneralSettingsRepository @Inject constructor(
     private val accountLocalSettingsStore: AccountLocalSettingsStore,
 ) {
     private val refreshMutex = Mutex()
+    private val updateMutex = Mutex()
     private var refreshInFlight: CompletableDeferred<ApiResponse<UserGeneralSettings>>? = null
 
     @Volatile
@@ -141,13 +142,24 @@ class UserGeneralSettingsRepository @Inject constructor(
             ?: return ApiResponse.exception(
                 IllegalStateException(R.string.current_account_no_settings_sync.string)
             )
-        return when (val response = remoteRepository.updateCurrentUserGeneralSettings(settings)) {
-            is ApiResponse.Success -> {
-                updateCurrentCachedGeneralSettings(response.data)
-                ApiResponse.Success(response.data)
+        return updateMutex.withLock {
+            val previousSettings = readCurrentCachedGeneralSettings()
+            updateCurrentCachedGeneralSettings(settings)
+
+            when (val response = remoteRepository.updateCurrentUserGeneralSettings(settings)) {
+                is ApiResponse.Success -> {
+                    updateCurrentCachedGeneralSettings(response.data)
+                    ApiResponse.Success(response.data)
+                }
+                is ApiResponse.Failure.Error -> {
+                    updateCurrentCachedGeneralSettings(previousSettings)
+                    response
+                }
+                is ApiResponse.Failure.Exception -> {
+                    updateCurrentCachedGeneralSettings(previousSettings)
+                    response
+                }
             }
-            is ApiResponse.Failure.Error -> response
-            is ApiResponse.Failure.Exception -> response
         }
     }
 
