@@ -31,8 +31,8 @@ android {
         applicationId = "site.lcyk.keer"
         minSdk = 26
         targetSdk = 36
-        versionCode = 126
-        versionName = "3.12.4"
+        versionCode = 127
+        versionName = "3.12.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
