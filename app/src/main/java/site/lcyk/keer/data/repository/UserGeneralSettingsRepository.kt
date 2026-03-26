@@ -44,35 +44,44 @@ class UserGeneralSettingsRepository @Inject constructor(
             return ApiResponse.Success(readCurrentCachedGeneralSettings())
         }
 
-        var createdDeferred: CompletableDeferred<ApiResponse<UserGeneralSettings>>? = null
-        val pendingDeferred = refreshMutex.withLock {
-            refreshInFlight?.also { inFlight ->
-                return@withLock inFlight
+        val ownerDeferred: CompletableDeferred<ApiResponse<UserGeneralSettings>>
+        val isOwner = refreshMutex.withLock {
+            refreshInFlight?.let { inFlight ->
+                ownerDeferred = inFlight
+                return@withLock false
             }
-            CompletableDeferred<ApiResponse<UserGeneralSettings>>().also { deferred ->
-                refreshInFlight = deferred
-                createdDeferred = deferred
-            }
+            ownerDeferred = CompletableDeferred()
+            refreshInFlight = ownerDeferred
+            true
         }
-        if (createdDeferred == null) {
+        if (!isOwner) {
             Timber.tag(GENERAL_SETTINGS_SYNC_TAG).d("coalesced reason=%s", reason)
-            return pendingDeferred.await()
+            return ownerDeferred.await()
         }
 
         if (forceNetwork) {
             Timber.tag(GENERAL_SETTINGS_SYNC_TAG).d("forced reason=%s", reason)
         }
 
-        val result = runCatching { fetchRemoteGeneralSettings() }
-            .getOrElse(ApiResponse.Companion::exception)
-        refreshMutex.withLock {
+        var result: ApiResponse<UserGeneralSettings>? = null
+        try {
+            result = runCatching { fetchRemoteGeneralSettings() }
+                .getOrElse(ApiResponse.Companion::exception)
             if (result is ApiResponse.Success) {
                 lastSuccessfulRefreshAtMillis = System.currentTimeMillis()
             }
-            refreshInFlight?.complete(result)
-            refreshInFlight = null
+            return result
+        } finally {
+            val completion = result ?: ApiResponse.Success(readCurrentCachedGeneralSettings())
+            refreshMutex.withLock {
+                if (refreshInFlight === ownerDeferred) {
+                    if (!ownerDeferred.isCompleted) {
+                        ownerDeferred.complete(completion)
+                    }
+                    refreshInFlight = null
+                }
+            }
         }
-        return result
     }
 
     suspend fun updateMemoEditGesture(
