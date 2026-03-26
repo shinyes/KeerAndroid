@@ -150,6 +150,16 @@ interface MemoDao {
         """
         SELECT * FROM resources
         WHERE accountKey = :accountKey
+          AND remoteId = :remoteId
+        ORDER BY date DESC, identifier ASC
+        """
+    )
+    suspend fun getResourcesByRemoteId(remoteId: String, accountKey: String): List<ResourceEntity>
+
+    @Query(
+        """
+        SELECT * FROM resources
+        WHERE accountKey = :accountKey
           AND (identifier = :identifier OR remoteId = :identifier)
         LIMIT 1
         """

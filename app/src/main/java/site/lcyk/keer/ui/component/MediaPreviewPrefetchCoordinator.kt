@@ -128,7 +128,7 @@ internal object MediaPreviewPrefetchCoordinator {
                 localThumbnailUri = localThumbnail,
             )
             if (shouldUploadMissingRemoteThumbnail) {
-                if (ThumbnailUploadKickoffGate.tryAcquire(resource.identifier)) {
+                if (ThumbnailUploadKickoffGate.tryAcquire(resource.identifier, resource.remoteId)) {
                     logPrefetchTrace(resource, "prefetch_upload_enqueue")
                     localThumbnail?.let { usableLocalThumbnail ->
                         writeSemaphore.withPermit {

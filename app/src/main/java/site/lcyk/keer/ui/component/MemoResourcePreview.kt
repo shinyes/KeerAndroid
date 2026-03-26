@@ -526,7 +526,7 @@ private suspend fun enqueueThumbnailUploadIfRemoteMissing(
         logPreviewTrace(resource, "thumb_upload_kickoff_skip", "reason=$skipReason")
         return
     }
-    if (!ThumbnailUploadKickoffGate.tryAcquire(resource.identifier)) {
+    if (!ThumbnailUploadKickoffGate.tryAcquire(resource.identifier, resource.remoteId)) {
         logPreviewTrace(resource, "thumb_upload_kickoff_skip", "reason=kickoff_rate_limited")
         return
     }
@@ -787,6 +787,7 @@ internal object ThumbnailUploadKickoffGate {
 
     suspend fun tryAcquire(
         resourceIdentifier: String,
+        remoteId: String? = null,
         nowMillis: Long = System.currentTimeMillis(),
         minIntervalMillis: Long = MIN_INTERVAL_MILLIS,
     ): Boolean = lock.withLock {
@@ -794,11 +795,17 @@ internal object ThumbnailUploadKickoffGate {
         if (normalizedIdentifier.isEmpty()) {
             return@withLock false
         }
-        val last = lastKickoffAtMillis[normalizedIdentifier]
+        val normalizedRemoteId = remoteId?.trim().orEmpty()
+        val kickoffKey = if (normalizedRemoteId.isNotEmpty()) {
+            "remote:$normalizedRemoteId"
+        } else {
+            "local:$normalizedIdentifier"
+        }
+        val last = lastKickoffAtMillis[kickoffKey]
         if (last != null && nowMillis - last < minIntervalMillis) {
             return@withLock false
         }
-        lastKickoffAtMillis[normalizedIdentifier] = nowMillis
+        lastKickoffAtMillis[kickoffKey] = nowMillis
         if (lastKickoffAtMillis.size > 4_096) {
             val oldestKey = lastKickoffAtMillis.minByOrNull { (_, timestamp) -> timestamp }?.key
             if (oldestKey != null) {

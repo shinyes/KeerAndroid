@@ -308,6 +308,36 @@ class MemoResourcePreviewTest {
         )
     }
 
+    @Test
+    fun thumbnailUploadKickoffGate_deduplicatesByRemoteIdAcrossDifferentIdentifiers() = runTest {
+        ThumbnailUploadKickoffGate.clearForTest()
+
+        assertTrue(
+            ThumbnailUploadKickoffGate.tryAcquire(
+                resourceIdentifier = "res-a",
+                remoteId = "attachments/42",
+                nowMillis = 1_000L,
+                minIntervalMillis = 10_000L,
+            )
+        )
+        assertFalse(
+            ThumbnailUploadKickoffGate.tryAcquire(
+                resourceIdentifier = "res-b",
+                remoteId = "attachments/42",
+                nowMillis = 1_500L,
+                minIntervalMillis = 10_000L,
+            )
+        )
+        assertTrue(
+            ThumbnailUploadKickoffGate.tryAcquire(
+                resourceIdentifier = "res-c",
+                remoteId = "attachments/42",
+                nowMillis = 12_000L,
+                minIntervalMillis = 10_000L,
+            )
+        )
+    }
+
     private fun testResource(
         identifier: String,
         localUri: String? = null,
