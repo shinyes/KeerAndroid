@@ -517,7 +517,11 @@ class AccountService @Inject constructor(
         password: String,
         session: AuthSessionResponse,
     ): ApiResponse<Account.KeerV2> {
-        val account = buildAuthenticatedAccount(host, session)
+        val account = when (val accountResponse = buildAuthenticatedAccount(host, session)) {
+            is ApiResponse.Success -> accountResponse.data
+            is ApiResponse.Failure.Error -> return accountResponse
+            is ApiResponse.Failure.Exception -> return accountResponse
+        }
         val keyBootstrap = ensureAccountKeysReady(
             account = account,
             password = password,
@@ -532,21 +536,80 @@ class AccountService @Inject constructor(
         return ApiResponse.Success(account)
     }
 
-    private fun buildAuthenticatedAccount(
+    private suspend fun buildAuthenticatedAccount(
         host: String,
         session: AuthSessionResponse,
-    ): Account.KeerV2 {
-        return Account.KeerV2(
+    ): ApiResponse<Account.KeerV2> {
+        val resolvedUserId = when (val resolved = resolveAuthenticatedUserId(host, session)) {
+            is ApiResponse.Success -> resolved.data
+            is ApiResponse.Failure.Error -> return resolved
+            is ApiResponse.Failure.Exception -> return resolved
+        }
+        return ApiResponse.Success(Account.KeerV2(
             info = MemosAccount(
                 host = host,
                 accessToken = session.accessToken,
                 refreshToken = session.refreshToken,
-                id = session.user.name.substringAfterLast('/').toLong(),
+                id = resolvedUserId,
                 name = session.user.username,
                 avatarUrl = session.user.avatarUrl ?: "",
                 startDateEpochSecond = session.user.createTime?.epochSecond ?: 0L,
             )
+        ))
+    }
+
+    private suspend fun resolveAuthenticatedUserId(
+        host: String,
+        session: AuthSessionResponse,
+    ): ApiResponse<Long> {
+        extractUserId(session.user.name)?.let { parsedId ->
+            return ApiResponse.Success(parsedId)
+        }
+
+        val api = createKeerV2ClientWithAccessToken(host, session.accessToken).second
+        val candidates = linkedSetOf<String>()
+        session.user.username.trim().takeIf(String::isNotBlank)?.let(candidates::add)
+        session.user.name.trim().takeIf(String::isNotBlank)?.let(candidates::add)
+
+        for (candidate in candidates) {
+            when (val userResponse = api.getUser(candidate)) {
+                is ApiResponse.Success -> {
+                    extractUserId(userResponse.data.name)?.let { parsedId ->
+                        return ApiResponse.Success(parsedId)
+                    }
+                }
+                is ApiResponse.Failure.Error -> Unit
+                is ApiResponse.Failure.Exception -> return ApiResponse.Failure.Exception(userResponse.throwable)
+            }
+        }
+
+        when (val meResponse = api.getCurrentUser()) {
+            is ApiResponse.Success -> {
+                extractUserId(meResponse.data.user?.name)?.let { parsedId ->
+                    return ApiResponse.Success(parsedId)
+                }
+            }
+            is ApiResponse.Failure.Error -> Unit
+            is ApiResponse.Failure.Exception -> return ApiResponse.Failure.Exception(meResponse.throwable)
+        }
+
+        return ApiResponse.exception(
+            IllegalStateException(
+                "Cannot resolve authenticated user id from session name=${session.user.name}"
+            )
         )
+    }
+
+    private fun extractUserId(rawIdentifier: String?): Long? {
+        if (rawIdentifier.isNullOrBlank()) {
+            return null
+        }
+        val normalized = rawIdentifier
+            .trim()
+            .substringBefore('|')
+            .substringAfterLast('/')
+            .trim()
+        return normalized.toLongOrNull()?.takeIf { it > 0L }
     }
 
     private fun resolveAvatarFileExtension(uri: Uri): String {
