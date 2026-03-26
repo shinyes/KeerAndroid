@@ -331,7 +331,7 @@ internal fun resolveMemoVideoPreviewUri(resource: ResourceRepresentable): String
         }
         return ""
     }
-    val thumbnail = resource.thumbnailUri?.trim().orEmpty()
+    val thumbnail = resource.resolveUsableRemoteThumbnailUri().orEmpty()
     if (thumbnail.isNotEmpty()) {
         return thumbnail
     }

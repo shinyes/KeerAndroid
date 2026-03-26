@@ -97,47 +97,78 @@ internal object MediaPreviewPrefetchCoordinator {
         cacheResourceThumbnail: suspend (String, Uri) -> ApiResponse<Unit>,
         updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
     ) {
+        logPrefetchTrace(resource, "prefetch_start")
         if (!resource.isMediaResource()) {
+            logPrefetchTrace(resource, "prefetch_skip_non_media")
             return
         }
         if (resource.isUntrackedMemoScope()) {
-            prefetchUntrackedResourcePreview(
+            val previewUri = prefetchUntrackedResourcePreview(
                 context = context,
                 okHttpClient = okHttpClient,
                 resource = resource,
                 currentAccountKey = currentAccountKey,
             )
+            logPrefetchTrace(
+                resource,
+                if (previewUri == null) "prefetch_untracked_no_preview" else "prefetch_untracked_ready",
+            )
             return
         }
         val previewSnapshot = resolvePreviewSnapshot(resource)
         if (previewSnapshot != null) {
+            logPrefetchTrace(resource, "prefetch_snapshot_hit", "source=${previewSnapshot.source}")
             MediaPreviewRuntimeCache.rememberPreviewUri(previewCacheKey(resource), previewSnapshot.uri)
             val localThumbnail = resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)
-            val shouldUploadMissingRemoteThumbnail = !localThumbnail.isNullOrBlank() &&
-                resource.remoteId?.trim().isNullOrEmpty().not() &&
-                resource.thumbnailUri?.trim().isNullOrEmpty()
+                ?: previewSnapshot
+                    .takeIf { snapshot -> snapshot.source == "runtime_cache" }
+                    ?.let { snapshot -> resolveUsableThumbnailLocalUri(snapshot.uri) }
+            val shouldUploadMissingRemoteThumbnail = shouldTriggerRemoteThumbnailUpload(
+                resource = resource,
+                localThumbnailUri = localThumbnail,
+            )
             if (shouldUploadMissingRemoteThumbnail) {
-                writeSemaphore.withPermit {
-                    updateResourceThumbnail(resource.identifier, localThumbnail)
+                if (ThumbnailUploadKickoffGate.tryAcquire(resource.identifier)) {
+                    logPrefetchTrace(resource, "prefetch_upload_enqueue")
+                    localThumbnail?.let { usableLocalThumbnail ->
+                        writeSemaphore.withPermit {
+                            updateResourceThumbnail(resource.identifier, usableLocalThumbnail)
+                        }
+                    }
+                } else {
+                    logPrefetchTrace(resource, "prefetch_upload_skip", "reason=gate_denied")
                 }
+            } else {
+                logPrefetchTrace(
+                    resource,
+                    "prefetch_upload_skip",
+                    "reason=${resolvePrefetchUploadSkipReason(resource, localThumbnail)}",
+                )
             }
-            val shouldBackfillFromLocalMain = previewSnapshot.source == "local_main" &&
+            val hasResolvableLocalMain = hasResolvableLocalMainUri(resource.localUri)
+            val shouldBackfillFromLocalMain = (previewSnapshot.source == "local_main" ||
+                (previewSnapshot.source == "runtime_cache" && hasResolvableLocalMain)) &&
                 resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri).isNullOrBlank() &&
-                resource.thumbnailUri?.trim().isNullOrEmpty()
+                resource.resolveUsableRemoteThumbnailUri().isNullOrBlank()
             if (!shouldBackfillFromLocalMain) {
                 markLifecycleReady(resource)
                 logPrefetchDecision(resource, previewSnapshot.source)
                 return
             }
-            logPrefetchDecision(resource, "local_main_backfill")
+            logPrefetchDecision(
+                resource,
+                if (previewSnapshot.source == "runtime_cache") "runtime_cache_backfill" else "local_main_backfill",
+            )
         }
         val lifecycleDecision = resolveLifecycleDecision(resource)
+        logPrefetchTrace(resource, "prefetch_lifecycle", "decision=${lifecycleDecision.name}")
         if (lifecycleDecision == MainFallbackLifecycleDecision.COOLDOWN) {
             logPrefetchDecision(resource, "cooldown")
             return
         }
         val inFlightKey = "tracked:${resolveResourceStableKey(resource)}"
         if (!acquireInFlight(inFlightKey)) {
+            logPrefetchTrace(resource, "prefetch_skip_inflight")
             return
         }
         try {
@@ -191,13 +222,6 @@ internal object MediaPreviewPrefetchCoordinator {
                     }
                 }
             }
-            resolvePreviewSnapshot(resource)?.let { snapshot ->
-                MediaPreviewRuntimeCache.rememberPreviewUri(previewCacheKey(resource), snapshot.uri)
-                markLifecycleReady(resource)
-                logPrefetchDecision(resource, snapshot.source)
-                return
-            }
-
             if (ensureResult.mainFallbackAttempted) {
                 markMainFallbackFetched(resource)
             }
@@ -208,6 +232,13 @@ internal object MediaPreviewPrefetchCoordinator {
                     nowMillis = System.currentTimeMillis(),
                     cooldownMillis = REMOTE_THUMBNAIL_FAILURE_COOLDOWN_MILLIS,
                 )
+            }
+
+            resolvePreviewSnapshot(resource)?.let { snapshot ->
+                MediaPreviewRuntimeCache.rememberPreviewUri(previewCacheKey(resource), snapshot.uri)
+                markLifecycleReady(resource)
+                logPrefetchDecision(resource, snapshot.source)
+                return
             }
 
             when {
@@ -238,10 +269,12 @@ internal object MediaPreviewPrefetchCoordinator {
     ): String? {
         val cacheKey = previewCacheKey(resource)
         MediaPreviewRuntimeCache.resolvePreviewUri(cacheKey)?.let { cached ->
+            logPrefetchTrace(resource, "prefetch_untracked_hit_runtime_cache")
             return cached
         }
         val inFlightKey = "untracked:$cacheKey"
         if (!acquireInFlight(inFlightKey)) {
+            logPrefetchTrace(resource, "prefetch_untracked_skip_inflight")
             return null
         }
         try {
@@ -249,7 +282,7 @@ internal object MediaPreviewPrefetchCoordinator {
                 decryptSemaphore.withPermit {
                     when {
                         resource.isVideoResource() -> {
-                            val remoteThumbnail = resource.thumbnailUri?.trim().orEmpty()
+                            val remoteThumbnail = resource.resolveUsableRemoteThumbnailUri().orEmpty()
                             if (!remoteThumbnail.isHttpUrl()) {
                                 null
                             } else {
@@ -267,7 +300,7 @@ internal object MediaPreviewPrefetchCoordinator {
                             }
                         }
                         else -> {
-                            val remoteThumbnail = resource.thumbnailUri?.trim().orEmpty()
+                            val remoteThumbnail = resource.resolveUsableRemoteThumbnailUri().orEmpty()
                             if (!remoteThumbnail.isHttpUrl()) {
                                 // Keep list/explore preview lightweight: do not pull original blobs here.
                                 null
@@ -287,9 +320,13 @@ internal object MediaPreviewPrefetchCoordinator {
                         }
                     }
                 }
-            } ?: return null
+            } ?: run {
+                logPrefetchTrace(resource, "prefetch_untracked_no_preview_file")
+                return null
+            }
             val previewUri = previewFile.toUri().toString()
             MediaPreviewRuntimeCache.rememberPreviewUri(cacheKey, previewUri)
+            logPrefetchTrace(resource, "prefetch_untracked_ready")
             return previewUri
         } finally {
             releaseInFlight(inFlightKey)
@@ -412,6 +449,19 @@ internal object MediaPreviewPrefetchCoordinator {
         return null
     }
 
+    private fun hasResolvableLocalMainUri(rawLocalUri: String?): Boolean {
+        val localUri = rawLocalUri?.trim().orEmpty()
+        if (localUri.isEmpty()) {
+            return false
+        }
+        val uri = localUri.toUri()
+        if (uri.scheme != "file") {
+            return true
+        }
+        val localFile = uri.path?.let(::File) ?: return false
+        return localFile.exists() && localFile.length() > 0L
+    }
+
     private suspend fun resolveLifecycleDecision(resource: ResourceEntity): MainFallbackLifecycleDecision {
         val nowMillis = System.currentTimeMillis()
         return lifecycleStateMutex.withLock {
@@ -484,11 +534,40 @@ internal object MediaPreviewPrefetchCoordinator {
     }
 
     private fun logPrefetchDecision(resource: ResourceEntity, source: String) {
+        logPrefetchTrace(resource, "prefetch_decision", "source=$source")
+    }
+
+    private fun logPrefetchTrace(
+        resource: ResourceRepresentable,
+        stage: String,
+        detail: String? = null,
+    ) {
+        val suffix = detail?.trim()?.takeIf { it.isNotEmpty() }?.let { " $it" }.orEmpty()
+        val identifier = (resource as? ResourceEntity)?.identifier ?: "-"
         Timber.tag(PREFETCH_LOG_TAG).d(
-            "resource=%s source=%s",
-            resource.identifier,
-            source,
+            "resource=%s remote=%s stage=%s%s",
+            identifier,
+            resource.remoteId?.trim().orEmpty().ifEmpty { "-" },
+            stage,
+            suffix,
         )
+    }
+
+    private fun resolvePrefetchUploadSkipReason(
+        resource: ResourceEntity,
+        localThumbnailUri: String?,
+    ): String {
+        val remoteId = resource.remoteId?.trim().orEmpty()
+        if (remoteId.isEmpty()) {
+            return "no_remote_id"
+        }
+        if (!resource.resolveUsableRemoteThumbnailUri().isNullOrEmpty()) {
+            return "remote_thumb_exists"
+        }
+        if (localThumbnailUri.isNullOrBlank()) {
+            return "no_local_thumb"
+        }
+        return "predicate_false"
     }
 
     private const val PREFETCH_WINDOW_AHEAD = 10

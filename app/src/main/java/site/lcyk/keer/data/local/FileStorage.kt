@@ -3,6 +3,7 @@ package site.lcyk.keer.data.local
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -199,31 +200,125 @@ class FileStorage @Inject constructor(
     }
 
     private fun decodeSampledBitmap(sourceUri: Uri, maxEdge: Int): Bitmap? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(sourceUri)?.use { input ->
-            BitmapFactory.decodeStream(input, null, bounds)
-        } ?: return null
+        decodeSampledBitmapFromFile(sourceUri, maxEdge)?.let { return it }
+        decodeSampledBitmapFromResolver(sourceUri, maxEdge)?.let { return it }
+        decodeBitmapWithImageDecoder(sourceUri, maxEdge)?.let { return it }
+        Timber.d(
+            "Failed to decode sampled bitmap uri=%s scheme=%s",
+            sourceUri,
+            sourceUri.scheme ?: "unknown",
+        )
+        return null
+    }
 
-        val sourceWidth = bounds.outWidth
-        val sourceHeight = bounds.outHeight
-        if (sourceWidth <= 0 || sourceHeight <= 0) {
+    private fun decodeSampledBitmapFromResolver(sourceUri: Uri, maxEdge: Int): Bitmap? {
+        return runCatching {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                BitmapFactory.decodeStream(input, null, bounds)
+            } ?: return null
+
+            val sourceWidth = bounds.outWidth
+            val sourceHeight = bounds.outHeight
+            if (sourceWidth <= 0 || sourceHeight <= 0) {
+                return null
+            }
+
+            val maxSourceEdge = max(sourceWidth, sourceHeight)
+            var sampleSize = 1
+            while (maxSourceEdge / sampleSize > maxEdge * 2) {
+                sampleSize *= 2
+            }
+
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                BitmapFactory.decodeStream(input, null, decodeOptions)
+            }
+        }.onFailure { throwable ->
+            Timber.d(
+                throwable,
+                "Resolver bitmap decode failed uri=%s scheme=%s",
+                sourceUri,
+                sourceUri.scheme ?: "unknown",
+            )
+        }.getOrNull()
+    }
+
+    private fun decodeSampledBitmapFromFile(sourceUri: Uri, maxEdge: Int): Bitmap? {
+        val file = sourceUri.toFileOrNull() ?: return null
+        if (!file.exists() || !file.isFile) {
             return null
         }
+        return runCatching {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, bounds)
+            val sourceWidth = bounds.outWidth
+            val sourceHeight = bounds.outHeight
+            if (sourceWidth <= 0 || sourceHeight <= 0) {
+                return null
+            }
 
-        val maxSourceEdge = max(sourceWidth, sourceHeight)
-        var sampleSize = 1
-        while (maxSourceEdge / sampleSize > maxEdge * 2) {
-            sampleSize *= 2
-        }
+            val maxSourceEdge = max(sourceWidth, sourceHeight)
+            var sampleSize = 1
+            while (maxSourceEdge / sampleSize > maxEdge * 2) {
+                sampleSize *= 2
+            }
 
-        val decodeOptions = BitmapFactory.Options().apply {
-            inSampleSize = sampleSize
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            BitmapFactory.decodeFile(file.absolutePath, decodeOptions)
+        }.onFailure { throwable ->
+            Timber.d(
+                throwable,
+                "File bitmap decode failed path=%s",
+                file.absolutePath,
+            )
+        }.getOrNull()
+    }
 
-        return context.contentResolver.openInputStream(sourceUri)?.use { input ->
-            BitmapFactory.decodeStream(input, null, decodeOptions)
+    private fun decodeBitmapWithImageDecoder(sourceUri: Uri, maxEdge: Int): Bitmap? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            return null
         }
+        return runCatching {
+            val source = sourceUri.toFileOrNull()?.let { file ->
+                ImageDecoder.createSource(file)
+            } ?: ImageDecoder.createSource(context.contentResolver, sourceUri)
+
+            ImageDecoder.decodeBitmap(source) { decoder, imageInfo, _ ->
+                val size = imageInfo.size
+                val maxSourceEdge = max(size.width, size.height)
+                if (maxSourceEdge > maxEdge && maxEdge > 0) {
+                    val sample = (maxSourceEdge + maxEdge - 1) / maxEdge
+                    decoder.setTargetSampleSize(sample.coerceAtLeast(1))
+                }
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                decoder.isMutableRequired = false
+            }
+        }.onFailure { throwable ->
+            Timber.d(
+                throwable,
+                "ImageDecoder decode failed uri=%s",
+                sourceUri,
+            )
+        }.getOrNull()
+    }
+
+    private fun Uri.toFileOrNull(): File? {
+        if (scheme != "file") {
+            return null
+        }
+        val rawPath = path?.trim().orEmpty()
+        if (rawPath.isEmpty()) {
+            return null
+        }
+        return File(rawPath)
     }
 
     private fun scaleDown(bitmap: Bitmap, maxEdge: Int): Bitmap {

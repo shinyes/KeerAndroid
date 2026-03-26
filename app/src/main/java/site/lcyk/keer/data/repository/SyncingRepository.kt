@@ -649,9 +649,20 @@ class SyncingRepository(
                 val resource = memoDao.getResourceById(identifier, accountKey)
                     ?: memoDao.getResourceByRemoteId(identifier, accountKey)
                     ?: return@withContext ApiResponse.Failure.Exception(Exception(R.string.resource_not_found.string))
+                logThumbnailUploadTrace(
+                    resourceIdentifier = identifier,
+                    resource = resource,
+                    stage = "update_local_thumb_start",
+                )
 
                 val normalizedThumbnailUri = thumbnailUri.trim()
                 if (normalizedThumbnailUri.isEmpty()) {
+                    logThumbnailUploadTrace(
+                        resourceIdentifier = identifier,
+                        resource = resource,
+                        stage = "update_local_thumb_failed",
+                        detail = "reason=empty_thumbnail_uri",
+                    )
                     return@withContext ApiResponse.Failure.Exception(Exception("thumbnail uri is empty"))
                 }
 
@@ -666,12 +677,34 @@ class SyncingRepository(
 
                 val updated = resource.copy(thumbnailLocalUri = normalizedThumbnailUri)
                 memoDao.insertResource(updated)
+                logThumbnailUploadTrace(
+                    resourceIdentifier = identifier,
+                    resource = updated,
+                    stage = "update_local_thumb_saved",
+                )
 
                 if (!updated.remoteId.isNullOrBlank()) {
+                    logThumbnailUploadTrace(
+                        resourceIdentifier = identifier,
+                        resource = updated,
+                        stage = "update_local_thumb_enqueue_upload",
+                    )
                     enqueueResourceThumbnailUpload(updated.identifier)
+                } else {
+                    logThumbnailUploadTrace(
+                        resourceIdentifier = identifier,
+                        resource = updated,
+                        stage = "update_local_thumb_skip_upload",
+                        detail = "reason=no_remote_id",
+                    )
                 }
                 ApiResponse.Success(Unit)
             } catch (e: Exception) {
+                logThumbnailUploadTrace(
+                    resourceIdentifier = identifier,
+                    stage = "update_local_thumb_exception",
+                    detail = "error=${e.message ?: e::class.simpleName ?: "unknown"}",
+                )
                 ApiResponse.Failure.Exception(e)
             }
         }
@@ -1894,54 +1927,150 @@ class SyncingRepository(
         )
     }
 
+    private fun logThumbnailUploadTrace(
+        resourceIdentifier: String,
+        resource: ResourceEntity? = null,
+        stage: String,
+        detail: String? = null,
+    ) {
+        val resolvedResourceId = resource?.identifier ?: resourceIdentifier
+        val resolvedRemoteId = resource?.remoteId?.trim().orEmpty().ifEmpty { "-" }
+        val suffix = detail?.trim()?.takeIf { it.isNotEmpty() }?.let { " $it" }.orEmpty()
+        Timber.tag(THUMBNAIL_UPLOAD_LOG_TAG).d(
+            "resource=%s remote=%s stage=%s%s",
+            resolvedResourceId,
+            resolvedRemoteId,
+            stage,
+            suffix,
+        )
+    }
+
     private fun enqueueResourceThumbnailUpload(resourceIdentifier: String) {
         if (!thumbnailUploadScheduler.enqueue(resourceIdentifier)) {
+            logThumbnailUploadTrace(
+                resourceIdentifier = resourceIdentifier,
+                stage = "queue_deduplicated",
+            )
             return
         }
+        logThumbnailUploadTrace(
+            resourceIdentifier = resourceIdentifier,
+            stage = "queue_enqueued",
+        )
         operationScope.launch {
             processResourceThumbnailUploads(resourceIdentifier)
         }
     }
 
     private suspend fun processResourceThumbnailUploads(resourceIdentifier: String) {
+        logThumbnailUploadTrace(
+            resourceIdentifier = resourceIdentifier,
+            stage = "worker_start",
+        )
         while (thumbnailUploadScheduler.takePending(resourceIdentifier)) {
             uploadResourceThumbnailWithRetry(resourceIdentifier)
         }
         if (thumbnailUploadScheduler.finishAndShouldRestart(resourceIdentifier)) {
+            logThumbnailUploadTrace(
+                resourceIdentifier = resourceIdentifier,
+                stage = "worker_restart",
+            )
             operationScope.launch {
                 processResourceThumbnailUploads(resourceIdentifier)
             }
+        } else {
+            logThumbnailUploadTrace(
+                resourceIdentifier = resourceIdentifier,
+                stage = "worker_finish",
+            )
         }
     }
 
     private suspend fun uploadResourceThumbnailWithRetry(resourceIdentifier: String) {
         var attempt = 1
         while (attempt <= THUMBNAIL_UPLOAD_MAX_RETRY_COUNT) {
+            logThumbnailUploadTrace(
+                resourceIdentifier = resourceIdentifier,
+                stage = "retry_attempt",
+                detail = "attempt=$attempt",
+            )
             if (uploadResourceThumbnailOnce(resourceIdentifier)) {
+                logThumbnailUploadTrace(
+                    resourceIdentifier = resourceIdentifier,
+                    stage = "retry_complete",
+                    detail = "attempt=$attempt",
+                )
                 return
             }
             if (attempt < THUMBNAIL_UPLOAD_MAX_RETRY_COUNT) {
-                delay(thumbnailUploadRetryDelayMillis(attempt))
+                val delayMillis = thumbnailUploadRetryDelayMillis(attempt)
+                logThumbnailUploadTrace(
+                    resourceIdentifier = resourceIdentifier,
+                    stage = "retry_backoff",
+                    detail = "attempt=$attempt delay_ms=$delayMillis",
+                )
+                delay(delayMillis)
             }
             attempt += 1
         }
+        logThumbnailUploadTrace(
+            resourceIdentifier = resourceIdentifier,
+            stage = "retry_exhausted",
+            detail = "max=$THUMBNAIL_UPLOAD_MAX_RETRY_COUNT",
+        )
     }
 
     private suspend fun uploadResourceThumbnailOnce(resourceIdentifier: String): Boolean {
-        val resource = memoDao.getResourceById(resourceIdentifier, accountKey) ?: return true
-        val remoteId = resource.remoteId?.trim().orEmpty()
-        if (remoteId.isEmpty()) {
+        val resource = memoDao.getResourceById(resourceIdentifier, accountKey) ?: run {
+            logThumbnailUploadTrace(
+                resourceIdentifier = resourceIdentifier,
+                stage = "skip:no_resource",
+            )
             return true
         }
-        val thumbnailLocalUri = existingThumbnailLocalUri(resource) ?: return true
+        val remoteId = resource.remoteId?.trim().orEmpty()
+        if (remoteId.isEmpty()) {
+            logThumbnailUploadTrace(
+                resourceIdentifier = resourceIdentifier,
+                resource = resource,
+                stage = "skip:no_remote_id",
+            )
+            return true
+        }
+        val thumbnailLocalUri = existingThumbnailLocalUri(resource) ?: run {
+            logThumbnailUploadTrace(
+                resourceIdentifier = resourceIdentifier,
+                resource = resource,
+                stage = "skip:no_local_thumb",
+            )
+            return true
+        }
         val thumbnailFilePath = thumbnailLocalUri.path?.trim().orEmpty()
         if (thumbnailFilePath.isEmpty()) {
+            logThumbnailUploadTrace(
+                resourceIdentifier = resourceIdentifier,
+                resource = resource,
+                stage = "skip:no_local_thumb",
+            )
             return true
         }
         val thumbnailFile = File(thumbnailFilePath)
         if (!thumbnailFile.exists() || !thumbnailFile.isFile || thumbnailFile.length() <= 0L) {
+            logThumbnailUploadTrace(
+                resourceIdentifier = resourceIdentifier,
+                resource = resource,
+                stage = "skip:thumb_file_missing",
+                detail = "path=$thumbnailFilePath",
+            )
             return true
         }
+
+        logThumbnailUploadTrace(
+            resourceIdentifier = resourceIdentifier,
+            resource = resource,
+            stage = "request:upload_start",
+            detail = "bytes=${thumbnailFile.length()}",
+        )
 
         return when (val response = remoteRepository.updateResourceThumbnail(
             remoteId = remoteId,
@@ -1958,9 +2087,20 @@ class SyncingRepository(
                         thumbnailLocalUri = resource.thumbnailLocalUri,
                     )
                 )
+                logThumbnailUploadTrace(
+                    resourceIdentifier = resourceIdentifier,
+                    resource = resource,
+                    stage = "request:upload_success",
+                )
                 true
             }
             is ApiResponse.Failure.Error -> {
+                logThumbnailUploadTrace(
+                    resourceIdentifier = resourceIdentifier,
+                    resource = resource,
+                    stage = "request:upload_failed_http",
+                    detail = "code=${response.statusCode.code}",
+                )
                 Timber.w(
                     "Thumbnail upload failed for resource %s: HTTP %s",
                     resource.identifier,
@@ -1969,6 +2109,12 @@ class SyncingRepository(
                 false
             }
             is ApiResponse.Failure.Exception -> {
+                logThumbnailUploadTrace(
+                    resourceIdentifier = resourceIdentifier,
+                    resource = resource,
+                    stage = "request:upload_failed_exception",
+                    detail = "error=${response.throwable.message ?: response.throwable::class.simpleName ?: "unknown"}",
+                )
                 Timber.w(
                     response.throwable,
                     "Thumbnail upload failed for resource %s",
@@ -2059,6 +2205,7 @@ class SyncingRepository(
         private const val SYNC_APPLY_CHUNK_SIZE = 24
         private const val THUMBNAIL_UPLOAD_MAX_RETRY_COUNT = 3
         private const val THUMBNAIL_UPLOAD_BASE_RETRY_DELAY_MILLIS = 800L
+        private const val THUMBNAIL_UPLOAD_LOG_TAG = "ThumbnailUpload"
     }
 
 }

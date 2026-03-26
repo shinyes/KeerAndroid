@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -174,6 +175,137 @@ class MemoResourcePreviewTest {
         )
 
         assertEquals("video/quicktime", resolved)
+    }
+
+    @Test
+    fun resolveThumbnailGenerationModesForTest_encryptedImagePrefersImageThenVideo() {
+        val resource = testResource(
+            identifier = "res-enc-image",
+            mimeType = "application/octet-stream",
+            filename = "blob.bin",
+        ).copy(
+            encryptionMetadata = encryptedMetadataWithOriginalMimeType("image/jpeg")
+        )
+
+        val modes = resolveThumbnailGenerationModesForTest(
+            resource = resource,
+            downloadedPath = "file:///tmp/blob.bin",
+        )
+
+        assertEquals(
+            listOf(ThumbnailGenerationMode.IMAGE, ThumbnailGenerationMode.VIDEO),
+            modes
+        )
+    }
+
+    @Test
+    fun resolveThumbnailGenerationModesForTest_encryptedVideoPrefersVideoThenImage() {
+        val resource = testResource(
+            identifier = "res-enc-video",
+            mimeType = "application/octet-stream",
+            filename = "blob.bin",
+        ).copy(
+            encryptionMetadata = encryptedMetadataWithOriginalMimeType("video/mp4")
+        )
+
+        val modes = resolveThumbnailGenerationModesForTest(
+            resource = resource,
+            downloadedPath = "file:///tmp/blob.bin",
+        )
+
+        assertEquals(
+            listOf(ThumbnailGenerationMode.VIDEO, ThumbnailGenerationMode.IMAGE),
+            modes
+        )
+    }
+
+    @Test
+    fun shouldTriggerRemoteThumbnailUpload_requiresRemoteAndMissingRemoteThumbnail() {
+        val resource = testResource("res-upload")
+
+        assertTrue(
+            shouldTriggerRemoteThumbnailUpload(
+                resource = resource.copy(thumbnailUri = null),
+                localThumbnailUri = "file:///tmp/thumb.jpg",
+            )
+        )
+        assertFalse(
+            shouldTriggerRemoteThumbnailUpload(
+                resource = resource.copy(remoteId = null, thumbnailUri = null),
+                localThumbnailUri = "file:///tmp/thumb.jpg",
+            )
+        )
+        assertFalse(
+            shouldTriggerRemoteThumbnailUpload(
+                resource = resource.copy(thumbnailUri = "https://example.com/thumb.jpg"),
+                localThumbnailUri = "file:///tmp/thumb.jpg",
+            )
+        )
+        assertTrue(
+            shouldTriggerRemoteThumbnailUpload(
+                resource = resource.copy(
+                    uri = "https://example.com/file/attachments/88/blob.bin",
+                    thumbnailUri = "https://example.com/file/attachments/88/blob.bin",
+                ),
+                localThumbnailUri = "file:///tmp/thumb.jpg",
+            )
+        )
+        assertFalse(
+            shouldTriggerRemoteThumbnailUpload(
+                resource = resource.copy(thumbnailUri = null),
+                localThumbnailUri = "   ",
+            )
+        )
+    }
+
+    @Test
+    fun resolveUsableRemoteThumbnailUri_returnsNullWhenEqualToRemoteMain() {
+        val resource = testResource(identifier = "res-remote-thumb-equal-main").copy(
+            uri = "https://example.com/file/attachments/99/blob.bin",
+            thumbnailUri = "https://example.com/file/attachments/99/blob.bin",
+        )
+
+        assertNull(resource.resolveUsableRemoteThumbnailUri())
+    }
+
+    @Test
+    fun resolveUsableRemoteThumbnailUri_keepsTrueThumbnailPath() {
+        val resource = testResource(identifier = "res-remote-thumb-real").copy(
+            uri = "https://example.com/file/attachments/100/blob.bin",
+            thumbnailUri = "https://example.com/file/attachments/100/thumbnail/blob.thumb.bin",
+        )
+
+        assertEquals(
+            "https://example.com/file/attachments/100/thumbnail/blob.thumb.bin",
+            resource.resolveUsableRemoteThumbnailUri()
+        )
+    }
+
+    @Test
+    fun thumbnailUploadKickoffGate_deduplicatesWithinInterval() = runTest {
+        ThumbnailUploadKickoffGate.clearForTest()
+
+        assertTrue(
+            ThumbnailUploadKickoffGate.tryAcquire(
+                resourceIdentifier = "res-kick",
+                nowMillis = 1_000L,
+                minIntervalMillis = 10_000L,
+            )
+        )
+        assertFalse(
+            ThumbnailUploadKickoffGate.tryAcquire(
+                resourceIdentifier = "res-kick",
+                nowMillis = 2_000L,
+                minIntervalMillis = 10_000L,
+            )
+        )
+        assertTrue(
+            ThumbnailUploadKickoffGate.tryAcquire(
+                resourceIdentifier = "res-kick",
+                nowMillis = 12_001L,
+                minIntervalMillis = 10_000L,
+            )
+        )
     }
 
     private fun testResource(

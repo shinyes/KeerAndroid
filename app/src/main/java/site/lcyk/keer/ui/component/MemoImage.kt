@@ -256,7 +256,7 @@ internal fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String
     if (!localThumbnail.isNullOrBlank()) {
         return localThumbnail
     }
-    val thumbnail = resource.thumbnailUri?.trim().orEmpty()
+    val thumbnail = resource.resolveUsableRemoteThumbnailUri().orEmpty()
     if (thumbnail.isNotEmpty()) {
         return thumbnail
     }

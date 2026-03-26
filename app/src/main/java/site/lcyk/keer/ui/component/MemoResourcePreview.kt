@@ -1,7 +1,6 @@
 package site.lcyk.keer.ui.component
 
 import android.content.Context
-import android.util.Log
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,6 +22,7 @@ import site.lcyk.keer.data.model.ResourceRepresentable
 import site.lcyk.keer.data.security.AttachmentEncryptionManager
 import site.lcyk.keer.data.security.EncryptedBlobVariant
 import site.lcyk.keer.viewmodel.LocalMemos
+import timber.log.Timber
 import java.io.File
 import java.util.UUID
 
@@ -167,6 +167,29 @@ internal data class PreviewEnsureResult(
     val previewReady: Boolean = false,
 )
 
+internal enum class ThumbnailGenerationMode {
+    IMAGE,
+    VIDEO,
+}
+
+private const val PREVIEW_TRACE_TAG = "PreviewTrace"
+
+private fun logPreviewTrace(
+    resource: ResourceEntity,
+    stage: String,
+    detail: String = "",
+) {
+    val normalizedDetail = detail.trim()
+    val detailSuffix = if (normalizedDetail.isEmpty()) "" else " $normalizedDetail"
+    Timber.tag(PREVIEW_TRACE_TAG).d(
+        "resource=%s remote=%s stage=%s%s",
+        resource.identifier,
+        resource.remoteId?.trim().orEmpty().ifEmpty { "-" },
+        stage,
+        detailSuffix,
+    )
+}
+
 internal suspend fun ensureMemoImageCardPreview(
     context: Context,
     okHttpClient: OkHttpClient,
@@ -177,9 +200,15 @@ internal suspend fun ensureMemoImageCardPreview(
     updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
     allowMainFallback: Boolean = true,
 ): PreviewEnsureResult {
+    logPreviewTrace(
+        resource = resource,
+        stage = "image_preview_start",
+        detail = "allowMainFallback=$allowMainFallback thumbLocal=${!resource.thumbnailLocalUri.isNullOrBlank()} thumbRemote=${!resource.resolveUsableRemoteThumbnailUri().isNullOrBlank()} localMain=${!resource.localUri.isNullOrBlank()}",
+    )
     val previewKey = previewCacheKey(resource)
     resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)?.let { localThumbnail ->
         MediaPreviewRuntimeCache.rememberPreviewUri(previewKey, localThumbnail)
+        logPreviewTrace(resource, "image_preview_hit_local_thumb")
         enqueueThumbnailUploadIfRemoteMissing(
             resource = resource,
             localThumbnailUri = localThumbnail,
@@ -199,6 +228,11 @@ internal suspend fun ensureMemoImageCardPreview(
             currentAccountKey = currentAccountKey,
             updateResourceThumbnail = updateResourceThumbnail,
         )
+        logPreviewTrace(
+            resource = resource,
+            stage = "image_preview_hit_local_main",
+            detail = "generatedThumb=${generatedFromLocalMain != null}",
+        )
         return PreviewEnsureResult(
             source = if (generatedFromLocalMain != null) {
                 PreviewEnsureSource.LOCAL_THUMB
@@ -209,8 +243,9 @@ internal suspend fun ensureMemoImageCardPreview(
         )
     }
 
-    val remoteThumbnail = resource.thumbnailUri?.trim().orEmpty()
+    val remoteThumbnail = resource.resolveUsableRemoteThumbnailUri().orEmpty()
     if (remoteThumbnail.isHttpUrl()) {
+        logPreviewTrace(resource, "image_preview_fetch_remote_thumb_start")
         var downloadedAndCached = false
         MemoResourcePreviewLoader.run("thumb:${resource.identifier}") {
             downloadResourceVariantToTemp(
@@ -232,6 +267,14 @@ internal suspend fun ensureMemoImageCardPreview(
                 }
             }
         }
+        logPreviewTrace(
+            resource = resource,
+            stage = if (downloadedAndCached) {
+                "image_preview_fetch_remote_thumb_success"
+            } else {
+                "image_preview_fetch_remote_thumb_failed"
+            },
+        )
         return PreviewEnsureResult(
             source = PreviewEnsureSource.REMOTE_THUMB,
             previewReady = downloadedAndCached,
@@ -239,6 +282,7 @@ internal suspend fun ensureMemoImageCardPreview(
     }
 
     if (!allowMainFallback) {
+        logPreviewTrace(resource, "image_preview_skip_main_fallback", "reason=disabled")
         return PreviewEnsureResult(
             source = PreviewEnsureSource.MAIN_FALLBACK_SKIPPED,
         )
@@ -246,11 +290,13 @@ internal suspend fun ensureMemoImageCardPreview(
 
     val remoteMain = resource.uri.trim()
     if (resource.isUntrackedMemoScope()) {
+        logPreviewTrace(resource, "image_preview_skip_main_fallback", "reason=untracked_scope")
         return PreviewEnsureResult(
             source = PreviewEnsureSource.MAIN_FALLBACK_SKIPPED,
         )
     }
     if (!remoteMain.isHttpUrl()) {
+        logPreviewTrace(resource, "image_preview_skip_main_fallback", "reason=non_http_uri")
         return PreviewEnsureResult(
             source = PreviewEnsureSource.NONE,
         )
@@ -259,6 +305,7 @@ internal suspend fun ensureMemoImageCardPreview(
     var generatedOrCachedPreview = false
     MemoResourcePreviewLoader.run("main:${resource.identifier}") {
         attemptedMainFallback = true
+        logPreviewTrace(resource, "image_preview_main_fallback_fetch_start")
         downloadResourceVariantToTemp(
             context = context,
             okHttpClient = okHttpClient,
@@ -296,6 +343,11 @@ internal suspend fun ensureMemoImageCardPreview(
             }
         }
     }
+    logPreviewTrace(
+        resource = resource,
+        stage = "image_preview_main_fallback_result",
+        detail = "attempted=$attemptedMainFallback previewReady=$generatedOrCachedPreview",
+    )
     return PreviewEnsureResult(
         source = PreviewEnsureSource.MAIN_FALLBACK,
         mainFallbackAttempted = attemptedMainFallback,
@@ -312,9 +364,15 @@ internal suspend fun ensureMemoVideoCardPreview(
     updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
     allowMainFallback: Boolean = true,
 ): PreviewEnsureResult {
+    logPreviewTrace(
+        resource = resource,
+        stage = "video_preview_start",
+        detail = "allowMainFallback=$allowMainFallback thumbLocal=${!resource.thumbnailLocalUri.isNullOrBlank()} thumbRemote=${!resource.resolveUsableRemoteThumbnailUri().isNullOrBlank()} localMain=${!resource.localUri.isNullOrBlank()}",
+    )
     val previewKey = previewCacheKey(resource)
     resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri)?.let { localThumbnail ->
         MediaPreviewRuntimeCache.rememberPreviewUri(previewKey, localThumbnail)
+        logPreviewTrace(resource, "video_preview_hit_local_thumb")
         enqueueThumbnailUploadIfRemoteMissing(
             resource = resource,
             localThumbnailUri = localThumbnail,
@@ -334,6 +392,11 @@ internal suspend fun ensureMemoVideoCardPreview(
             updateResourceThumbnail = updateResourceThumbnail,
         )
         MediaPreviewRuntimeCache.rememberPreviewUri(previewKey, localMain)
+        logPreviewTrace(
+            resource = resource,
+            stage = "video_preview_hit_local_main",
+            detail = "generatedThumb=${generatedFromLocalMain != null}",
+        )
         return PreviewEnsureResult(
             source = if (generatedFromLocalMain != null) {
                 PreviewEnsureSource.LOCAL_THUMB
@@ -343,8 +406,9 @@ internal suspend fun ensureMemoVideoCardPreview(
             previewReady = true,
         )
     }
-    val remoteThumbnail = resource.thumbnailUri?.trim().orEmpty()
+    val remoteThumbnail = resource.resolveUsableRemoteThumbnailUri().orEmpty()
     if (remoteThumbnail.isHttpUrl()) {
+        logPreviewTrace(resource, "video_preview_fetch_remote_thumb_start")
         var downloadedAndCached = false
         MemoResourcePreviewLoader.run("thumb:${resource.identifier}") {
             downloadResourceVariantToTemp(
@@ -366,6 +430,14 @@ internal suspend fun ensureMemoVideoCardPreview(
                 }
             }
         }
+        logPreviewTrace(
+            resource = resource,
+            stage = if (downloadedAndCached) {
+                "video_preview_fetch_remote_thumb_success"
+            } else {
+                "video_preview_fetch_remote_thumb_failed"
+            },
+        )
         return PreviewEnsureResult(
             source = PreviewEnsureSource.REMOTE_THUMB,
             previewReady = downloadedAndCached,
@@ -373,6 +445,7 @@ internal suspend fun ensureMemoVideoCardPreview(
     }
 
     if (!allowMainFallback) {
+        logPreviewTrace(resource, "video_preview_skip_main_fallback", "reason=disabled")
         return PreviewEnsureResult(
             source = PreviewEnsureSource.MAIN_FALLBACK_SKIPPED,
         )
@@ -380,11 +453,13 @@ internal suspend fun ensureMemoVideoCardPreview(
 
     val remoteMain = resource.uri.trim()
     if (resource.isUntrackedMemoScope()) {
+        logPreviewTrace(resource, "video_preview_skip_main_fallback", "reason=untracked_scope")
         return PreviewEnsureResult(
             source = PreviewEnsureSource.MAIN_FALLBACK_SKIPPED,
         )
     }
     if (!remoteMain.isHttpUrl()) {
+        logPreviewTrace(resource, "video_preview_skip_main_fallback", "reason=non_http_uri")
         return PreviewEnsureResult(
             source = PreviewEnsureSource.NONE,
         )
@@ -393,6 +468,7 @@ internal suspend fun ensureMemoVideoCardPreview(
     var generatedPreview = false
     MemoResourcePreviewLoader.run("video-main:${resource.identifier}") {
         attemptedMainFallback = true
+        logPreviewTrace(resource, "video_preview_main_fallback_fetch_start")
         downloadResourceVariantToTemp(
             context = context,
             okHttpClient = okHttpClient,
@@ -428,6 +504,11 @@ internal suspend fun ensureMemoVideoCardPreview(
             }
         }
     }
+    logPreviewTrace(
+        resource = resource,
+        stage = "video_preview_main_fallback_result",
+        detail = "attempted=$attemptedMainFallback previewReady=$generatedPreview",
+    )
     return PreviewEnsureResult(
         source = PreviewEnsureSource.MAIN_FALLBACK,
         mainFallbackAttempted = attemptedMainFallback,
@@ -440,15 +521,16 @@ private suspend fun enqueueThumbnailUploadIfRemoteMissing(
     localThumbnailUri: String,
     updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
 ) {
-    if (resource.remoteId?.trim().isNullOrEmpty()) {
+    val skipReason = resolveThumbnailUploadSkipReason(resource, localThumbnailUri)
+    if (skipReason != null) {
+        logPreviewTrace(resource, "thumb_upload_kickoff_skip", "reason=$skipReason")
         return
     }
-    if (!resource.thumbnailUri?.trim().isNullOrEmpty()) {
+    if (!ThumbnailUploadKickoffGate.tryAcquire(resource.identifier)) {
+        logPreviewTrace(resource, "thumb_upload_kickoff_skip", "reason=kickoff_rate_limited")
         return
     }
-    if (localThumbnailUri.isBlank()) {
-        return
-    }
+    logPreviewTrace(resource, "thumb_upload_kickoff_enqueue")
     updateResourceThumbnail(resource.identifier, localThumbnailUri)
 }
 
@@ -460,14 +542,17 @@ private suspend fun generateThumbnailFromExistingLocalMainIfNeeded(
     updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
 ): Uri? {
     if (!resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri).isNullOrBlank()) {
+        logPreviewTrace(resource, "thumb_generate_from_local_main_skip", "reason=local_thumb_exists")
         return null
     }
-    val remoteThumbnail = resource.thumbnailUri?.trim().orEmpty()
+    val remoteThumbnail = resource.resolveUsableRemoteThumbnailUri().orEmpty()
     if (remoteThumbnail.isHttpUrl()) {
+        logPreviewTrace(resource, "thumb_generate_from_local_main_skip", "reason=remote_thumb_exists")
         return null
     }
     val sourceUri = localMainUri.toUri()
     if (sourceUri.scheme != "file") {
+        logPreviewTrace(resource, "thumb_generate_from_local_main_skip", "reason=local_main_not_file")
         return null
     }
 
@@ -487,6 +572,11 @@ private suspend fun generateThumbnailFromExistingLocalMainIfNeeded(
             )
         }
     }
+    logPreviewTrace(
+        resource = resource,
+        stage = "thumb_generate_from_local_main_result",
+        detail = "generated=${generatedThumbnailUri != null}",
+    )
     return generatedThumbnailUri
 }
 
@@ -497,37 +587,88 @@ private suspend fun generateThumbnailIfNeeded(
     downloadedUri: Uri,
     currentAccountKey: String?,
 ): Uri? {
-    val mimeType = resolveThumbnailSourceMimeType(resource, downloadedUri.toString()) ?: return null
-    val accountKey = resolveResourceAccountKey(resource, currentAccountKey) ?: return null
+    val accountKey = resolveResourceAccountKey(resource, currentAccountKey) ?: run {
+        logPreviewTrace(resource, "thumb_generate_skip", "reason=no_account_key")
+        return null
+    }
     val fileStorage = FileStorage(context)
-    val thumbnailFilename = buildGeneratedThumbnailFilename(
+    val generationModes = resolveThumbnailGenerationModes(resource, downloadedUri.toString())
+    if (generationModes.isEmpty()) {
+        logPreviewTrace(resource, "thumb_generate_skip", "reason=no_generation_mode")
+        return null
+    }
+    logPreviewTrace(
         resource = resource,
-        mimeType = mimeType,
+        stage = "thumb_generate_start",
+        detail = "modes=${generationModes.joinToString(separator = ",") { mode -> mode.name }} sourceUri=$downloadedUri",
     )
 
-    val thumbnailUri = when {
-        mimeType.startsWith("image/") -> {
-            fileStorage.saveImageThumbnailFromUri(
-                accountKey = accountKey,
-                sourceUri = downloadedUri,
-                filename = thumbnailFilename,
-            )
+    var thumbnailUri: Uri? = null
+    generationModes.forEach { mode ->
+        if (thumbnailUri != null) {
+            return@forEach
         }
-        mimeType.startsWith("video/") -> {
-            fileStorage.saveVideoThumbnailFromUri(
-                accountKey = accountKey,
-                sourceUri = downloadedUri,
-                filename = thumbnailFilename,
-            )
+        val thumbnailFilename = buildGeneratedThumbnailFilename(
+            resource = resource,
+            mode = mode,
+        )
+        logPreviewTrace(resource, "thumb_generate_try", "mode=${mode.name} filename=$thumbnailFilename")
+        thumbnailUri = when (mode) {
+            ThumbnailGenerationMode.IMAGE -> {
+                fileStorage.saveImageThumbnailFromUri(
+                    accountKey = accountKey,
+                    sourceUri = downloadedUri,
+                    filename = thumbnailFilename,
+                )
+            }
+            ThumbnailGenerationMode.VIDEO -> {
+                fileStorage.saveVideoThumbnailFromUri(
+                    accountKey = accountKey,
+                    sourceUri = downloadedUri,
+                    filename = thumbnailFilename,
+                )
+            }
         }
-        else -> null
+        logPreviewTrace(
+            resource = resource,
+            stage = if (thumbnailUri != null) {
+                "thumb_generate_try_success"
+            } else {
+                "thumb_generate_try_failed"
+            },
+            detail = "mode=${mode.name}",
+        )
     }
 
     thumbnailUri?.let { generatedThumb ->
         MediaPreviewRuntimeCache.rememberPreviewUri(previewCacheKey(resource), generatedThumb.toString())
-        Log.d("MemoResourcePreview", "Generated thumbnail for ${resource.identifier}")
+        logPreviewTrace(resource, "thumb_generate_success", "uri=$generatedThumb")
+    } ?: run {
+        logPreviewTrace(resource, "thumb_generate_failed")
     }
     return thumbnailUri
+}
+
+private fun resolveThumbnailGenerationModes(
+    resource: ResourceEntity,
+    downloadedPath: String,
+): List<ThumbnailGenerationMode> {
+    val resolvedMimeType = resolveThumbnailSourceMimeType(resource, downloadedPath)
+    return when {
+        resolvedMimeType?.startsWith("image/") == true -> {
+            listOf(ThumbnailGenerationMode.IMAGE, ThumbnailGenerationMode.VIDEO)
+        }
+        resolvedMimeType?.startsWith("video/") == true -> {
+            listOf(ThumbnailGenerationMode.VIDEO, ThumbnailGenerationMode.IMAGE)
+        }
+        resource.isVideoResource() -> {
+            listOf(ThumbnailGenerationMode.VIDEO, ThumbnailGenerationMode.IMAGE)
+        }
+        else -> {
+            // Fallback probe order for legacy/unknown metadata.
+            listOf(ThumbnailGenerationMode.IMAGE, ThumbnailGenerationMode.VIDEO)
+        }
+    }
 }
 
 private fun resolveThumbnailSourceMimeType(resource: ResourceEntity, downloadedPath: String): String? {
@@ -565,6 +706,13 @@ internal fun resolveThumbnailSourceMimeTypeForTest(
     return resolveThumbnailSourceMimeType(resource, downloadedPath)
 }
 
+internal fun resolveThumbnailGenerationModesForTest(
+    resource: ResourceEntity,
+    downloadedPath: String,
+): List<ThumbnailGenerationMode> {
+    return resolveThumbnailGenerationModes(resource, downloadedPath)
+}
+
 private fun inferMimeTypeFromFilename(filename: String): String? {
     val extension = filename
         .substringAfterLast('.', "")
@@ -586,21 +734,84 @@ private suspend fun persistGeneratedThumbnail(
     updateResourceThumbnail: suspend (String, String) -> ApiResponse<Unit>,
 ) {
     val persisted = updateResourceThumbnail(resource.identifier, generatedThumbnailUri.toString())
-    if (persisted !is ApiResponse.Success) {
-        Log.d("MemoResourcePreview", "Failed to persist generated thumbnail for ${resource.identifier}")
+    if (persisted is ApiResponse.Success) {
+        logPreviewTrace(resource, "thumb_persist_success")
+    } else {
+        logPreviewTrace(resource, "thumb_persist_failed")
     }
 }
 
-private fun buildGeneratedThumbnailFilename(resource: ResourceEntity, mimeType: String): String {
+private fun buildGeneratedThumbnailFilename(
+    resource: ResourceEntity,
+    mode: ThumbnailGenerationMode,
+): String {
     val stableToken = resource.identifier
         .trim()
         .ifEmpty { resource.filename.ifBlank { "resource" } }
         .replace(Regex("[^A-Za-z0-9._-]"), "_")
     val nonce = UUID.randomUUID().toString().replace("-", "")
-    return if (mimeType.startsWith("video/")) {
+    return if (mode == ThumbnailGenerationMode.VIDEO) {
         "video_thumb_${stableToken}_$nonce.jpg"
     } else {
         "thumb_${stableToken}_$nonce.jpg"
+    }
+}
+
+internal fun shouldTriggerRemoteThumbnailUpload(
+    resource: ResourceEntity,
+    localThumbnailUri: String?,
+): Boolean {
+    return resolveThumbnailUploadSkipReason(resource, localThumbnailUri) == null
+}
+
+private fun resolveThumbnailUploadSkipReason(
+    resource: ResourceEntity,
+    localThumbnailUri: String?,
+): String? {
+    if (resource.remoteId?.trim().isNullOrEmpty()) {
+        return "no_remote_id"
+    }
+    if (!resource.resolveUsableRemoteThumbnailUri().isNullOrEmpty()) {
+        return "remote_thumb_exists"
+    }
+    if (localThumbnailUri.isNullOrBlank()) {
+        return "no_local_thumb"
+    }
+    return null
+}
+
+internal object ThumbnailUploadKickoffGate {
+    private const val MIN_INTERVAL_MILLIS = 15_000L
+    private val lock = Mutex()
+    private val lastKickoffAtMillis = mutableMapOf<String, Long>()
+
+    suspend fun tryAcquire(
+        resourceIdentifier: String,
+        nowMillis: Long = System.currentTimeMillis(),
+        minIntervalMillis: Long = MIN_INTERVAL_MILLIS,
+    ): Boolean = lock.withLock {
+        val normalizedIdentifier = resourceIdentifier.trim()
+        if (normalizedIdentifier.isEmpty()) {
+            return@withLock false
+        }
+        val last = lastKickoffAtMillis[normalizedIdentifier]
+        if (last != null && nowMillis - last < minIntervalMillis) {
+            return@withLock false
+        }
+        lastKickoffAtMillis[normalizedIdentifier] = nowMillis
+        if (lastKickoffAtMillis.size > 4_096) {
+            val oldestKey = lastKickoffAtMillis.minByOrNull { (_, timestamp) -> timestamp }?.key
+            if (oldestKey != null) {
+                lastKickoffAtMillis.remove(oldestKey)
+            }
+        }
+        true
+    }
+
+    internal suspend fun clearForTest() {
+        lock.withLock {
+            lastKickoffAtMillis.clear()
+        }
     }
 }
 
