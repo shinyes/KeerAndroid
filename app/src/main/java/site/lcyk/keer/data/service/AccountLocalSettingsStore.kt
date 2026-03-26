@@ -210,6 +210,54 @@ class AccountLocalSettingsStore @Inject constructor(
         }
     }
 
+    suspend fun readProfileSyncCursor(accountKey: String): String? {
+        val raw = userSettings(accountKey)
+            ?.profileSyncCursor
+            .orEmpty()
+            .trim()
+        if (raw.isBlank()) {
+            return null
+        }
+        return if (raw.all(Char::isDigit) && raw.toLongOrNull() != null) {
+            raw
+        } else {
+            null
+        }
+    }
+
+    suspend fun writeProfileSyncCursor(accountKey: String, cursor: String) {
+        val normalizedCursor = cursor.trim()
+            .takeIf { value -> value.isNotEmpty() && value.all(Char::isDigit) && value.toLongOrNull() != null }
+            ?: "0"
+        updateUserData(accountKey) { target ->
+            target.copy(settings = target.settings.copy(profileSyncCursor = normalizedCursor))
+        }
+    }
+
+    suspend fun readStreamSyncCursor(accountKey: String): String? {
+        val raw = userSettings(accountKey)
+            ?.streamSyncCursor
+            .orEmpty()
+            .trim()
+        if (raw.isBlank()) {
+            return null
+        }
+        return if (raw.all(Char::isDigit) && raw.toLongOrNull() != null) {
+            raw
+        } else {
+            null
+        }
+    }
+
+    suspend fun writeStreamSyncCursor(accountKey: String, cursor: String) {
+        val normalizedCursor = cursor.trim()
+            .takeIf { value -> value.isNotEmpty() && value.all(Char::isDigit) && value.toLongOrNull() != null }
+            ?: "0"
+        updateUserData(accountKey) { target ->
+            target.copy(settings = target.settings.copy(streamSyncCursor = normalizedCursor))
+        }
+    }
+
     suspend fun readUserSyncAnchor(accountKey: String): Instant? {
         return userSettings(accountKey)
             ?.userSyncAnchor

@@ -89,9 +89,6 @@ interface KeerV2Api {
         @Query("ids") ids: String? = null,
     ): ApiResponse<ListUserChangesResponse>
 
-    @POST("api/v1/sync/pull")
-    suspend fun pullSync(@Body body: SyncPullRequest): ApiResponse<SyncPullResponse>
-
     @POST("api/v1/memos")
     suspend fun createMemo(@Body body: KeerV2CreateMemoRequest): ApiResponse<KeerV2Memo>
 
@@ -282,14 +279,6 @@ data class ListUserChangesResponse(
 )
 
 @Serializable
-data class SyncPullRequest(
-    val cursor: String = "0",
-    val domains: List<String> = emptyList(),
-    val groupScopes: List<String> = emptyList(),
-    val limit: Int = 200,
-)
-
-@Serializable
 data class SyncPullResponse(
     val nextCursor: String = "0",
     val hasMore: Boolean = false,
@@ -300,9 +289,12 @@ data class SyncPullResponse(
 data class SyncPullPatches(
     val memos: SyncPullMemoPatch = SyncPullMemoPatch(),
     val users: SyncPullUserPatch = SyncPullUserPatch(),
+    val friendships: SyncPullFriendshipsPatch = SyncPullFriendshipsPatch(),
     val groups: SyncPullGroupPatch = SyncPullGroupPatch(),
     val groupMessages: SyncPullGroupMessagesPatch = SyncPullGroupMessagesPatch(),
+    val attachments: SyncPullAttachmentsPatch = SyncPullAttachmentsPatch(),
     val settings: SyncPullSettingsPatch = SyncPullSettingsPatch(),
+    val groupKeys: SyncPullGroupKeysPatch = SyncPullGroupKeysPatch(),
 )
 
 @Serializable
@@ -314,6 +306,12 @@ data class SyncPullMemoPatch(
 @Serializable
 data class SyncPullUserPatch(
     val upserts: List<KeerV2User> = emptyList(),
+)
+
+@Serializable
+data class SyncPullFriendshipsPatch(
+    val upserts: List<KeerV2User> = emptyList(),
+    val deletes: List<String> = emptyList(),
 )
 
 @Serializable
@@ -337,8 +335,28 @@ data class SyncPullGroupMessagesGroupPatch(
 )
 
 @Serializable
+data class SyncPullAttachmentsPatch(
+    val upserts: List<KeerV2Resource> = emptyList(),
+    val deletes: List<String> = emptyList(),
+)
+
+@Serializable
 data class SyncPullSettingsPatch(
     val generalSetting: KeerV2UserSettingGeneralSetting? = null,
+    val encryptionSetting: KeerV2UserEncryptionSetting? = null,
+)
+
+@Serializable
+data class SyncPullGroupKeysPatch(
+    val upserts: List<KeerV2GroupKeyVersion> = emptyList(),
+    val deletes: List<String> = emptyList(),
+)
+
+@Serializable
+data class SyncStreamEventEnvelope(
+    val sessionId: String = "",
+    val cursor: String = "0",
+    val patches: SyncPullPatches = SyncPullPatches(),
 )
 
 @Serializable

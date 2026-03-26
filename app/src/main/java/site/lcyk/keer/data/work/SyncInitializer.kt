@@ -1,32 +1,24 @@
 package site.lcyk.keer.data.work
 
-import android.content.Context
-import dagger.hilt.android.qualifiers.ApplicationContext
+import site.lcyk.keer.data.service.StreamSyncSessionManager
+import site.lcyk.keer.data.service.SyncCoordinator
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Initializes and manages the WorkManager-based sync system.
- * 
- * This singleton is responsible for scheduling periodic background sync
- * when the app starts. It should be called from the Application class
- * or early in the app lifecycle.
+ * Initializes and manages the SSE-based continuous sync session.
  */
 @Singleton
 class SyncInitializer @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val syncScheduler: SyncScheduler
+    private val streamSyncSessionManager: StreamSyncSessionManager,
+    private val syncCoordinator: SyncCoordinator,
 ) {
     
     /**
-     * Initialize periodic sync scheduling.
-     * 
-     * Call this once during app startup to ensure periodic sync is scheduled.
-     * This method is idempotent - calling it multiple times is safe.
+     * Start continuous sync session. Idempotent.
      */
     fun initialize() {
-        // Schedule periodic background sync
-        syncScheduler.schedulePeriodicSync()
+        streamSyncSessionManager.start()
     }
     
     /**
@@ -38,7 +30,12 @@ class SyncInitializer @Inject constructor(
         domains: Set<site.lcyk.keer.data.model.SyncDomain> = site.lcyk.keer.data.service.SyncCoordinator.FULL_DOMAINS,
         force: Boolean = false
     ) {
-        syncScheduler.requestImmediateSync(domains, force)
+        syncCoordinator.requestSync(
+            trigger = site.lcyk.keer.data.service.SyncTrigger.MANUAL,
+            force = force,
+            domains = domains,
+            bypassCoalesce = true,
+        )
     }
     
     companion object {

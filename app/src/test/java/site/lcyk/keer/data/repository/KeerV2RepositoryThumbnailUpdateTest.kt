@@ -1,9 +1,12 @@
 package site.lcyk.keer.data.repository
 
 import android.content.Context
-import android.content.ContextWrapper
+import androidx.test.core.app.ApplicationProvider
 import com.skydoves.sandwich.ApiResponse
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import io.mockk.every
+import io.mockk.mockk
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -11,21 +14,29 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import site.lcyk.keer.data.api.KeerV2Api
 import site.lcyk.keer.data.api.KeerV2Resource
 import site.lcyk.keer.data.api.UpdateResourceThumbnailRequest
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemosAccount
-import site.lcyk.keer.data.security.AccountKeyManager
 import site.lcyk.keer.data.security.AttachmentEncryptionManager
+import site.lcyk.keer.data.security.AttachmentEncryptionMetadata
+import site.lcyk.keer.data.security.EncryptedBlobMetadata
 import site.lcyk.keer.data.security.MemoContentCodec
-import site.lcyk.keer.data.service.SecureAccountMasterKeyStorage
+import site.lcyk.keer.data.security.PreparedEncryptedThumbnail
+import site.lcyk.keer.data.security.PreparedEncryptedThumbnailUpdate
+import site.lcyk.keer.data.security.WrappedContentKey
 import java.io.File
 import java.lang.reflect.Proxy
 import java.nio.file.Files
 import java.util.Base64
 import java.util.concurrent.atomic.AtomicReference
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class KeerV2RepositoryThumbnailUpdateTest {
     @Test
     fun updateResourceThumbnail_plainUploadKeepsJpegPayload() = runTest {
@@ -54,15 +65,28 @@ class KeerV2RepositoryThumbnailUpdateTest {
         val captured = AtomicReference<CapturedThumbnailRequest?>()
         val fixture = createRepositoryFixture(fakeApiForThumbnailUpdate(captured))
         val repository = fixture.repository
-        val sourceFile = createTempFile("source", ".bin", byteArrayOf(9, 8, 7, 6, 5, 4))
         val thumbnailFile = createTempFile("enc-thumb", ".jpg", byteArrayOf(2, 4, 6, 8, 10))
-        val encryptionMetadata = fixture.attachmentEncryptionManager.prepareEncryptedUpload(
-            accountKey = TEST_ACCOUNT_KEY,
-            checkpointKey = "thumb-test-checkpoint",
-            sourceFile = sourceFile,
-            originalMimeType = "image/jpeg",
-            thumbnail = null,
-        ).encryptionMetadata
+        val encryptionMetadata = sampleEncryptionMetadata()
+        every {
+            fixture.attachmentEncryptionManager.prepareEncryptedThumbnailForExistingAttachment(
+                accountKey = any(),
+                rawMetadata = encryptionMetadata,
+                thumbnailFilename = "blob.thumb.bin",
+                thumbnailContent = any(),
+            )
+        } returns PreparedEncryptedThumbnailUpdate(
+            thumbnail = PreparedEncryptedThumbnail(
+                filename = "blob.thumb.bin",
+                type = AttachmentEncryptionManager.ENCRYPTED_MIME_TYPE,
+                content = Base64.getEncoder().encodeToString(byteArrayOf(8, 6, 4, 2)),
+            ),
+            blobMetadata = EncryptedBlobMetadata(
+                wrappedKeys = emptyList(),
+                noncePrefix = Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3, 4)),
+                plaintextSize = thumbnailFile.length(),
+                chunkSize = 64 * 1024,
+            ),
+        )
 
         val response = repository.updateResourceThumbnail(
             remoteId = "attachments/10",
@@ -81,11 +105,9 @@ class KeerV2RepositoryThumbnailUpdateTest {
     }
 
     private fun createRepositoryFixture(api: KeerV2Api): RepositoryFixture {
-        val filesDir = Files.createTempDirectory("keer-thumb-test-files").toFile()
-        val context = TestContext(filesDir)
-        val secureStorage = SecureAccountMasterKeyStorage(context)
-        val accountKeyManager = AccountKeyManager(secureStorage)
-        val attachmentEncryptionManager = AttachmentEncryptionManager(context, accountKeyManager)
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val accountKeyManager = mockk<site.lcyk.keer.data.security.AccountKeyManager>(relaxed = true)
+        val attachmentEncryptionManager = mockk<AttachmentEncryptionManager>()
 
         return RepositoryFixture(
             repository = KeerV2Repository(
@@ -107,6 +129,27 @@ class KeerV2RepositoryThumbnailUpdateTest {
                 },
             ),
             attachmentEncryptionManager = attachmentEncryptionManager,
+        )
+    }
+
+    private fun sampleEncryptionMetadata(): String {
+        return Json.encodeToString(
+            AttachmentEncryptionMetadata(
+                originalMimeType = "image/jpeg",
+                main = EncryptedBlobMetadata(
+                    wrappedKeys = listOf(
+                        WrappedContentKey(
+                            slotType = "account_master",
+                            slotRef = "amk:test",
+                            wrapAlgorithm = "AES_GCM_ACCOUNT_MASTER_KEY_V1",
+                            wrappedKey = "ZmFrZV93cmFwcGVkX2tleQ==",
+                        )
+                    ),
+                    noncePrefix = Base64.getEncoder().encodeToString(byteArrayOf(9, 9, 9, 9)),
+                    plaintextSize = 128,
+                    chunkSize = 64 * 1024,
+                ),
+            )
         )
     }
 
@@ -159,12 +202,4 @@ class KeerV2RepositoryThumbnailUpdateTest {
         val body: UpdateResourceThumbnailRequest,
     )
 
-    private class TestContext(private val root: File) : ContextWrapper(null) {
-        override fun getFilesDir(): File = root
-        override fun getApplicationContext(): Context = this
-    }
-
-    companion object {
-        private const val TEST_ACCOUNT_KEY = "thumbnail-update-test-account-key"
-    }
 }

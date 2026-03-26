@@ -32,11 +32,11 @@ import site.lcyk.keer.data.api.KeerV2Memo
 import site.lcyk.keer.data.api.KeerV2PayloadEnvelope
 import site.lcyk.keer.data.api.KeerV2Resource
 import site.lcyk.keer.data.api.KeerV2State
+import site.lcyk.keer.data.api.SyncStreamEventEnvelope
 import site.lcyk.keer.data.api.KeerV2User
 import site.lcyk.keer.data.api.KeerV2UserSettingGeneralSetting
 import site.lcyk.keer.data.api.MarkGroupReadRequest
 import site.lcyk.keer.data.api.MemosVisibility
-import site.lcyk.keer.data.api.SyncPullRequest
 import site.lcyk.keer.data.api.UpdateUserSettingBody
 import site.lcyk.keer.data.api.UpdateUserSettingRequest
 import site.lcyk.keer.data.api.UpdateGroupMessageRequest
@@ -75,6 +75,7 @@ import site.lcyk.keer.util.resolveAvatarUrl
 import site.lcyk.keer.util.resolveQuoteSourceKind
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
@@ -371,6 +372,128 @@ class KeerV2Repository(
         return getId(rawUserID).trim()
     }
 
+    private fun buildSyncStreamURL(
+        domains: Set<SyncPullDomain>,
+        groupScopes: List<String>,
+        resumeCursor: String,
+        mode: SyncStreamMode,
+    ): String {
+        val baseUrl = account.info.host.toHttpUrlOrNull()
+            ?: throw IllegalStateException("Invalid host: ${account.info.host}")
+        val builder = baseUrl.newBuilder()
+            .encodedPath("/")
+            .addEncodedPathSegments("api/v2/sync/stream")
+            .addQueryParameter("mode", mode.name.lowercase())
+            .addQueryParameter("resumeCursor", resumeCursor)
+        if (domains.isNotEmpty()) {
+            builder.addQueryParameter(
+                "domains",
+                domains.map { domain -> domain.name }.joinToString(","),
+            )
+        }
+        if (groupScopes.isNotEmpty()) {
+            builder.addQueryParameter(
+                "groupScopes",
+                groupScopes.joinToString(","),
+            )
+        }
+        return builder.build().toString()
+    }
+
+    private suspend fun convertSyncPullPatches(
+        patches: site.lcyk.keer.data.api.SyncPullPatches,
+    ): SyncPullPatches {
+        val groupMessageCreators = patches.groupMessages.groups
+            .flatMap { groupPatch -> groupPatch.upserts.map { message -> message.creator } }
+            .distinct()
+        val userMap = getUsersByIDs(groupMessageCreators)
+        val streamedUsers = (patches.users.upserts + patches.friendships.upserts)
+            .filter { user -> user.name.isNotBlank() }
+            .distinctBy { user -> getId(user.name) }
+        if (streamedUsers.isNotEmpty()) {
+            cacheFetchedUsers(streamedUsers)
+            trackUserIDs(streamedUsers.map { user -> user.name })
+            persistTrackedUserIDsIfNeeded(force = false)
+        }
+        return SyncPullPatches(
+            memos = SyncPullMemoPatch(
+                upserts = patches.memos.upserts.map { memo -> convertMemo(memo) },
+                deletes = patches.memos.deletes
+                    .asSequence()
+                    .map(::getName)
+                    .map(::getId)
+                    .filter { remoteId -> remoteId.isNotBlank() }
+                    .distinct()
+                    .toList(),
+            ),
+            users = SyncPullUserPatch(
+                upserts = patches.users.upserts.map { user -> convertUser(user) },
+            ),
+            friendships = SyncPullFriendshipsPatch(
+                upserts = patches.friendships.upserts.map { user -> convertUser(user) },
+                deletes = patches.friendships.deletes
+                    .asSequence()
+                    .map(::getName)
+                    .map(::getId)
+                    .filter { userId -> userId.isNotBlank() }
+                    .distinct()
+                    .toList(),
+            ),
+            groups = SyncPullGroupPatch(
+                upserts = patches.groups.upserts.map { group -> convertGroup(group) },
+                deletes = patches.groups.deletes
+                    .asSequence()
+                    .map(::getName)
+                    .map(::getId)
+                    .filter { groupId -> groupId.isNotBlank() }
+                    .distinct()
+                    .toList(),
+            ),
+            groupMessages = SyncPullGroupMessagesPatch(
+                groups = patches.groupMessages.groups.map { groupPatch ->
+                    SyncPullGroupMessagesGroupPatch(
+                        groupId = getId(groupPatch.group),
+                        hasUnread = groupPatch.hasUnread,
+                        upserts = groupPatch.upserts.map { message ->
+                            convertGroupMessage(message, userMap)
+                        },
+                        deletes = groupPatch.deletes
+                            .asSequence()
+                            .map(::getName)
+                            .map(::getId)
+                            .filter { remoteId -> remoteId.isNotBlank() }
+                            .distinct()
+                            .toList(),
+                        tags = normalizeTags(groupPatch.tags),
+                    )
+                }
+            ),
+            attachments = SyncPullAttachmentsPatch(
+                upserts = patches.attachments.upserts.map { attachment -> convertResource(attachment) },
+                deletes = patches.attachments.deletes
+                    .asSequence()
+                    .map(::getName)
+                    .map(::getId)
+                    .filter { attachmentId -> attachmentId.isNotBlank() }
+                    .distinct()
+                    .toList(),
+            ),
+            settings = SyncPullSettingsPatch(
+                generalSettings = patches.settings.generalSetting?.toUserGeneralSettings(),
+                encryptionSetting = patches.settings.encryptionSetting,
+            ),
+            groupKeys = SyncPullGroupKeysPatch(
+                upserts = patches.groupKeys.upserts,
+                deletes = patches.groupKeys.deletes
+                    .asSequence()
+                    .map(::getName)
+                    .filter { name -> name.isNotBlank() }
+                    .distinct()
+                    .toList(),
+            ),
+        )
+    }
+
     private fun pruneTrackedUserIDsLocked() {
         val currentUserID = account.info.id.toString()
         trackedUserIDs.removeAll { userID -> userID.isBlank() }
@@ -632,18 +755,20 @@ class KeerV2Repository(
         return listMemosByState(KeerV2State.NORMAL)
     }
 
-    override suspend fun pullSync(
-        cursor: String,
+    override suspend fun streamSyncBootstrap(
+        resumeCursor: String,
         domains: Set<SyncPullDomain>,
         groupScopes: List<String>,
+        mode: SyncStreamMode,
         limit: Int,
-    ): ApiResponse<SyncPullResult> {
+        onChunk: suspend (SyncPullResult) -> ApiResponse<Unit>,
+    ): ApiResponse<String> {
         val normalizedDomains = if (domains.isEmpty()) {
             SyncPullDomain.entries.toSet()
         } else {
             domains
         }
-        val normalizedCursor = cursor.trim()
+        val normalizedCursor = resumeCursor.trim()
             .takeIf { value -> value.isNotEmpty() && value.all(Char::isDigit) && value.toLongOrNull() != null }
             ?: "0"
         val normalizedGroupScopes = groupScopes
@@ -652,84 +777,150 @@ class KeerV2Repository(
             .filter { scope -> scope.isNotEmpty() }
             .distinct()
             .toList()
-        val normalizedLimit = limit.coerceIn(1, 1000)
-
-        val response = memosApi.pullSync(
-            SyncPullRequest(
-                cursor = normalizedCursor,
-                domains = normalizedDomains.map { domain -> domain.name },
-                groupScopes = normalizedGroupScopes,
-                limit = normalizedLimit,
-            )
+        val streamUrl = buildSyncStreamURL(
+            domains = normalizedDomains,
+            groupScopes = normalizedGroupScopes,
+            resumeCursor = normalizedCursor,
+            mode = mode,
         )
-        if (response !is ApiResponse.Success) {
-            return response.mapSuccess {
-                SyncPullResult(
-                    nextCursor = normalizedCursor,
-                    hasMore = false,
-                    patches = SyncPullPatches(),
+        val request = Request.Builder()
+            .get()
+            .url(streamUrl)
+            .build()
+        val response = try {
+            okHttpClient.newCall(request).execute()
+        } catch (e: Exception) {
+            return ApiResponse.Failure.Exception(e)
+        }
+        response.use { rawResponse ->
+            if (!rawResponse.isSuccessful) {
+                return ApiResponse.Failure.Exception(
+                    IllegalStateException("Sync stream failed: HTTP ${rawResponse.code}")
                 )
             }
-        }
+            val body = rawResponse.body
+            var currentCursor = normalizedCursor
+            var lastDeliveredCursor = normalizedCursor
+            var bootstrapEnded = false
+            var currentEvent = ""
+            val currentData = mutableListOf<String>()
 
-        val dto = response.data
-        val groupMessageCreators = dto.patches.groupMessages.groups
-            .flatMap { groupPatch -> groupPatch.upserts.map { message -> message.creator } }
-            .distinct()
-        val userMap = getUsersByIDs(groupMessageCreators)
+            suspend fun deliverChunk(
+                nextCursor: String,
+                hasMore: Boolean,
+                patches: SyncPullPatches,
+            ): ApiResponse<Unit> {
+                return onChunk(
+                    SyncPullResult(
+                        nextCursor = nextCursor,
+                        hasMore = hasMore,
+                        patches = patches,
+                    )
+                )
+            }
 
-        val result = SyncPullResult(
-            nextCursor = dto.nextCursor.trim().ifEmpty { normalizedCursor },
-            hasMore = dto.hasMore,
-            patches = SyncPullPatches(
-                memos = SyncPullMemoPatch(
-                    upserts = dto.patches.memos.upserts.map { memo -> convertMemo(memo) },
-                    deletes = dto.patches.memos.deletes
-                        .asSequence()
-                        .map(::getName)
-                        .map(::getId)
-                        .filter { remoteId -> remoteId.isNotBlank() }
-                        .distinct()
-                        .toList(),
-                ),
-                users = SyncPullUserPatch(
-                    upserts = dto.patches.users.upserts.map { user -> convertUser(user) },
-                ),
-                groups = SyncPullGroupPatch(
-                    upserts = dto.patches.groups.upserts.map { group -> convertGroup(group) },
-                    deletes = dto.patches.groups.deletes
-                        .asSequence()
-                        .map(::getName)
-                        .map(::getId)
-                        .filter { groupId -> groupId.isNotBlank() }
-                        .distinct()
-                        .toList(),
-                ),
-                groupMessages = SyncPullGroupMessagesPatch(
-                    groups = dto.patches.groupMessages.groups.map { groupPatch ->
-                        SyncPullGroupMessagesGroupPatch(
-                            groupId = getId(groupPatch.group),
-                            hasUnread = groupPatch.hasUnread,
-                            upserts = groupPatch.upserts.map { message ->
-                                convertGroupMessage(message, userMap)
-                            },
-                            deletes = groupPatch.deletes
-                                .asSequence()
-                                .map(::getName)
-                                .map(::getId)
-                                .filter { remoteId -> remoteId.isNotBlank() }
-                                .distinct()
-                                .toList(),
-                            tags = normalizeTags(groupPatch.tags),
+            suspend fun flushEvent(): ApiResponse<Unit>? {
+                if (currentEvent.isBlank() && currentData.isEmpty()) {
+                    return null
+                }
+                val eventName = currentEvent.trim().lowercase().ifEmpty { "message" }
+                val payload = currentData.joinToString("\n").trim()
+                currentEvent = ""
+                currentData.clear()
+                if (payload.isEmpty()) {
+                    return ApiResponse.Success(Unit)
+                }
+
+                val envelope = runCatching {
+                    uploadJson.decodeFromString(SyncStreamEventEnvelope.serializer(), payload)
+                }.getOrElse { throwable ->
+                    return ApiResponse.Failure.Exception(
+                        IllegalStateException("Invalid sync stream payload", throwable)
+                    )
+                }
+                val envelopeCursor = envelope.cursor.trim().ifEmpty { currentCursor }
+                currentCursor = envelopeCursor
+
+                when (eventName) {
+                    "patch" -> {
+                        val converted = convertSyncPullPatches(envelope.patches)
+                        val chunkResult = deliverChunk(
+                            nextCursor = currentCursor,
+                            hasMore = true,
+                            patches = converted,
                         )
+                        if (chunkResult !is ApiResponse.Success) {
+                            return chunkResult
+                        }
+                        lastDeliveredCursor = currentCursor
                     }
-                ),
-                settings = SyncPullSettingsPatch(
-                    generalSettings = dto.patches.settings.generalSetting?.toUserGeneralSettings()
-                ),
-            ),
-        )
-        return ApiResponse.Success(result)
+                    "checkpoint" -> {
+                        if (currentCursor != lastDeliveredCursor) {
+                            val chunkResult = deliverChunk(
+                                nextCursor = currentCursor,
+                                hasMore = true,
+                                patches = SyncPullPatches(),
+                            )
+                            if (chunkResult !is ApiResponse.Success) {
+                                return chunkResult
+                            }
+                            lastDeliveredCursor = currentCursor
+                        }
+                    }
+                    "bootstrap_end" -> {
+                        bootstrapEnded = true
+                        if (currentCursor != lastDeliveredCursor) {
+                            val chunkResult = deliverChunk(
+                                nextCursor = currentCursor,
+                                hasMore = false,
+                                patches = SyncPullPatches(),
+                            )
+                            if (chunkResult !is ApiResponse.Success) {
+                                return chunkResult
+                            }
+                            lastDeliveredCursor = currentCursor
+                        }
+                    }
+                }
+                return ApiResponse.Success(Unit)
+            }
+
+            body.charStream().buffered().use { reader ->
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    if (line.isEmpty()) {
+                        when (val flush = flushEvent()) {
+                            is ApiResponse.Success -> Unit
+                            is ApiResponse.Failure.Error -> return flush
+                            is ApiResponse.Failure.Exception -> return flush
+                            null -> Unit
+                        }
+                        if (bootstrapEnded) {
+                            if (mode == SyncStreamMode.BOOTSTRAP) {
+                                break
+                            }
+                            continue
+                        }
+                        continue
+                    }
+                    when {
+                        line.startsWith("event:") -> {
+                            currentEvent = line.substringAfter("event:").trim()
+                        }
+                        line.startsWith("data:") -> {
+                            currentData += line.substringAfter("data:").trimStart()
+                        }
+                    }
+                }
+            }
+            when (val flush = flushEvent()) {
+                is ApiResponse.Success -> Unit
+                is ApiResponse.Failure.Error -> return flush
+                is ApiResponse.Failure.Exception -> return flush
+                null -> Unit
+            }
+            return ApiResponse.Success(currentCursor)
+        }
     }
 
     override suspend fun listArchivedMemos(): ApiResponse<List<Memo>> {
@@ -2015,6 +2206,22 @@ class KeerV2Repository(
                 defaultVisibility = generalSetting?.memoVisibility?.toMemoVisibility() ?: MemoVisibility.PRIVATE
             )
         }
+    }
+
+    override suspend fun applySecuritySyncPatch(
+        settingsPatch: SyncPullSettingsPatch,
+        groupKeysPatch: SyncPullGroupKeysPatch,
+    ): ApiResponse<Unit> {
+        settingsPatch.encryptionSetting?.let { setting ->
+            accountKeyManager.applyStreamEncryptionSetting(account, setting)
+        }
+        groupKeysPatch.upserts.forEach { version ->
+            accountKeyManager.applyStreamGroupKeyVersion(account, version)
+        }
+        groupKeysPatch.deletes.forEach { name ->
+            accountKeyManager.removeCachedGroupKeyVersion(account, name)
+        }
+        return ApiResponse.Success(Unit)
     }
 
     private fun KeerV2UserSettingGeneralSetting?.toUserGeneralSettings(): UserGeneralSettings {

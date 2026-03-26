@@ -5,6 +5,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,11 +16,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import site.lcyk.keer.data.local.SyncCheckpointStore
-import site.lcyk.keer.data.model.SyncCheckpoint
 import site.lcyk.keer.data.model.SyncDomain
 import site.lcyk.keer.data.model.SyncStatus
-import site.lcyk.keer.data.model.UploadProgress
 import site.lcyk.keer.ext.getErrorMessage
 
 @Singleton
@@ -27,7 +25,6 @@ class SyncCoordinator @Inject constructor(
     private val accountService: AccountService,
     private val pendingSyncWorkInspector: PendingSyncWorkInspector,
     private val pullSyncEngine: PullSyncEngine,
-    private val checkpointStore: SyncCheckpointStore,
 ) {
     private data class SyncRequest(
         val force: Boolean,
@@ -41,7 +38,8 @@ class SyncCoordinator @Inject constructor(
     private val syncMutex = Mutex()
     private val requestFlow = MutableSharedFlow<SyncRequest>(
         replay = 0,
-        extraBufferCapacity = 1
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     private val _syncStatus = MutableStateFlow(SyncStatus())
     val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
@@ -60,9 +58,6 @@ class SyncCoordinator @Inject constructor(
     private var domainErrorMessage: String? = null
     @Volatile
     private var repositoryStatusSnapshot = SyncStatus()
-    
-    // Checkpoint tracking for resume capability
-    private val activeCheckpoints = mutableMapOf<SyncDomain, SyncCheckpoint>()
 
     init {
         syncScope.launch {
@@ -85,16 +80,21 @@ class SyncCoordinator @Inject constructor(
         groupId: String? = null,
         bypassCoalesce: Boolean = false,
     ) {
+        if (!force && trigger != SyncTrigger.MANUAL) {
+            return
+        }
+        val normalizedRequest = SyncRequest(
+            force = force,
+            trigger = trigger,
+            domains = domains,
+            groupId = groupId?.trim()?.takeIf(String::isNotBlank),
+            bypassCoalesce = bypassCoalesce,
+        )
+        if (requestFlow.tryEmit(normalizedRequest)) {
+            return
+        }
         syncScope.launch {
-            requestFlow.emit(
-                SyncRequest(
-                    force = force,
-                    trigger = trigger,
-                    domains = domains,
-                    groupId = groupId?.trim()?.takeIf(String::isNotBlank),
-                    bypassCoalesce = bypassCoalesce,
-                )
-            )
+            requestFlow.emit(normalizedRequest)
         }
     }
 
@@ -132,15 +132,6 @@ class SyncCoordinator @Inject constructor(
             syncing = true
             activeDomains = domains
             domainErrorMessage = null
-            
-            // Load checkpoints for all domains being synced
-            activeCheckpoints.clear()
-            domains.forEach { domain ->
-                checkpointStore.loadCheckpoint(domain)?.let { checkpoint ->
-                    activeCheckpoints[domain] = checkpoint
-                }
-            }
-            
             publishStatus()
 
             val normalizedGroupId = groupId?.trim()?.takeIf(String::isNotBlank)
@@ -154,19 +145,8 @@ class SyncCoordinator @Inject constructor(
                 consecutiveFailureCount = 0
                 backoffUntilTime = 0L
                 domainErrorMessage = null
-                
-                // Clear checkpoints on successful sync
-                domains.forEach { domain ->
-                    checkpointStore.clearCheckpoint(domain)
-                }
             } else {
                 domainErrorMessage = result.getErrorMessage()
-                
-                // Save current checkpoints on failure for resume
-                activeCheckpoints.forEach { (domain, checkpoint) ->
-                    checkpointStore.saveCheckpoint(checkpoint)
-                }
-                
                 if (!force) {
                     consecutiveFailureCount += 1
                     backoffUntilTime = SyncTriggerPolicy.calculateBackoffUntil(
@@ -180,7 +160,6 @@ class SyncCoordinator @Inject constructor(
 
             syncing = false
             activeDomains = emptySet()
-            activeCheckpoints.clear()
             publishStatus()
             result
         }
@@ -200,23 +179,6 @@ class SyncCoordinator @Inject constructor(
         }
     }
 
-    private fun mergeGroupId(
-        current: String?,
-        next: String?,
-        domains: Set<SyncDomain>,
-    ): String? {
-        if (SyncDomain.GROUPS !in domains) {
-            return null
-        }
-        if (current.isNullOrBlank()) {
-            return next
-        }
-        if (next.isNullOrBlank()) {
-            return current
-        }
-        return if (current == next) current else null
-    }
-
     private fun publishStatus() {
         val repositoryStatus = repositoryStatusSnapshot
         _syncStatus.value = SyncStatus(
@@ -229,88 +191,6 @@ class SyncCoordinator @Inject constructor(
             uploadedFiles = repositoryStatus.uploadedFiles,
             totalFiles = repositoryStatus.totalFiles,
         )
-    }
-    
-    /**
-     * Update sync progress with file-level granularity.
-     * 
-     * Call this method during file uploads/downloads to provide real-time
-     * progress updates to the UI. This creates smooth progress bar animation.
-     * 
-     * @param domain The sync domain being processed
-     * @param currentFileId ID of the file being uploaded/downloaded
-     * @param bytesTransferred Bytes transferred so far for current file
-     * @param totalBytes Total bytes for current file
-     * @param cumulativeBytes Total bytes transferred across all files
-     */
-    fun updateFileProgress(
-        domain: SyncDomain,
-        currentFileId: String,
-        bytesTransferred: Long,
-        totalBytes: Long,
-        cumulativeBytes: Long = 0L
-    ) {
-        val repositoryStatus = repositoryStatusSnapshot
-        
-        // Update checkpoint with current progress
-        val checkpoint = activeCheckpoints[domain]?.copy(
-            uploadProgress = UploadProgress(
-                fileId = currentFileId,
-                uploadedBytes = bytesTransferred,
-                totalBytes = totalBytes
-            )
-        ) ?: SyncCheckpoint(
-            domain = domain.name,
-            uploadProgress = UploadProgress(
-                fileId = currentFileId,
-                uploadedBytes = bytesTransferred,
-                totalBytes = totalBytes
-            )
-        )
-        
-        activeCheckpoints[domain] = checkpoint
-        
-        // Calculate total progress
-        val adjustedUploadedBytes = if (cumulativeBytes > 0) {
-            cumulativeBytes + bytesTransferred
-        } else {
-            repositoryStatus.uploadedBytes + bytesTransferred
-        }
-        
-        val adjustedTotalBytes = if (cumulativeBytes > 0) {
-            cumulativeBytes + totalBytes
-        } else {
-            repositoryStatus.totalBytes
-        }
-        
-        _syncStatus.value = SyncStatus(
-            syncing = syncing || repositoryStatus.syncing,
-            activeDomains = activeDomains,
-            unsyncedCount = repositoryStatus.unsyncedCount,
-            errorMessage = domainErrorMessage ?: repositoryStatus.errorMessage,
-            uploadedBytes = adjustedUploadedBytes,
-            totalBytes = adjustedTotalBytes,
-            uploadedFiles = repositoryStatus.uploadedFiles,
-            totalFiles = repositoryStatus.totalFiles,
-        )
-    }
-    
-    /**
-     * Save checkpoint for a domain.
-     * 
-     * Call this when sync is interrupted to enable resume.
-     */
-    fun saveCheckpoint(domain: SyncDomain) {
-        activeCheckpoints[domain]?.let { checkpoint ->
-            checkpointStore.saveCheckpoint(checkpoint)
-        }
-    }
-    
-    /**
-     * Get active checkpoint for a domain.
-     */
-    fun getCheckpoint(domain: SyncDomain): SyncCheckpoint? {
-        return activeCheckpoints[domain]
     }
 
     companion object {

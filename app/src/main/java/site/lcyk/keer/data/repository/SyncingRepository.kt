@@ -755,63 +755,61 @@ class SyncingRepository(
         val isInitialPull = initialCursor == "0"
         val seenRemoteIDs = linkedSetOf<String>()
         val deletedRemoteIDs = linkedSetOf<String>()
-        var hasMore = true
-        var pageCount = 0
-
-        while (hasMore && pageCount < MAX_PULL_SYNC_PAGES_PER_SESSION) {
-            val pageCursor = nextSyncCursor
-            val syncPullResponse = remoteRepository.pullSync(
-                cursor = pageCursor,
-                domains = setOf(SyncPullDomain.MEMOS),
-                limit = PULL_SYNC_MEMO_PAGE_SIZE,
-            )
-            when (syncPullResponse) {
-                is ApiResponse.Success -> {
-                    val pageRemoteByID = linkedMapOf<String, Memo>()
-                    syncPullResponse.data.patches.memos.upserts.forEach { memo ->
-                        val remoteId = remoteMemoId(memo).trim()
-                        if (remoteId.isNotEmpty()) {
-                            pageRemoteByID[remoteId] = memo
-                        }
-                    }
-                    val pageDeletedRemoteIDs = linkedSetOf<String>()
-                    syncPullResponse.data.patches.memos.deletes.forEach { rawIdentifier ->
-                        normalizeDeletedMemoRemoteID(rawIdentifier)
-                            .takeIf { remoteID -> remoteID.isNotEmpty() }
-                            ?.let { remoteID -> pageDeletedRemoteIDs += remoteID }
-                    }
-
-                    seenRemoteIDs += pageRemoteByID.keys
-                    deletedRemoteIDs += pageDeletedRemoteIDs
-
-                    val pageApplyResult = applyPulledMemoPage(
-                        remoteMemos = pageRemoteByID.values.toList(),
-                        remoteDeletedIDs = pageDeletedRemoteIDs,
-                    )
-                    if (pageApplyResult !is ApiResponse.Success) {
-                        return pageApplyResult
-                    }
-
-                    val nextCursor = syncPullResponse.data.nextCursor.trim()
-                    val stalledCursor = nextCursor.isEmpty() || nextCursor == pageCursor
-                    if (!stalledCursor) {
-                        nextSyncCursor = nextCursor
-                        try {
-                            writeMemoSyncCursor(nextSyncCursor)
-                        } catch (e: Throwable) {
-                            return ApiResponse.Failure.Exception(e)
-                        }
-                    }
-                    hasMore = syncPullResponse.data.hasMore && !stalledCursor
-                }
-                is ApiResponse.Failure.Error -> {
-                    return syncPullResponse.mapFailureToUnit()
-                }
-                is ApiResponse.Failure.Exception -> {
-                    return syncPullResponse.mapFailureToUnit()
+        val streamResponse = remoteRepository.streamSyncBootstrap(
+            resumeCursor = nextSyncCursor,
+            domains = setOf(SyncPullDomain.MEMOS),
+            limit = PULL_SYNC_MEMO_PAGE_SIZE,
+        ) { chunk ->
+            val pageRemoteByID = linkedMapOf<String, Memo>()
+            chunk.patches.memos.upserts.forEach { memo ->
+                val remoteId = remoteMemoId(memo).trim()
+                if (remoteId.isNotEmpty()) {
+                    pageRemoteByID[remoteId] = memo
                 }
             }
-            pageCount += 1
+            val pageDeletedRemoteIDs = linkedSetOf<String>()
+            chunk.patches.memos.deletes.forEach { rawIdentifier ->
+                normalizeDeletedMemoRemoteID(rawIdentifier)
+                    .takeIf { remoteID -> remoteID.isNotEmpty() }
+                    ?.let { remoteID -> pageDeletedRemoteIDs += remoteID }
+            }
+
+            seenRemoteIDs += pageRemoteByID.keys
+            deletedRemoteIDs += pageDeletedRemoteIDs
+
+            val pageApplyResult = applyPulledMemoPage(
+                remoteMemos = pageRemoteByID.values.toList(),
+                remoteDeletedIDs = pageDeletedRemoteIDs,
+            )
+            if (pageApplyResult !is ApiResponse.Success) {
+                return@streamSyncBootstrap pageApplyResult
+            }
+
+            val nextCursor = chunk.nextCursor.trim()
+            if (nextCursor.isNotEmpty() && nextCursor != nextSyncCursor) {
+                nextSyncCursor = nextCursor
+                try {
+                    writeMemoSyncCursor(nextSyncCursor)
+                } catch (e: Throwable) {
+                    return@streamSyncBootstrap ApiResponse.Failure.Exception(e)
+                }
+            }
+            ApiResponse.Success(Unit)
+        }
+        when (streamResponse) {
+            is ApiResponse.Success -> {
+                val finalCursor = streamResponse.data.trim()
+                if (finalCursor.isNotEmpty() && finalCursor != nextSyncCursor) {
+                    nextSyncCursor = finalCursor
+                    try {
+                        writeMemoSyncCursor(nextSyncCursor)
+                    } catch (e: Throwable) {
+                        return ApiResponse.Failure.Exception(e)
+                    }
+                }
+            }
+            is ApiResponse.Failure.Error -> return streamResponse.mapFailureToUnit()
+            is ApiResponse.Failure.Exception -> return streamResponse.mapFailureToUnit()
         }
 
         if (
@@ -832,6 +830,115 @@ class SyncingRepository(
             return reconcileResult
         }
         return ApiResponse.Success(Unit)
+    }
+
+    override suspend fun applyMemoStreamPatch(
+        patch: SyncPullMemoPatch,
+        nextCursor: String,
+    ): ApiResponse<Unit> {
+        return withContext(Dispatchers.IO) {
+            operationMutex.withLock {
+                val pageRemoteByID = linkedMapOf<String, Memo>()
+                patch.upserts.forEach { memo ->
+                    val remoteId = runCatching { remoteMemoId(memo) }.getOrNull()
+                        ?.trim()
+                        .orEmpty()
+                    if (remoteId.isNotEmpty()) {
+                        pageRemoteByID[remoteId] = memo
+                    }
+                }
+                val pageDeletedRemoteIDs = patch.deletes
+                    .asSequence()
+                    .map(::normalizeDeletedMemoRemoteID)
+                    .filter(String::isNotEmpty)
+                    .toSet()
+
+                val applyResult = applyPulledMemoPage(
+                    remoteMemos = pageRemoteByID.values.toList(),
+                    remoteDeletedIDs = pageDeletedRemoteIDs,
+                )
+                if (applyResult !is ApiResponse.Success) {
+                    return@withLock applyResult
+                }
+
+                val normalizedCursor = nextCursor.trim()
+                if (normalizedCursor.isNotEmpty()) {
+                    writeMemoSyncCursor(normalizedCursor)
+                }
+                ApiResponse.Success(Unit)
+            }
+        }
+    }
+
+    override suspend fun applyAttachmentStreamPatch(
+        patch: SyncPullAttachmentsPatch,
+    ): ApiResponse<Unit> {
+        if (patch.upserts.isEmpty() && patch.deletes.isEmpty()) {
+            return ApiResponse.Success(Unit)
+        }
+        return withContext(Dispatchers.IO) {
+            operationMutex.withLock {
+                runCatching {
+                    database.withTransaction {
+                        patch.upserts.forEach { remoteResource ->
+                            val remoteId = remoteResource.remoteId.trim()
+                            if (remoteId.isEmpty()) {
+                                return@forEach
+                            }
+                            val existingCopies = memoDao.getResourcesByRemoteId(remoteId, accountKey)
+                            if (existingCopies.isEmpty()) {
+                                memoDao.insertResource(
+                                    ResourceEntity(
+                                        identifier = "$remoteId|resource",
+                                        remoteId = remoteId,
+                                        accountKey = accountKey,
+                                        date = remoteResource.date,
+                                        filename = remoteResource.filename,
+                                        uri = remoteResource.uri,
+                                        localUri = null,
+                                        mimeType = remoteResource.mimeType,
+                                        encryptionMetadata = remoteResource.encryptionMetadata,
+                                        thumbnailUri = remoteResource.thumbnailUri,
+                                        thumbnailLocalUri = null,
+                                        memoId = null,
+                                    )
+                                )
+                                return@forEach
+                            }
+                            existingCopies.forEach { existing ->
+                                memoDao.insertResource(
+                                    existing.copy(
+                                        date = remoteResource.date,
+                                        filename = remoteResource.filename,
+                                        uri = remoteResource.uri,
+                                        mimeType = remoteResource.mimeType,
+                                        encryptionMetadata = remoteResource.encryptionMetadata,
+                                        thumbnailUri = remoteResource.thumbnailUri,
+                                    )
+                                )
+                            }
+                        }
+
+                        patch.deletes
+                            .asSequence()
+                            .map(String::trim)
+                            .filter(String::isNotEmpty)
+                            .distinct()
+                            .forEach { remoteId ->
+                                val existingCopies = memoDao.getResourcesByRemoteId(remoteId, accountKey)
+                                if (existingCopies.isEmpty()) {
+                                    return@forEach
+                                }
+                                existingCopies.forEach { existing -> deleteLocalFile(existing) }
+                                memoDao.deleteResources(existingCopies)
+                            }
+                    }
+                    ApiResponse.Success(Unit)
+                }.getOrElse { throwable ->
+                    ApiResponse.Failure.Exception(throwable)
+                }
+            }
+        }
     }
 
     private suspend fun applyPulledMemoPage(

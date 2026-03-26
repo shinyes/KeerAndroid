@@ -11,6 +11,8 @@ data class UserSettings(
     val avatarSyncPending: Boolean = false,
     val memoSyncAnchor: String = "",
     val groupSyncCursor: String = "",
+    val profileSyncCursor: String = "",
+    val streamSyncCursor: String = "",
     val userSyncAnchor: String = "",
     val syncedUserIds: List<String> = emptyList(),
 )

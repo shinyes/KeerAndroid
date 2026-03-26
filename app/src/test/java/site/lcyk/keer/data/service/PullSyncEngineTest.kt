@@ -9,28 +9,28 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import site.lcyk.keer.data.model.SyncDomain
-import site.lcyk.keer.data.model.UserGeneralSettings
+import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.repository.UserGeneralSettingsRepository
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PullSyncEngineTest {
 
     private val accountService = mockk<AccountService>()
+    private val accountLocalSettingsStore = mockk<AccountLocalSettingsStore>()
     private val userGeneralSettingsRepository = mockk<UserGeneralSettingsRepository>()
     private val groupsSyncRunner = mockk<GroupsSyncRunner>()
 
     private val engine = PullSyncEngine(
         accountService = accountService,
+        accountLocalSettingsStore = accountLocalSettingsStore,
         userGeneralSettingsRepository = userGeneralSettingsRepository,
         groupsSyncRunner = groupsSyncRunner,
     )
 
     @Test
-    fun run_profileDomain_forceRefreshesSettingsOnAuthBootstrap() = runTest {
+    fun run_profileDomain_authBootstrap_runsAvatarSyncBeforeStreamSession() = runTest {
         coEvery { accountService.syncPendingAvatarIfNeeded() } returns ApiResponse.Success(Unit)
-        coEvery {
-            userGeneralSettingsRepository.refreshCurrentGeneralSettings(any(), any())
-        } returns ApiResponse.Success(UserGeneralSettings())
+        coEvery { accountService.getRemoteRepository() } returns null
 
         val result = engine.run(
             domains = setOf(SyncDomain.PROFILE),
@@ -39,20 +39,13 @@ class PullSyncEngineTest {
         )
 
         assertTrue(result is ApiResponse.Success)
-        coVerify {
-            userGeneralSettingsRepository.refreshCurrentGeneralSettings(
-                forceNetwork = true,
-                reason = "profile_sync:${SyncTrigger.AUTH_BOOTSTRAP}",
-            )
-        }
+        coVerify(exactly = 1) { accountService.syncPendingAvatarIfNeeded() }
     }
 
     @Test
-    fun run_profileDomain_usesThrottledSettingsRefreshOnForegroundTrigger() = runTest {
+    fun run_profileDomain_foreground_runsAvatarSyncBeforeStreamSession() = runTest {
         coEvery { accountService.syncPendingAvatarIfNeeded() } returns ApiResponse.Success(Unit)
-        coEvery {
-            userGeneralSettingsRepository.refreshCurrentGeneralSettings(any(), any())
-        } returns ApiResponse.Success(UserGeneralSettings())
+        coEvery { accountService.getRemoteRepository() } returns null
 
         val result = engine.run(
             domains = setOf(SyncDomain.PROFILE),
@@ -61,12 +54,6 @@ class PullSyncEngineTest {
         )
 
         assertTrue(result is ApiResponse.Success)
-        coVerify {
-            userGeneralSettingsRepository.refreshCurrentGeneralSettings(
-                forceNetwork = false,
-                reason = "profile_sync:${SyncTrigger.APP_FOREGROUND}",
-            )
-        }
+        coVerify(exactly = 1) { accountService.syncPendingAvatarIfNeeded() }
     }
 }
-

@@ -31,7 +31,6 @@ import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.Resource
 import site.lcyk.keer.data.model.SyncDomain
-import site.lcyk.keer.data.model.User
 import site.lcyk.keer.data.model.toMemo
 import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.data.service.MemoService
@@ -113,18 +112,6 @@ class ExploreViewModel @Inject constructor(
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     init {
-        viewModelScope.launch {
-            accountService.currentAccount.collectLatest { account ->
-                if (account is Account.KeerV2) {
-                    memoService.requestSync(
-                        trigger = SyncTrigger.AUTO,
-                        force = false,
-                        domains = setOf(SyncDomain.MEMOS, SyncDomain.GROUPS),
-                    )
-                }
-            }
-        }
-
         viewModelScope.launch {
             combine(
                 liveItems,
@@ -235,13 +222,13 @@ class ExploreViewModel @Inject constructor(
         viewModelScope.launch {
             if (groupId.isNullOrBlank()) {
                 memoService.requestSync(
-                    trigger = SyncTrigger.MUTATION,
+                    trigger = SyncTrigger.MANUAL,
                     force = true,
                     domains = setOf(SyncDomain.MEMOS),
                 )
             } else {
                 memoService.requestSync(
-                    trigger = SyncTrigger.MUTATION,
+                    trigger = SyncTrigger.MANUAL,
                     force = true,
                     domains = setOf(SyncDomain.GROUPS),
                     groupId = groupId,

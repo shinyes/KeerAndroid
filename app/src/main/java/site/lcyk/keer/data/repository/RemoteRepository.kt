@@ -1,6 +1,8 @@
 package site.lcyk.keer.data.repository
 
 import com.skydoves.sandwich.ApiResponse
+import site.lcyk.keer.data.api.KeerV2GroupKeyVersion
+import site.lcyk.keer.data.api.KeerV2UserEncryptionSetting
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.MemoVisibility
@@ -27,9 +29,18 @@ data class MemoChanges(
 enum class SyncPullDomain {
     MEMOS,
     USERS,
+    FRIENDSHIPS,
     GROUPS,
     GROUP_MESSAGES,
+    ATTACHMENTS,
     SETTINGS,
+    SETTINGS_ENCRYPTION,
+    GROUP_KEYS,
+}
+
+enum class SyncStreamMode {
+    BOOTSTRAP,
+    TAIL,
 }
 
 data class SyncPullResult(
@@ -41,9 +52,12 @@ data class SyncPullResult(
 data class SyncPullPatches(
     val memos: SyncPullMemoPatch = SyncPullMemoPatch(),
     val users: SyncPullUserPatch = SyncPullUserPatch(),
+    val friendships: SyncPullFriendshipsPatch = SyncPullFriendshipsPatch(),
     val groups: SyncPullGroupPatch = SyncPullGroupPatch(),
     val groupMessages: SyncPullGroupMessagesPatch = SyncPullGroupMessagesPatch(),
+    val attachments: SyncPullAttachmentsPatch = SyncPullAttachmentsPatch(),
     val settings: SyncPullSettingsPatch = SyncPullSettingsPatch(),
+    val groupKeys: SyncPullGroupKeysPatch = SyncPullGroupKeysPatch(),
 )
 
 data class SyncPullMemoPatch(
@@ -53,6 +67,11 @@ data class SyncPullMemoPatch(
 
 data class SyncPullUserPatch(
     val upserts: List<User> = emptyList(),
+)
+
+data class SyncPullFriendshipsPatch(
+    val upserts: List<User> = emptyList(),
+    val deletes: List<String> = emptyList(),
 )
 
 data class SyncPullGroupPatch(
@@ -72,17 +91,30 @@ data class SyncPullGroupMessagesGroupPatch(
     val tags: List<String>,
 )
 
+data class SyncPullAttachmentsPatch(
+    val upserts: List<Resource> = emptyList(),
+    val deletes: List<String> = emptyList(),
+)
+
 data class SyncPullSettingsPatch(
     val generalSettings: UserGeneralSettings? = null,
+    val encryptionSetting: KeerV2UserEncryptionSetting? = null,
+)
+
+data class SyncPullGroupKeysPatch(
+    val upserts: List<KeerV2GroupKeyVersion> = emptyList(),
+    val deletes: List<String> = emptyList(),
 )
 
 abstract class RemoteRepository {
-    abstract suspend fun pullSync(
-        cursor: String,
+    abstract suspend fun streamSyncBootstrap(
+        resumeCursor: String,
         domains: Set<SyncPullDomain>,
         groupScopes: List<String> = emptyList(),
+        mode: SyncStreamMode = SyncStreamMode.BOOTSTRAP,
         limit: Int = 200,
-    ): ApiResponse<SyncPullResult>
+        onChunk: suspend (SyncPullResult) -> ApiResponse<Unit>,
+    ): ApiResponse<String>
 
     abstract suspend fun listMemos(): ApiResponse<List<Memo>>
     abstract suspend fun listArchivedMemos(): ApiResponse<List<Memo>>
@@ -188,6 +220,13 @@ abstract class RemoteRepository {
 
     abstract suspend fun deleteResource(remoteId: String): ApiResponse<Unit>
     abstract suspend fun getCurrentUser(): ApiResponse<User>
+
+    open suspend fun applySecuritySyncPatch(
+        settingsPatch: SyncPullSettingsPatch,
+        groupKeysPatch: SyncPullGroupKeysPatch,
+    ): ApiResponse<Unit> {
+        return ApiResponse.Success(Unit)
+    }
 
     open suspend fun syncKnownUsers(): ApiResponse<Unit> {
         return ApiResponse.Success(Unit)

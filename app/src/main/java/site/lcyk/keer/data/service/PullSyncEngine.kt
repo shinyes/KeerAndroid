@@ -2,27 +2,32 @@ package site.lcyk.keer.data.service
 
 import com.skydoves.sandwich.ApiResponse
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 import site.lcyk.keer.data.model.SyncDomain
+import site.lcyk.keer.data.repository.SyncPullDomain
+import site.lcyk.keer.data.repository.SyncPullResult
+import site.lcyk.keer.data.repository.SyncStreamMode
 import site.lcyk.keer.data.repository.UserGeneralSettingsRepository
 
 @Singleton
 class PullSyncEngine @Inject constructor(
     private val accountService: AccountService,
+    private val accountLocalSettingsStore: AccountLocalSettingsStore,
     private val userGeneralSettingsRepository: UserGeneralSettingsRepository,
     private val groupsSyncRunner: GroupsSyncRunner,
 ) {
-
-    private val executionOrder = listOf(
-        SyncDomain.PROFILE,
-        SyncDomain.USERS,
-        SyncDomain.GROUPS,
-        SyncDomain.MEMOS,
-    )
+    suspend fun runUnifiedTailSession(): ApiResponse<Unit> {
+        return runStreamSession(
+            domains = FULL_STREAM_DOMAINS,
+            groupScopes = emptyList(),
+            mode = SyncStreamMode.TAIL,
+            limit = TAIL_STREAM_PAGE_SIZE,
+            reason = "tail",
+        )
+    }
 
     suspend fun run(
         domains: Set<SyncDomain>,
@@ -30,93 +35,216 @@ class PullSyncEngine @Inject constructor(
         trigger: SyncTrigger = SyncTrigger.AUTO,
     ): ApiResponse<Unit> {
         return withContext(Dispatchers.IO) {
-            // Separate independent domains that can run in parallel
-            val profileAndUsers = domains.filter { 
-                it == SyncDomain.PROFILE || it == SyncDomain.USERS 
+            if (domains.isEmpty()) {
+                return@withContext ApiResponse.Success(Unit)
             }
-            val groups = domains.filter { it == SyncDomain.GROUPS }
-            val memos = domains.filter { it == SyncDomain.MEMOS }
 
-            // Parallel execution for independent domains (PROFILE + USERS)
-            if (profileAndUsers.isNotEmpty()) {
-                val results = coroutineScope {
-                    val profileJob = if (SyncDomain.PROFILE in profileAndUsers) {
-                        async { syncProfile(trigger) }
-                    } else null
-                    
-                    val usersJob = if (SyncDomain.USERS in profileAndUsers) {
-                        async { syncUsers() }
-                    } else null
-
-                    listOfNotNull(profileJob, usersJob).map { it.await() }
-                }
-
-                // Check for any failures
-                results.firstOrNull { it !is ApiResponse.Success }?.let { error ->
-                    return@withContext error
+            if (SyncDomain.PROFILE in domains) {
+                val avatarResult = accountService.syncPendingAvatarIfNeeded()
+                if (avatarResult !is ApiResponse.Success) {
+                    return@withContext avatarResult
                 }
             }
 
-            // Groups sync (independent, but kept sequential for now)
-            for (domain in groups) {
-                val result = groupsSyncRunner.sync(groupId)
-                if (result !is ApiResponse.Success) {
-                    return@withContext result
-                }
+            val streamDomains = mapStreamDomains(domains)
+            if (streamDomains.isEmpty()) {
+                return@withContext ApiResponse.Success(Unit)
             }
 
-            // Memos sync (must run after users sync due to user references)
-            if (SyncDomain.MEMOS in domains) {
-                val result = syncMemos()
-                if (result !is ApiResponse.Success) {
-                    return@withContext result
-                }
+            val normalizedGroupId = groupId
+                ?.trim()
+                ?.takeIf(String::isNotBlank)
+                ?.removePrefix("groups/")
+            val groupScopes = if (SyncDomain.GROUPS in domains && !normalizedGroupId.isNullOrBlank()) {
+                listOf("groups/$normalizedGroupId")
+            } else {
+                emptyList()
             }
-
-            return@withContext ApiResponse.Success(Unit)
+            return@withContext runStreamSession(
+                domains = streamDomains,
+                groupScopes = groupScopes,
+                mode = SyncStreamMode.BOOTSTRAP,
+                limit = MANUAL_STREAM_PAGE_SIZE,
+                reason = "manual:$trigger",
+            )
         }
     }
 
-    private suspend fun syncProfile(trigger: SyncTrigger): ApiResponse<Unit> {
-        val forceGeneralSettingsRefresh = trigger == SyncTrigger.AUTH_BOOTSTRAP || trigger == SyncTrigger.MANUAL
-        return coroutineScope {
-            // Parallel execution of independent operations
-            val avatarJob = async { accountService.syncPendingAvatarIfNeeded() }
-            val settingsJob = async {
-                userGeneralSettingsRepository.refreshCurrentGeneralSettings(
-                    forceNetwork = forceGeneralSettingsRefresh,
-                    reason = "profile_sync:$trigger",
-                )
+    private suspend fun runStreamSession(
+        domains: Set<SyncPullDomain>,
+        groupScopes: List<String>,
+        mode: SyncStreamMode,
+        limit: Int,
+        reason: String,
+    ): ApiResponse<Unit> {
+        return withContext(Dispatchers.IO) {
+            if (domains.isEmpty()) {
+                return@withContext ApiResponse.Success(Unit)
             }
 
-            val avatarResult = avatarJob.await()
-            val settingsResult = settingsJob.await()
+        val remoteRepository = accountService.getRemoteRepository()
+                ?: return@withContext ApiResponse.Success(Unit)
+        val account = accountService.currentAccount.first()
+                ?: return@withContext ApiResponse.Success(Unit)
+        val accountKey = account.accountKey().trim()
+        if (accountKey.isBlank()) {
+                return@withContext ApiResponse.Success(Unit)
+        }
+            val memoRepository = accountService.getRepository()
 
-            // Check for failures
-            when (avatarResult) {
-                is ApiResponse.Failure.Error -> return@coroutineScope avatarResult
-                is ApiResponse.Failure.Exception -> return@coroutineScope avatarResult
-                is ApiResponse.Success -> {} // Continue
-            }
-            
-            when (settingsResult) {
-                is ApiResponse.Failure.Error -> return@coroutineScope settingsResult
-                is ApiResponse.Failure.Exception -> return@coroutineScope settingsResult
-                is ApiResponse.Success -> {} // Continue
-            }
+            var currentCursor = resolveInitialStreamCursor(accountKey)
+            val streamResult = remoteRepository.streamSyncBootstrap(
+                resumeCursor = currentCursor,
+                domains = domains,
+                groupScopes = groupScopes,
+                mode = mode,
+                limit = limit,
+            ) { chunk ->
+                when (
+                    val applyResult = applyStreamChunk(
+                        accountKey = accountKey,
+                        reason = reason,
+                        chunk = chunk,
+                    )
+                ) {
+                    is ApiResponse.Success -> Unit
+                    is ApiResponse.Failure.Error -> return@streamSyncBootstrap applyResult
+                    is ApiResponse.Failure.Exception -> return@streamSyncBootstrap applyResult
+                }
 
-            // Successfully completed both, return Unit
-            ApiResponse.Success(Unit)
+                val nextCursor = chunk.nextCursor.trim()
+                if (nextCursor.isNotEmpty() && nextCursor != currentCursor) {
+                    currentCursor = nextCursor
+                    accountLocalSettingsStore.writeStreamSyncCursor(accountKey, currentCursor)
+                    accountLocalSettingsStore.writeProfileSyncCursor(accountKey, currentCursor)
+                }
+                ApiResponse.Success(Unit)
+            }
+            when (streamResult) {
+                is ApiResponse.Success -> {
+                    val finalCursor = streamResult.data.trim()
+                    if (finalCursor.isNotEmpty() && finalCursor != currentCursor) {
+                        accountLocalSettingsStore.writeStreamSyncCursor(accountKey, finalCursor)
+                        accountLocalSettingsStore.writeProfileSyncCursor(accountKey, finalCursor)
+                    }
+                    ApiResponse.Success(Unit)
+                }
+                is ApiResponse.Failure.Error -> streamResult
+                is ApiResponse.Failure.Exception -> streamResult
+            }
         }
     }
 
-    private suspend fun syncUsers(): ApiResponse<Unit> {
+    private suspend fun applyStreamChunk(
+        accountKey: String,
+        reason: String,
+        chunk: SyncPullResult,
+    ): ApiResponse<Unit> {
         val remoteRepository = accountService.getRemoteRepository()
             ?: return ApiResponse.Success(Unit)
-        return remoteRepository.syncKnownUsers()
+        val memoRepository = accountService.getRepository()
+
+        chunk.patches.settings.generalSettings?.let { settings ->
+            when (
+                val settingsApply = userGeneralSettingsRepository.applySyncedGeneralSettings(
+                    settings = settings,
+                    reason = "stream_$reason",
+                )
+            ) {
+                is ApiResponse.Success -> Unit
+                is ApiResponse.Failure.Error -> return settingsApply
+                is ApiResponse.Failure.Exception -> return settingsApply
+            }
+        }
+        when (
+            val securityApply = remoteRepository.applySecuritySyncPatch(
+                settingsPatch = chunk.patches.settings,
+                groupKeysPatch = chunk.patches.groupKeys,
+            )
+        ) {
+            is ApiResponse.Success -> Unit
+            is ApiResponse.Failure.Error -> return securityApply
+            is ApiResponse.Failure.Exception -> return securityApply
+        }
+
+        if (
+            chunk.patches.groups.upserts.isNotEmpty() ||
+            chunk.patches.groups.deletes.isNotEmpty() ||
+            chunk.patches.groupMessages.groups.isNotEmpty()
+        ) {
+            groupsSyncRunner.applyStreamChunk(accountKey, chunk)
+        }
+
+        when (val memoApply = memoRepository.applyMemoStreamPatch(chunk.patches.memos, chunk.nextCursor)) {
+            is ApiResponse.Success -> Unit
+            is ApiResponse.Failure.Error -> return memoApply
+            is ApiResponse.Failure.Exception -> return memoApply
+        }
+        when (val attachmentApply = memoRepository.applyAttachmentStreamPatch(chunk.patches.attachments)) {
+            is ApiResponse.Success -> Unit
+            is ApiResponse.Failure.Error -> return attachmentApply
+            is ApiResponse.Failure.Exception -> return attachmentApply
+        }
+        return ApiResponse.Success(Unit)
     }
 
-    private suspend fun syncMemos(): ApiResponse<Unit> {
-        return accountService.getRepository().sync()
+    private fun mapStreamDomains(domains: Set<SyncDomain>): Set<SyncPullDomain> {
+        val streamDomains = linkedSetOf<SyncPullDomain>()
+        if (SyncDomain.MEMOS in domains) {
+            streamDomains += SyncPullDomain.MEMOS
+            streamDomains += SyncPullDomain.ATTACHMENTS
+        }
+        if (SyncDomain.USERS in domains) {
+            streamDomains += SyncPullDomain.USERS
+            streamDomains += SyncPullDomain.FRIENDSHIPS
+        }
+        if (SyncDomain.PROFILE in domains) {
+            streamDomains += SyncPullDomain.SETTINGS
+            streamDomains += SyncPullDomain.SETTINGS_ENCRYPTION
+        }
+        if (SyncDomain.GROUPS in domains) {
+            streamDomains += SyncPullDomain.GROUPS
+            streamDomains += SyncPullDomain.GROUP_MESSAGES
+            streamDomains += SyncPullDomain.GROUP_KEYS
+            streamDomains += SyncPullDomain.ATTACHMENTS
+            streamDomains += SyncPullDomain.USERS
+        }
+        return streamDomains
+    }
+
+    private suspend fun resolveInitialStreamCursor(accountKey: String): String {
+        val streamCursor = accountLocalSettingsStore.readStreamSyncCursor(accountKey)
+            ?.trim()
+            .orEmpty()
+        if (streamCursor.isNotEmpty()) {
+            return streamCursor
+        }
+        val fallbackCursor = listOf(
+            accountLocalSettingsStore.readMemoSyncCursor(accountKey),
+            accountLocalSettingsStore.readGroupSyncCursor(accountKey),
+            accountLocalSettingsStore.readProfileSyncCursor(accountKey),
+        ).mapNotNull { cursor ->
+            cursor
+                ?.trim()
+                ?.takeIf { value -> value.isNotEmpty() && value.all(Char::isDigit) }
+                ?.toLongOrNull()
+        }.maxOrNull()
+        return fallbackCursor?.toString() ?: "0"
+    }
+
+    private companion object {
+        private val FULL_STREAM_DOMAINS = setOf(
+            SyncPullDomain.MEMOS,
+            SyncPullDomain.USERS,
+            SyncPullDomain.FRIENDSHIPS,
+            SyncPullDomain.GROUPS,
+            SyncPullDomain.GROUP_MESSAGES,
+            SyncPullDomain.ATTACHMENTS,
+            SyncPullDomain.SETTINGS,
+            SyncPullDomain.SETTINGS_ENCRYPTION,
+            SyncPullDomain.GROUP_KEYS,
+        )
+        private const val MANUAL_STREAM_PAGE_SIZE = 180
+        private const val TAIL_STREAM_PAGE_SIZE = 240
     }
 }

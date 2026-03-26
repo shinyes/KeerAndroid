@@ -3,7 +3,10 @@ package site.lcyk.keer.data.api
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class KeerV2ResourceThumbnailUriTest {
     @Test
     fun thumbnailUri_returnsNullWhenThumbnailNameMissing() {

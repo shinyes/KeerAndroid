@@ -43,7 +43,6 @@ import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.data.service.MemoTransferOperation
 import site.lcyk.keer.data.service.MemoTransferStage
 import site.lcyk.keer.data.service.MemoTransferService
-import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.data.repository.UserGeneralSettingsRepository
 import site.lcyk.keer.ext.string
 import okhttp3.OkHttpClient
@@ -114,15 +113,7 @@ class UserStateViewModel @Inject constructor(
     }
 
     suspend fun loadCurrentUser(): ApiResponse<User> = withContext(Dispatchers.IO) {
-        val response = userDirectoryRepository.loadCurrentUser()
-        if (response is ApiResponse.Success) {
-            memoService.requestSync(
-                trigger = SyncTrigger.AUTO,
-                force = false,
-                domains = setOf(SyncDomain.PROFILE)
-            )
-        }
-        response
+        userDirectoryRepository.loadCurrentUser()
     }
 
     suspend fun loadCurrentUserIfStale(
@@ -185,13 +176,6 @@ class UserStateViewModel @Inject constructor(
 
     suspend fun uploadCurrentUserAvatar(uri: Uri): ApiResponse<Unit> = withContext(Dispatchers.IO) {
         val response = accountService.uploadCurrentUserAvatar(uri)
-        if (response is ApiResponse.Success) {
-            memoService.requestSync(
-                trigger = SyncTrigger.MUTATION,
-                force = false,
-                domains = setOf(SyncDomain.PROFILE)
-            )
-        }
         loadCurrentUser()
         response
     }
@@ -308,7 +292,7 @@ class UserStateViewModel @Inject constructor(
                 val summary = result.getOrNull() ?: return@withContext result
                 if (summary.imported > 0) {
                     memoService.requestSync(
-                        trigger = SyncTrigger.MUTATION,
+                        trigger = site.lcyk.keer.data.service.SyncTrigger.MANUAL,
                         force = true,
                         domains = setOf(SyncDomain.MEMOS)
                     )
@@ -346,11 +330,6 @@ class UserStateViewModel @Inject constructor(
         )
         return when (val response = loadCurrentUser()) {
             is ApiResponse.Success -> {
-                memoService.requestSync(
-                    trigger = SyncTrigger.AUTH_BOOTSTRAP,
-                    force = false,
-                    domains = site.lcyk.keer.data.service.SyncCoordinator.FULL_DOMAINS
-                )
                 ApiResponse.Success(Unit)
             }
             is ApiResponse.Failure.Error -> response

@@ -163,6 +163,20 @@ class UserGeneralSettingsRepository @Inject constructor(
         }
     }
 
+    suspend fun applySyncedGeneralSettings(
+        settings: UserGeneralSettings,
+        reason: String = "stream",
+    ): ApiResponse<UserGeneralSettings> {
+        return try {
+            updateCurrentCachedGeneralSettings(settings)
+            lastSuccessfulRefreshAtMillis = System.currentTimeMillis()
+            Timber.tag(GENERAL_SETTINGS_SYNC_TAG).d("applied_from_%s", reason)
+            ApiResponse.Success(settings)
+        } catch (e: Exception) {
+            ApiResponse.Failure.Exception(e)
+        }
+    }
+
     private suspend fun readCurrentCachedGeneralSettings(): UserGeneralSettings {
         return accountLocalSettingsStore.currentGeneralSettings()
     }

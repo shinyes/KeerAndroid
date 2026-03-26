@@ -6,8 +6,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import site.lcyk.keer.data.local.entity.ResourceEntity
 
+@RunWith(RobolectricTestRunner::class)
 class MemoMediaPreviewPolicyTest {
 
     @Test

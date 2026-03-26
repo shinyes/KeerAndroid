@@ -1,7 +1,6 @@
 package site.lcyk.keer
 
 import android.app.Application
-import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import dagger.hilt.android.HiltAndroidApp
 import site.lcyk.keer.data.service.DebugLogManager
@@ -14,10 +13,7 @@ import javax.inject.Inject
 class KeerApp: Application(), Configuration.Provider {
     @Inject
     lateinit var debugLogManager: DebugLogManager
-    
-    @Inject
-    lateinit var workerFactory: HiltWorkerFactory
-    
+
     @Inject
     lateinit var syncInitializer: SyncInitializer
 
@@ -38,13 +34,12 @@ class KeerApp: Application(), Configuration.Provider {
             Timber.plant(DebugLogTree(debugLogManager))
         }
         
-        // Initialize WorkManager-based periodic sync
+        // Initialize continuous stream sync
         SyncInitializer.initialize(syncInitializer)
         syncInitializer.initialize()
     }
     
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
-            .setWorkerFactory(workerFactory)
             .build()
 }

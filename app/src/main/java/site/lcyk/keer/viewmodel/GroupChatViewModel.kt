@@ -225,7 +225,7 @@ class GroupChatViewModel @Inject constructor(
         lastGroupSyncAtMillis[groupId] = System.currentTimeMillis()
         when (val response = memoService.sync(
             force = true,
-            trigger = SyncTrigger.MUTATION,
+            trigger = SyncTrigger.MANUAL,
             domains = setOf(SyncDomain.GROUPS),
             groupId = groupId,
         )) {

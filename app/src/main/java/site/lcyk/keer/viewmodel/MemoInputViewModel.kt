@@ -19,10 +19,8 @@ import kotlinx.coroutines.withContext
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.MemoVisibility
-import site.lcyk.keer.data.model.SyncDomain
 import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.service.MemoService
-import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.widget.WidgetUpdater
@@ -75,11 +73,6 @@ class MemoInputViewModel @Inject constructor(
         )
         response.suspendOnSuccess {
             WidgetUpdater.updateWidgets(getApplication())
-            memoService.requestSync(
-                trigger = SyncTrigger.MUTATION,
-                force = false,
-                domains = setOf(SyncDomain.MEMOS)
-            )
         }
         response
     }
@@ -100,11 +93,6 @@ class MemoInputViewModel @Inject constructor(
         )
         response.suspendOnSuccess {
             WidgetUpdater.updateWidgets(getApplication())
-            memoService.requestSync(
-                trigger = SyncTrigger.MUTATION,
-                force = false,
-                domains = setOf(SyncDomain.MEMOS)
-            )
         }
         response
     }

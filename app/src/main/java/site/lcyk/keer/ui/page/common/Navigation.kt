@@ -13,15 +13,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.util.Consumer
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -29,8 +23,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import site.lcyk.keer.MainActivity
-import site.lcyk.keer.data.model.SyncDomain
-import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.account.AccountPage
 import site.lcyk.keer.ui.page.account.AddAccountPage
@@ -47,49 +39,13 @@ import site.lcyk.keer.ui.page.settings.DebugLogPage
 import site.lcyk.keer.ui.page.settings.FriendManagementPage
 import site.lcyk.keer.ui.page.settings.SettingsPage
 import site.lcyk.keer.ui.theme.KeerTheme
-import site.lcyk.keer.util.ForegroundSyncScheduler
-import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 
 @Composable
 fun Navigation() {
     val navController = rememberNavController()
     val userStateViewModel = LocalUserState.current
-    val memosViewModel = LocalMemos.current
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val scope = rememberCoroutineScope()
-    val foregroundSyncScheduler = remember(scope, userStateViewModel, memosViewModel) {
-        ForegroundSyncScheduler(
-            scope = scope,
-            awaitFastLaneStart = {
-                withFrameNanos { }
-            },
-            runFastLaneSync = { trigger ->
-                if (userStateViewModel.hasAnyAccount()) {
-                    memosViewModel.loadMemos(
-                        syncAfterLoad = true,
-                        trigger = trigger,
-                        domains = setOf(SyncDomain.MEMOS),
-                    )
-                }
-            },
-            runIdleLaneSync = { trigger ->
-                if (userStateViewModel.hasAnyAccount()) {
-                    userStateViewModel.loadCurrentUserIfStale()
-                    memosViewModel.requestSync(
-                        trigger = trigger,
-                        domains = setOf(
-                            SyncDomain.USERS,
-                            SyncDomain.GROUPS,
-                            SyncDomain.PROFILE,
-                        ),
-                    )
-                }
-            },
-            isUiBusy = { memosViewModel.foregroundSyncUiBusy.value },
-        )
-    }
 
     CompositionLocalProvider(LocalRootNavController provides navController) {
         KeerTheme {
@@ -246,27 +202,7 @@ fun Navigation() {
             }
             return@LaunchedEffect
         }
-        foregroundSyncScheduler.request(trigger = SyncTrigger.APP_START)
-    }
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                foregroundSyncScheduler.request(trigger = SyncTrigger.APP_FOREGROUND)
-                return@LifecycleEventObserver
-            }
-            if (
-                event == Lifecycle.Event.ON_PAUSE ||
-                event == Lifecycle.Event.ON_STOP
-            ) {
-                foregroundSyncScheduler.cancelPending()
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            foregroundSyncScheduler.cancelPending()
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+        userStateViewModel.loadCurrentUserIfStale()
     }
 
     fun handleIntent(intent: Intent) {

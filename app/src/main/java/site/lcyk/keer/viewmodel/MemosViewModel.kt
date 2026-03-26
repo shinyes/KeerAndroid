@@ -360,10 +360,10 @@ class MemosViewModel @Inject constructor(
         domains: Set<SyncDomain> = setOf(SyncDomain.MEMOS),
         bypassCoalesce: Boolean = false,
     ) = withContext(viewModelScope.coroutineContext) {
-        if (syncAfterLoad) {
+        if (syncAfterLoad && trigger == SyncTrigger.MANUAL) {
             memoService.requestSync(
-                trigger = trigger,
-                force = false,
+                trigger = SyncTrigger.MANUAL,
+                force = true,
                 domains = domains,
                 bypassCoalesce = bypassCoalesce,
             )
@@ -373,14 +373,18 @@ class MemosViewModel @Inject constructor(
     suspend fun requestSync(
         trigger: SyncTrigger,
         domains: Set<SyncDomain>,
+        force: Boolean = false,
         bypassCoalesce: Boolean = false,
     ) = withContext(viewModelScope.coroutineContext) {
         if (domains.isEmpty()) {
             return@withContext
         }
+        if (!force && trigger != SyncTrigger.MANUAL) {
+            return@withContext
+        }
         memoService.requestSync(
             trigger = trigger,
-            force = false,
+            force = force,
             domains = domains,
             bypassCoalesce = bypassCoalesce,
         )
@@ -410,7 +414,6 @@ class MemosViewModel @Inject constructor(
                 )
                 errorMessage = null
                 WidgetUpdater.updateWidgets(appContext)
-                triggerSyncAfterMutation()
             } else {
                 errorMessage = response.getErrorMessage()
             }
@@ -424,7 +427,6 @@ class MemosViewModel @Inject constructor(
                 userGeneralSettingsRepository.removeTagDrawerEntries(tag)
                 errorMessage = null
                 WidgetUpdater.updateWidgets(appContext)
-                triggerSyncAfterMutation()
             } else {
                 errorMessage = response.getErrorMessage()
             }
@@ -435,7 +437,6 @@ class MemosViewModel @Inject constructor(
         withContext(Dispatchers.IO) {
             memoService.getRepository().updateMemo(memoIdentifier, pinned = pinned).suspendOnSuccess {
                 WidgetUpdater.updateWidgets(appContext)
-                triggerSyncAfterMutation()
             }
         }
 
@@ -452,21 +453,18 @@ class MemosViewModel @Inject constructor(
             visibility = visibility,
         ).suspendOnSuccess {
             WidgetUpdater.updateWidgets(appContext)
-            triggerSyncAfterMutation()
         }
     }
 
     suspend fun archiveMemo(memoIdentifier: String) = withContext(Dispatchers.IO) {
         memoService.getRepository().archiveMemo(memoIdentifier).suspendOnSuccess {
             WidgetUpdater.updateWidgets(appContext)
-            triggerSyncAfterMutation()
         }
     }
 
     suspend fun deleteMemo(memoIdentifier: String) = withContext(Dispatchers.IO) {
         memoService.getRepository().deleteMemo(memoIdentifier).suspendOnSuccess {
             WidgetUpdater.updateWidgets(appContext)
-            triggerSyncAfterMutation()
         }
     }
 
@@ -513,14 +511,6 @@ class MemosViewModel @Inject constructor(
     fun getMemoForDetail(memoIdentifier: String): MemoEntity? {
         return visibleMemos.value.firstOrNull { it.identifier == memoIdentifier }
             ?: transientDetailMemos[memoIdentifier]
-    }
-
-    private suspend fun triggerSyncAfterMutation() {
-        memoService.requestSync(
-            trigger = SyncTrigger.MUTATION,
-            force = false,
-            domains = setOf(SyncDomain.MEMOS),
-        )
     }
 
     private suspend fun performManualSync(domains: Set<SyncDomain>): ManualSyncResult {

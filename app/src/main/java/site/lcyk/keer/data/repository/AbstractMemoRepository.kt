@@ -78,6 +78,19 @@ abstract class AbstractMemoRepository {
             return ApiResponse.Success(Unit)
         }
 
+    open suspend fun applyMemoStreamPatch(
+        patch: SyncPullMemoPatch,
+        nextCursor: String,
+    ): ApiResponse<Unit> {
+        return ApiResponse.Success(Unit)
+    }
+
+    open suspend fun applyAttachmentStreamPatch(
+        patch: SyncPullAttachmentsPatch,
+    ): ApiResponse<Unit> {
+        return ApiResponse.Success(Unit)
+    }
+
     open suspend fun sync(): ApiResponse<Unit> {
         return ApiResponse.Success(Unit)
     }

@@ -11,6 +11,7 @@ import site.lcyk.keer.data.model.PendingGroupMemo
 import site.lcyk.keer.data.model.PendingGroupOperationType
 import site.lcyk.keer.data.model.toCachedMemoItem
 import site.lcyk.keer.data.repository.SyncPullDomain
+import site.lcyk.keer.data.repository.SyncPullResult
 import site.lcyk.keer.data.repository.RemoteRepository
 import site.lcyk.keer.data.repository.ResourceEncryptionScope
 
@@ -20,6 +21,20 @@ class GroupsSyncRunner @Inject constructor(
     private val accountLocalSettingsStore: AccountLocalSettingsStore,
     private val offlineGroupStore: OfflineGroupStore,
 ) {
+    suspend fun applyStreamChunk(
+        accountKey: String,
+        chunk: SyncPullResult,
+    ) {
+        applyGroupSyncPage(
+            accountKey = accountKey,
+            patches = chunk.patches,
+        )
+        val nextCursor = chunk.nextCursor.trim()
+        if (nextCursor.isNotEmpty()) {
+            accountLocalSettingsStore.writeGroupSyncCursor(accountKey, nextCursor)
+        }
+    }
+
     suspend fun sync(groupId: String? = null): ApiResponse<Unit> = withContext(Dispatchers.IO) {
         val normalizedGroupId = groupId?.trim().orEmpty()
         val remoteRepository = accountService.getRemoteRepository()
@@ -50,48 +65,35 @@ class GroupsSyncRunner @Inject constructor(
     ): ApiResponse<Unit> {
         var cursor = accountLocalSettingsStore.readGroupSyncCursor(accountKey)?.trim().orEmpty()
             .ifBlank { "0" }
-        var hasMore = true
-        var pageCount = 0
-
-        while (hasMore && pageCount < MAX_PULL_SYNC_PAGES_PER_SESSION) {
-            val pageCursor = cursor
-            val response = remoteRepository.pullSync(
-                cursor = pageCursor,
-                domains = setOf(SyncPullDomain.GROUPS, SyncPullDomain.GROUP_MESSAGES),
-                groupScopes = scopedGroupId?.let { scoped -> listOf("groups/$scoped") }.orEmpty(),
-                limit = PULL_SYNC_GROUP_PAGE_SIZE,
+        val streamResponse = remoteRepository.streamSyncBootstrap(
+            resumeCursor = cursor,
+            domains = setOf(SyncPullDomain.GROUPS, SyncPullDomain.GROUP_MESSAGES),
+            groupScopes = scopedGroupId?.let { scoped -> listOf("groups/$scoped") }.orEmpty(),
+            limit = PULL_SYNC_GROUP_PAGE_SIZE,
+        ) { chunk ->
+            applyGroupSyncPage(
+                accountKey = accountKey,
+                patches = chunk.patches,
             )
-            when (response) {
-                is ApiResponse.Success -> {
-                    applyGroupSyncPage(
-                        accountKey = accountKey,
-                        patches = response.data.patches,
-                    )
-                    val nextCursor = response.data.nextCursor.trim()
-                    val stalledCursor = nextCursor.isEmpty() || nextCursor == pageCursor
-                    if (!stalledCursor) {
-                        cursor = nextCursor
-                        accountLocalSettingsStore.writeGroupSyncCursor(accountKey, cursor)
-                    }
-                    hasMore = response.data.hasMore && !stalledCursor
-                }
-                is ApiResponse.Failure.Error -> {
-                    return ApiResponse.exception(
-                        IllegalStateException("Group cache refresh failed: HTTP ${response.statusCode.code}")
-                    )
-                }
-                is ApiResponse.Failure.Exception -> {
-                    return ApiResponse.exception(
-                        IllegalStateException(
-                            response.throwable.message ?: "Group cache refresh failed",
-                            response.throwable
-                        )
-                    )
-                }
+            val nextCursor = chunk.nextCursor.trim()
+            if (nextCursor.isNotEmpty() && nextCursor != cursor) {
+                cursor = nextCursor
+                accountLocalSettingsStore.writeGroupSyncCursor(accountKey, cursor)
             }
-            pageCount += 1
+            ApiResponse.Success(Unit)
         }
-        return ApiResponse.Success(Unit)
+        return when (streamResponse) {
+            is ApiResponse.Success -> ApiResponse.Success(Unit)
+            is ApiResponse.Failure.Error -> ApiResponse.exception(
+                IllegalStateException("Group cache refresh failed: HTTP ${streamResponse.statusCode.code}")
+            )
+            is ApiResponse.Failure.Exception -> ApiResponse.exception(
+                IllegalStateException(
+                    streamResponse.throwable.message ?: "Group cache refresh failed",
+                    streamResponse.throwable
+                )
+            )
+        }
     }
 
     private suspend fun syncPendingGroupOperations(
@@ -423,6 +425,5 @@ class GroupsSyncRunner @Inject constructor(
 
     private companion object {
         private const val PULL_SYNC_GROUP_PAGE_SIZE = 120
-        private const val MAX_PULL_SYNC_PAGES_PER_SESSION = 20
     }
 }

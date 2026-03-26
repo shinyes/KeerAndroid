@@ -429,6 +429,63 @@ class AccountKeyManager @Inject constructor(
         return groupKeyCache[cacheKey]?.copyOf()
     }
 
+    fun applyStreamEncryptionSetting(
+        account: Account.KeerV2,
+        setting: KeerV2UserEncryptionSetting,
+    ): Boolean {
+        val accountKey = account.accountKey()
+        if (setting.sharingPublicKey.isBlank() || setting.wrappedSharingPrivateKey.isBlank()) {
+            sharingPrivateKeyCache.remove(sharingCacheKey(accountKey, account.info.id.toString()))
+            return false
+        }
+        val privateKey = runCatching {
+            unwrapSharingPrivateKey(accountKey, setting)
+        }.getOrNull() ?: return false
+        sharingPrivateKeyCache[sharingCacheKey(accountKey, account.info.id.toString())] = privateKey
+        return true
+    }
+
+    fun applyStreamGroupKeyVersion(
+        account: Account.KeerV2,
+        version: KeerV2GroupKeyVersion,
+    ): Boolean {
+        val accountKey = account.accountKey()
+        val currentUserId = account.info.id.toString()
+        val privateKeyBytes = sharingPrivateKeyCache[sharingCacheKey(accountKey, currentUserId)]
+            ?: return false
+        val visibleWrappedKey = version.wrappedKeys.firstOrNull { wrapped ->
+            normalizeUserId(wrapped.slotRef) == currentUserId
+        } ?: return false
+        val groupKey = E2eeKeyEnvelope.unwrapFirstSupportedKey(
+            accountKey = accountKey,
+            wrappedKeys = listOf(
+                WrappedContentKey(
+                    slotType = visibleWrappedKey.slotType,
+                    slotRef = visibleWrappedKey.slotRef,
+                    wrapAlgorithm = visibleWrappedKey.wrapAlgorithm,
+                    wrappedKey = visibleWrappedKey.wrappedKey,
+                )
+            ),
+            secureAccountMasterKeyStorage = secureAccountMasterKeyStorage,
+            sharingPrivateKeyResolver = { slotRef ->
+                if (normalizeUserId(slotRef) == currentUserId) privateKeyBytes else null
+            },
+        ) ?: return false
+        groupKeyCache[groupCacheKey(accountKey, version.name)] = groupKey
+        return true
+    }
+
+    fun removeCachedGroupKeyVersion(
+        account: Account.KeerV2,
+        versionName: String,
+    ) {
+        val normalizedName = versionName.trim()
+        if (normalizedName.isEmpty()) {
+            return
+        }
+        groupKeyCache.remove(groupCacheKey(account.accountKey(), normalizedName))
+    }
+
     private suspend fun ensureWritableGroupKeyVersion(
         account: Account.KeerV2,
         api: KeerV2Api,
