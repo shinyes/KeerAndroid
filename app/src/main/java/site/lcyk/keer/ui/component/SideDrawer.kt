@@ -67,6 +67,7 @@ import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemoGroupType
 import site.lcyk.keer.data.model.isTagVisibleInDrawer
+import site.lcyk.keer.data.model.orderTagsForDrawer
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
@@ -127,12 +128,13 @@ fun SideDrawer(
     var tagActionInProgress by remember { mutableStateOf(false) }
     val rawTags = drawerUiState.tags
     val availableTags = remember(rawTags, generalSettings) {
-        normalizeTagList(
+        val normalizedVisibleTags = normalizeTagList(
             rawTags
                 .filterNot(::isCollaboratorTag)
                 .filterNot(::isQuoteTag)
         )
             .filter { tag -> generalSettings.isTagVisibleInDrawer(tag) }
+        generalSettings.orderTagsForDrawer(normalizedVisibleTags)
     }
     val tagTree = remember(availableTags) { buildTagTree(availableTags) }
     val currentSelectedTag = remember(navBackStackEntry) {

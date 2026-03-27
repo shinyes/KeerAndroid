@@ -66,4 +66,71 @@ class UserGeneralSettingsTagDrawerTest {
         assertEquals(2, removed.exploreDrawerEntries.size)
         assertTrue(removed.exploreDrawerEntries.any { it.entryId == "group:abc" })
     }
+
+    @Test
+    fun orderTagsForDrawer_respectsConfiguredOrderAndAppendsNewTags() {
+        val settings = UserGeneralSettings(
+            exploreDrawerEntries = listOf(
+                ExploreDrawerEntryConfig(entryId = "group:abc", visibleInExplore = true),
+                ExploreDrawerEntryConfig(entryId = "drawer_tag:beta", visibleInExplore = false),
+                ExploreDrawerEntryConfig(entryId = "drawer_tag:alpha", visibleInExplore = true),
+            )
+        )
+
+        val ordered = settings.orderTagsForDrawer(
+            listOf("alpha", "gamma", "beta")
+        )
+
+        assertEquals(listOf("beta", "alpha", "gamma"), ordered)
+    }
+
+    @Test
+    fun withReorderedTagDrawerEntries_reordersTagsAndPreservesVisibility() {
+        val settings = UserGeneralSettings(
+            exploreDrawerEntries = listOf(
+                ExploreDrawerEntryConfig(entryId = "group:abc", visibleInExplore = true),
+                ExploreDrawerEntryConfig(entryId = "drawer_tag:alpha", visibleInExplore = false),
+                ExploreDrawerEntryConfig(entryId = "drawer_tag:beta", visibleInExplore = true),
+            )
+        )
+
+        val reordered = settings.withReorderedTagDrawerEntries(
+            listOf("beta", "alpha", "gamma")
+        )
+
+        assertEquals(
+            listOf("group:abc", "drawer_tag:beta", "drawer_tag:alpha", "drawer_tag:gamma"),
+            reordered.exploreDrawerEntries.map { it.entryId }
+        )
+        assertTrue(reordered.isTagVisibleInDrawer("beta"))
+        assertFalse(reordered.isTagVisibleInDrawer("alpha"))
+        assertTrue(reordered.isTagVisibleInDrawer("gamma"))
+    }
+
+    @Test
+    fun renamedAndRemovedTagEntries_keepOrderingSemanticsIntact() {
+        val settings = UserGeneralSettings(
+            exploreDrawerEntries = listOf(
+                ExploreDrawerEntryConfig(entryId = "drawer_tag:alpha", visibleInExplore = false),
+                ExploreDrawerEntryConfig(entryId = "drawer_tag:alpha/child", visibleInExplore = false),
+                ExploreDrawerEntryConfig(entryId = "drawer_tag:beta", visibleInExplore = true),
+                ExploreDrawerEntryConfig(entryId = "memo", visibleInExplore = true),
+            )
+        )
+
+        val renamed = settings.withRenamedTagDrawerEntries("alpha", "work")
+        val removed = renamed.withoutTagDrawerEntries("beta")
+
+        assertEquals(
+            listOf(
+                "drawer_tag:work",
+                "drawer_tag:work/child",
+                "memo",
+            ),
+            removed.exploreDrawerEntries.map { it.entryId }
+        )
+        assertFalse(removed.isTagVisibleInDrawer("work"))
+        assertFalse(removed.isTagVisibleInDrawer("work/child"))
+        assertTrue(removed.isTagVisibleInDrawer("beta"))
+    }
 }

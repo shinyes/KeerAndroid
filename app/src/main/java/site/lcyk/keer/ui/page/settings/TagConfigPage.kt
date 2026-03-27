@@ -1,9 +1,11 @@
 package site.lcyk.keer.ui.page.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,11 +20,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Tag
+import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -38,6 +44,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,9 +56,12 @@ import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.isTagVisibleInDrawer
+import site.lcyk.keer.data.model.orderTagsForDrawer
+import site.lcyk.keer.data.model.withReorderedTagDrawerEntries
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ui.component.ReorderableSettingsList
 import site.lcyk.keer.ui.page.common.PageScaffold
 import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.isQuoteTag
@@ -79,6 +89,9 @@ fun TagConfigPage(
                 .filterNot(::isQuoteTag)
         )
     }
+    val orderedTags = remember(availableTags, generalSettings) {
+        generalSettings.orderTagsForDrawer(availableTags)
+    }
 
     var activeTagActionTarget by remember { mutableStateOf<String?>(null) }
     var renameTargetTag by remember { mutableStateOf<String?>(null) }
@@ -88,53 +101,156 @@ fun TagConfigPage(
     var confirmDeleteAndMemosInput by remember { mutableStateOf("") }
     var tagActionErrorMessage by remember { mutableStateOf<String?>(null) }
     var tagActionInProgress by remember { mutableStateOf(false) }
+    var sortMode by rememberSaveable { mutableStateOf(false) }
+    var draftTags by remember { mutableStateOf(orderedTags) }
+
+    fun exitSortMode() {
+        draftTags = orderedTags
+        sortMode = false
+    }
+
+    fun enterSortMode() {
+        activeTagActionTarget = null
+        renameTargetTag = null
+        deleteTargetTag = null
+        confirmDeleteAndMemosTargetTag = null
+        confirmDeleteAndMemosInput = ""
+        tagActionErrorMessage = null
+        draftTags = orderedTags
+        sortMode = true
+    }
+
+    suspend fun saveDraftTagOrder() {
+        userStateViewModel.updateExploreDrawerEntries(
+            generalSettings.withReorderedTagDrawerEntries(draftTags).exploreDrawerEntries
+        )
+        sortMode = false
+    }
+
+    LaunchedEffect(orderedTags, sortMode) {
+        if (!sortMode) {
+            draftTags = orderedTags
+        }
+    }
+
+    BackHandler(enabled = sortMode) {
+        exitSortMode()
+    }
 
     PageScaffold(
         title = R.string.tag_config.string,
-        onBack = { navController.popBackStackIfLifecycleIsResumed(lifecycleOwner) },
-    ) { innerPadding ->
-        if (availableTags.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = R.string.no_tags_for_config.string,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+        onBack = {
+            if (sortMode) {
+                exitSortMode()
+            } else {
+                navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
+            }
+        },
+        floatingActionButton = {
+            if (availableTags.isNotEmpty()) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        scope.launch {
+                            if (sortMode) {
+                                saveDraftTagOrder()
+                            } else {
+                                enterSortMode()
+                            }
+                        }
+                    },
+                    text = {
+                        Text(
+                            if (sortMode) {
+                                R.string.save_order.string
+                            } else {
+                                R.string.sort_order.string
+                            }
+                        )
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = if (sortMode) {
+                                Icons.Outlined.Check
+                            } else {
+                                Icons.Rounded.DragHandle
+                            },
+                            contentDescription = if (sortMode) {
+                                R.string.save_order.string
+                            } else {
+                                R.string.sort_order.string
+                            }
+                        )
+                    }
                 )
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                item {
+        },
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            Text(
+                text = if (sortMode) {
+                    R.string.reorder_tags_hint.string
+                } else {
+                    R.string.tag_config_hint.string
+                },
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (orderedTags.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = R.string.tag_config_hint.string,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        text = R.string.no_tags_for_config.string,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                items(availableTags, key = { it }) { tag ->
+            } else if (sortMode) {
+                ReorderableSettingsList(
+                    modifier = Modifier.fillMaxSize(),
+                    items = draftTags,
+                    key = { it },
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
+                    onMove = { fromIndex, toIndex ->
+                        draftTags = draftTags.moveItem(fromIndex, toIndex)
+                    },
+                ) { tag, _ ->
                     TagConfigItem(
                         tag = tag,
                         visibleInDrawer = generalSettings.isTagVisibleInDrawer(tag),
-                        onVisibleChange = { visible ->
-                            scope.launch {
-                                userStateViewModel.updateTagDrawerVisibility(
-                                    tag = tag,
-                                    visibleInDrawer = visible,
-                                )
-                            }
-                        },
-                        onLongPress = { activeTagActionTarget = tag }
+                        enabled = false,
+                        showDragHandle = true,
+                        dragHandleModifier = with(this) { Modifier.draggableHandle() }
                     )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 4.dp)
+                ) {
+                    items(orderedTags, key = { it }) { tag ->
+                        TagConfigItem(
+                            tag = tag,
+                            visibleInDrawer = generalSettings.isTagVisibleInDrawer(tag),
+                            onVisibleChange = { visible ->
+                                scope.launch {
+                                    userStateViewModel.updateTagDrawerVisibility(
+                                        tag = tag,
+                                        visibleInDrawer = visible,
+                                    )
+                                }
+                            },
+                            onLongPress = { activeTagActionTarget = tag }
+                        )
+                    }
                 }
             }
         }
@@ -401,8 +517,11 @@ fun TagConfigPage(
 private fun TagConfigItem(
     tag: String,
     visibleInDrawer: Boolean,
-    onVisibleChange: (Boolean) -> Unit,
-    onLongPress: () -> Unit,
+    enabled: Boolean = true,
+    onVisibleChange: ((Boolean) -> Unit)? = null,
+    onLongPress: (() -> Unit)? = null,
+    showDragHandle: Boolean = false,
+    dragHandleModifier: Modifier = Modifier,
 ) {
     Surface(
         modifier = Modifier
@@ -415,8 +534,9 @@ private fun TagConfigItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
-                    onClick = { onVisibleChange(!visibleInDrawer) },
-                    onLongClick = onLongPress
+                    enabled = enabled && (onVisibleChange != null || onLongPress != null),
+                    onClick = { onVisibleChange?.invoke(!visibleInDrawer) },
+                    onLongClick = { onLongPress?.invoke() }
                 )
                 .padding(horizontal = 18.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -432,10 +552,23 @@ private fun TagConfigItem(
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.bodyLarge
             )
-            Switch(
-                checked = visibleInDrawer,
-                onCheckedChange = onVisibleChange
-            )
+            if (showDragHandle) {
+                IconButton(
+                    modifier = dragHandleModifier,
+                    onClick = {}
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.DragHandle,
+                        contentDescription = R.string.sort_order.string,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                Switch(
+                    checked = visibleInDrawer,
+                    onCheckedChange = if (enabled) onVisibleChange else null
+                )
+            }
         }
     }
 }
@@ -488,5 +621,14 @@ private fun TagConfigActionMenuItem(
                 MaterialTheme.colorScheme.onSurfaceVariant
             }
         )
+    }
+}
+
+private fun List<String>.moveItem(fromIndex: Int, toIndex: Int): List<String> {
+    if (fromIndex == toIndex || fromIndex !in indices || toIndex !in indices) {
+        return this
+    }
+    return toMutableList().apply {
+        add(toIndex, removeAt(fromIndex))
     }
 }

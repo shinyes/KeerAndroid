@@ -181,6 +181,13 @@ fun MemosList(
             }
     }
 
+    LaunchedEffect(memoCardUiModels.size, lazyListState) {
+        val lastIndex = memoCardUiModels.lastIndex
+        if (lastIndex >= 0 && lazyListState.firstVisibleItemIndex > lastIndex) {
+            lazyListState.scrollToItem(index = lastIndex, scrollOffset = 0)
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             viewModel.setInteractionActive(MemoUiScope.FEED, UiInteractionType.LIST_SCROLL, false)

@@ -1,6 +1,7 @@
 package site.lcyk.keer.data.model
 
 import kotlinx.serialization.Serializable
+import site.lcyk.keer.util.normalizeTagList
 
 @Serializable
 enum class MemoEditGesture {
@@ -94,6 +95,78 @@ fun UserGeneralSettings.withTagDrawerVisibility(
         entryId = toTagDrawerEntryId(normalizedTag),
         visibleInExplore = visibleInDrawer,
     )
+}
+
+fun UserGeneralSettings.orderTagsForDrawer(tags: List<String>): List<String> {
+    val normalizedTags = normalizeTagList(tags)
+    if (normalizedTags.isEmpty()) {
+        return emptyList()
+    }
+    val ordered = mutableListOf<String>()
+    val seen = linkedSetOf<String>()
+
+    exploreDrawerEntries.forEach { config ->
+        val tagPath = config.entryId.toTagDrawerPathOrNull() ?: return@forEach
+        if (tagPath in normalizedTags && seen.add(tagPath)) {
+            ordered += tagPath
+        }
+    }
+
+    normalizedTags.forEach { tag ->
+        if (seen.add(tag)) {
+            ordered += tag
+        }
+    }
+
+    return ordered
+}
+
+fun UserGeneralSettings.withReorderedTagDrawerEntries(
+    orderedTags: List<String>,
+): UserGeneralSettings {
+    val normalizedOrderedTags = normalizeTagList(orderedTags)
+    if (normalizedOrderedTags.isEmpty()) {
+        return this
+    }
+
+    val existingTagConfigsByPath = linkedMapOf<String, ExploreDrawerEntryConfig>()
+    exploreDrawerEntries.forEach { config ->
+        val tagPath = config.entryId.toTagDrawerPathOrNull() ?: return@forEach
+        existingTagConfigsByPath.putIfAbsent(
+            tagPath,
+            config.copy(entryId = toTagDrawerEntryId(tagPath)),
+        )
+    }
+
+    val orderedTagConfigs = normalizedOrderedTags.map { tag ->
+        existingTagConfigsByPath[tag] ?: ExploreDrawerEntryConfig(
+            entryId = toTagDrawerEntryId(tag),
+            visibleInExplore = true,
+        )
+    }
+
+    val remainingExistingTagConfigs = existingTagConfigsByPath
+        .filterKeys { tag -> tag !in normalizedOrderedTags }
+        .values
+
+    val reorderedTagConfigs = (orderedTagConfigs + remainingExistingTagConfigs).iterator()
+    val updatedEntries = mutableListOf<ExploreDrawerEntryConfig>()
+
+    exploreDrawerEntries.forEach { config ->
+        if (config.entryId.toTagDrawerPathOrNull() != null) {
+            if (reorderedTagConfigs.hasNext()) {
+                updatedEntries += reorderedTagConfigs.next()
+            }
+        } else {
+            updatedEntries += config
+        }
+    }
+
+    while (reorderedTagConfigs.hasNext()) {
+        updatedEntries += reorderedTagConfigs.next()
+    }
+
+    return copy(exploreDrawerEntries = updatedEntries)
 }
 
 fun UserGeneralSettings.withRenamedTagDrawerEntries(

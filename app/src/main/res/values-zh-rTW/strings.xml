@@ -21,6 +21,7 @@
     <string name="memo_column">專欄</string>
     <string name="column_config">專欄設定</string>
     <string name="column_config_hint">點擊專欄可編輯，長按可刪除。開啟開關後會顯示在抽屜的靈感下方。</string>
+    <string name="reorder_columns_hint">拖動專欄即可調整順序，再次點擊右下角按鈕即可儲存。</string>
     <string name="add_column">新增專欄</string>
     <string name="edit_column">編輯專欄</string>
     <string name="no_columns">還沒有專欄，先建立一個。</string>
@@ -35,6 +36,12 @@
     <string name="column_not_found">找不到這個專欄。</string>
     <string name="column_pin_requires_sync">該 MEMO 需要先完成同步後才能在專欄中置頂。</string>
     <string name="column_pin_update_failed">更新專欄置頂狀態失敗。</string>
+    <string name="tag_config">標籤設定</string>
+    <string name="tag_config_hint">開關可控制標籤是否顯示在抽屜中。長按標籤可重新命名或刪除。</string>
+    <string name="reorder_tags_hint">拖動標籤即可調整順序，再次點擊右下角按鈕即可儲存。</string>
+    <string name="no_tags_for_config">還沒有標籤。</string>
+    <string name="sort_order">排序</string>
+    <string name="save_order">儲存順序</string>
     <string name="tags">標籤</string>
     <string name="memo">靈感</string>
     <string name="memo_detail">詳情</string>

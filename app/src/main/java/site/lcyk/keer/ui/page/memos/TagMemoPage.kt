@@ -5,6 +5,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.navigation.NavHostController
+import site.lcyk.keer.ui.component.rememberMemoListState
 import site.lcyk.keer.ui.page.common.PageScaffold
 import site.lcyk.keer.ui.page.common.navigateToTagPage
 
@@ -17,6 +18,7 @@ fun TagMemoPage(
     onMenuButtonOpenRequested: (() -> Unit)? = null
 ) {
     val normalizedCurrentTag = remember(tag) { normalizeTag(tag) }
+    val listState = rememberMemoListState(aggressiveCache = false)
 
     PageScaffold(
         title = tag,
@@ -25,6 +27,7 @@ fun TagMemoPage(
     ) { innerPadding ->
             MemosList(
                 contentPadding = innerPadding,
+                lazyListState = listState,
                 tag = tag,
                 onTagClick = { clickedTag ->
                     if (normalizeTag(clickedTag) == normalizedCurrentTag) {

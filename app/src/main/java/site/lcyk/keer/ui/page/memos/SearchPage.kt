@@ -30,6 +30,7 @@ import kotlinx.coroutines.delay
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ui.component.rememberMemoListState
 import site.lcyk.keer.ui.page.common.navigateToTagPage
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -41,6 +42,7 @@ fun SearchPage(navController: NavHostController) {
 
     val lifecycleOwner = LocalLifecycleOwner.current
     val focusRequester = remember { FocusRequester() }
+    val listState = rememberMemoListState(aggressiveCache = false)
 
     Scaffold(
         topBar = {
@@ -72,6 +74,7 @@ fun SearchPage(navController: NavHostController) {
         content = { innerPadding ->
             MemosList(
                 contentPadding = innerPadding,
+                lazyListState = listState,
                 searchString = searchText.text,
                 onTagClick = { tag ->
                     navController.navigateToTagPage(tag)

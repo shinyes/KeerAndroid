@@ -1,7 +1,9 @@
 package site.lcyk.keer.ui.page.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,12 +19,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -53,6 +58,7 @@ import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.KeerRemovableTagChip
 import site.lcyk.keer.ui.page.common.PageScaffold
+import site.lcyk.keer.ui.component.ReorderableSettingsList
 import site.lcyk.keer.ui.page.memoinput.MemoTagSelectorDialog
 import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.isQuoteTag
@@ -90,6 +96,8 @@ fun ColumnConfigPage(
     var editorError by rememberSaveable { mutableStateOf<String?>(null) }
     var actionColumnId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteColumnId by rememberSaveable { mutableStateOf<String?>(null) }
+    var sortMode by rememberSaveable { mutableStateOf(false) }
+    var draftColumns by remember { mutableStateOf(columns) }
 
     fun openEditor(column: MemoColumnConfig?) {
         editingColumnId = column?.id
@@ -100,63 +108,169 @@ fun ColumnConfigPage(
         showColumnEditor = true
     }
 
+    fun exitSortMode() {
+        draftColumns = columns
+        sortMode = false
+    }
+
+    fun enterSortMode() {
+        showColumnEditor = false
+        showTagSelector = false
+        actionColumnId = null
+        deleteColumnId = null
+        editorError = null
+        draftColumns = columns
+        sortMode = true
+    }
+
+    suspend fun saveDraftColumnOrder() {
+        userStateViewModel.updateMemoColumns(draftColumns)
+        sortMode = false
+    }
+
+    LaunchedEffect(columns, sortMode) {
+        if (!sortMode) {
+            draftColumns = columns
+        }
+    }
+
+    BackHandler(enabled = sortMode) {
+        exitSortMode()
+    }
+
     PageScaffold(
         title = R.string.column_config.string,
-        onBack = { navController.popBackStackIfLifecycleIsResumed(lifecycleOwner) },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = { openEditor(column = null) },
-                text = { Text(R.string.add_column.string) },
-                icon = {
+        onBack = {
+            if (sortMode) {
+                exitSortMode()
+            } else {
+                navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
+            }
+        },
+        actions = {
+            if (!sortMode) {
+                IconButton(onClick = { openEditor(column = null) }) {
                     Icon(
                         imageVector = Icons.Filled.Add,
                         contentDescription = R.string.add_column.string
                     )
                 }
-            )
-        }
-    ) { innerPadding ->
-        if (columns.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = R.string.no_columns.string,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        },
+        floatingActionButton = {
+            if (columns.isEmpty() && !sortMode) {
+                ExtendedFloatingActionButton(
+                    onClick = { openEditor(column = null) },
+                    text = { Text(R.string.add_column.string) },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = R.string.add_column.string
+                        )
+                    }
+                )
+            } else {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        scope.launch {
+                            if (sortMode) {
+                                saveDraftColumnOrder()
+                            } else {
+                                enterSortMode()
+                            }
+                        }
+                    },
+                    text = {
+                        Text(
+                            if (sortMode) {
+                                R.string.save_order.string
+                            } else {
+                                R.string.sort_order.string
+                            }
+                        )
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = if (sortMode) {
+                                Icons.Outlined.Check
+                            } else {
+                                Icons.Rounded.DragHandle
+                            },
+                            contentDescription = if (sortMode) {
+                                R.string.save_order.string
+                            } else {
+                                R.string.sort_order.string
+                            }
+                        )
+                    }
                 )
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                item {
+        }
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+        ) {
+            Text(
+                text = if (sortMode) {
+                    R.string.reorder_columns_hint.string
+                } else {
+                    R.string.column_config_hint.string
+                },
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (columns.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = R.string.column_config_hint.string,
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        text = R.string.no_columns.string,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                items(columns, key = { it.id }) { column ->
+            } else if (sortMode) {
+                ReorderableSettingsList(
+                    modifier = Modifier.fillMaxSize(),
+                    items = draftColumns,
+                    key = { it.id },
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
+                    onMove = { fromIndex, toIndex ->
+                        draftColumns = draftColumns.moveItem(fromIndex, toIndex)
+                    },
+                ) { column, _ ->
                     MemoColumnItem(
                         column = column,
-                        onClick = { openEditor(column) },
-                        onLongPress = { actionColumnId = column.id },
-                        onVisibleChange = { visible ->
-                            scope.launch {
-                                userStateViewModel.updateMemoColumns(
-                                    columns.withColumnVisibility(column.id, visible)
-                                )
-                            }
-                        }
+                        enabled = false,
+                        showDragHandle = true,
+                        dragHandleModifier = with(this) { Modifier.draggableHandle() }
                     )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 4.dp)
+                ) {
+                    items(columns, key = { it.id }) { column ->
+                        MemoColumnItem(
+                            column = column,
+                            onClick = { openEditor(column) },
+                            onLongPress = { actionColumnId = column.id },
+                            onVisibleChange = { visible ->
+                                scope.launch {
+                                    userStateViewModel.updateMemoColumns(
+                                        columns.withColumnVisibility(column.id, visible)
+                                    )
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -412,9 +526,12 @@ fun ColumnConfigPage(
 @Composable
 private fun MemoColumnItem(
     column: MemoColumnConfig,
-    onClick: () -> Unit,
-    onLongPress: () -> Unit,
-    onVisibleChange: (Boolean) -> Unit,
+    enabled: Boolean = true,
+    onClick: (() -> Unit)? = null,
+    onLongPress: (() -> Unit)? = null,
+    onVisibleChange: ((Boolean) -> Unit)? = null,
+    showDragHandle: Boolean = false,
+    dragHandleModifier: Modifier = Modifier,
 ) {
     Surface(
         modifier = Modifier
@@ -427,8 +544,9 @@ private fun MemoColumnItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = onLongPress
+                    enabled = enabled && (onClick != null || onLongPress != null),
+                    onClick = { onClick?.invoke() },
+                    onLongClick = { onLongPress?.invoke() }
                 )
                 .padding(horizontal = 18.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -451,10 +569,23 @@ private fun MemoColumnItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Switch(
-                checked = column.visibleInDrawer,
-                onCheckedChange = onVisibleChange
-            )
+            if (showDragHandle) {
+                IconButton(
+                    modifier = dragHandleModifier,
+                    onClick = {}
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.DragHandle,
+                        contentDescription = R.string.sort_order.string,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                Switch(
+                    checked = column.visibleInDrawer,
+                    onCheckedChange = if (enabled) onVisibleChange else null
+                )
+            }
         }
     }
 }
@@ -487,4 +618,13 @@ private fun List<MemoColumnConfig>.upsertColumn(
 
 private fun List<MemoColumnConfig>.removeColumn(columnId: String): List<MemoColumnConfig> {
     return filterNot { it.id == columnId }
+}
+
+private fun List<MemoColumnConfig>.moveItem(fromIndex: Int, toIndex: Int): List<MemoColumnConfig> {
+    if (fromIndex == toIndex || fromIndex !in indices || toIndex !in indices) {
+        return this
+    }
+    return toMutableList().apply {
+        add(toIndex, removeAt(fromIndex))
+    }
 }

@@ -10,10 +10,17 @@ import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun rememberMemoExtremeListState(
+fun rememberMemoListState(
+    aggressiveCache: Boolean = true,
     firstVisibleItemIndex: Int = 0,
     firstVisibleItemScrollOffset: Int = 0,
 ): LazyListState {
+    if (!aggressiveCache) {
+        return rememberLazyListState(
+            initialFirstVisibleItemIndex = firstVisibleItemIndex,
+            initialFirstVisibleItemScrollOffset = firstVisibleItemScrollOffset,
+        )
+    }
     val cacheWindow = remember {
         LazyLayoutCacheWindow(
             ahead = EXTREME_LIST_CACHE_AHEAD_DP.dp,
@@ -24,6 +31,19 @@ fun rememberMemoExtremeListState(
         cacheWindow = cacheWindow,
         initialFirstVisibleItemIndex = firstVisibleItemIndex,
         initialFirstVisibleItemScrollOffset = firstVisibleItemScrollOffset,
+    )
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun rememberMemoExtremeListState(
+    firstVisibleItemIndex: Int = 0,
+    firstVisibleItemScrollOffset: Int = 0,
+): LazyListState {
+    return rememberMemoListState(
+        aggressiveCache = true,
+        firstVisibleItemIndex = firstVisibleItemIndex,
+        firstVisibleItemScrollOffset = firstVisibleItemScrollOffset,
     )
 }
 

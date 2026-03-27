@@ -26,6 +26,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.data.model.ExploreDrawerEntryConfig
 import site.lcyk.keer.data.model.GroupIdAlias
 import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.SyncDomain
@@ -241,6 +242,12 @@ class UserStateViewModel @Inject constructor(
             tag = tag,
             visibleInDrawer = visibleInDrawer,
         )
+    }
+
+    suspend fun updateExploreDrawerEntries(
+        entries: List<ExploreDrawerEntryConfig>
+    ): ApiResponse<UserGeneralSettings> = withContext(Dispatchers.IO) {
+        userGeneralSettingsRepository.updateExploreDrawerEntries(entries)
     }
 
     suspend fun cleanupOrphanFiles(): ApiResponse<StorageCleanupSummary> = withContext(Dispatchers.IO) {

@@ -21,6 +21,7 @@
     <string name="memo_column">专栏</string>
     <string name="column_config">专栏配置</string>
     <string name="column_config_hint">点击专栏可编辑，长按可删除。开启开关后会显示在抽屉的灵感下方。</string>
+    <string name="reorder_columns_hint">拖动专栏即可调整顺序，再次点击右下角按钮即可保存。</string>
     <string name="add_column">新建专栏</string>
     <string name="edit_column">编辑专栏</string>
     <string name="no_columns">还没有专栏，先创建一个。</string>
@@ -39,7 +40,10 @@
     <string name="column_pin_update_failed">更新专栏置顶状态失败。</string>
     <string name="tag_config">标签配置</string>
     <string name="tag_config_hint">开关可控制标签是否显示在抽屉中。长按标签可重命名或删除。</string>
+    <string name="reorder_tags_hint">拖动标签即可调整顺序，再次点击右下角按钮即可保存。</string>
     <string name="no_tags_for_config">还没有标签。</string>
+    <string name="sort_order">排序</string>
+    <string name="save_order">保存顺序</string>
     <string name="tags">标签</string>
     <string name="memo">灵感</string>
     <string name="memo_detail">详情</string>

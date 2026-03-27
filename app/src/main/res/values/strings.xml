@@ -21,6 +21,7 @@
     <string name="memo_column">Column</string>
     <string name="column_config">Column Settings</string>
     <string name="column_config_hint">Tap a column to edit it. Long press to delete it. Enable the switch to show it below Memos in the drawer.</string>
+    <string name="reorder_columns_hint">Drag columns to reorder them. Tap the floating button again to save.</string>
     <string name="add_column">Add column</string>
     <string name="edit_column">Edit column</string>
     <string name="no_columns">No columns yet. Create one first.</string>
@@ -39,7 +40,10 @@
     <string name="column_pin_update_failed">Failed to update the column pin state.</string>
     <string name="tag_config">Tag Settings</string>
     <string name="tag_config_hint">Toggle whether a tag appears in the drawer. Long press a tag to rename or delete it.</string>
+    <string name="reorder_tags_hint">Drag tags to reorder them. Tap the floating button again to save.</string>
     <string name="no_tags_for_config">No tags yet.</string>
+    <string name="sort_order">Sort</string>
+    <string name="save_order">Save order</string>
     <string name="tags">Tags</string>
     <string name="memo">Memo</string>
     <string name="memo_detail">Memo detail</string>
