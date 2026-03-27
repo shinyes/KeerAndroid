@@ -38,7 +38,7 @@
     <string name="column_pin_update_failed">更新專欄置頂狀態失敗。</string>
     <string name="tag_config">標籤設定</string>
     <string name="tag_config_hint">開關可控制標籤是否顯示在抽屜中。長按標籤可重新命名或刪除。</string>
-    <string name="reorder_tags_hint">拖動標籤即可調整順序，再次點擊右下角按鈕即可儲存。</string>
+    <string name="reorder_tags_hint">只需拖動頂級標籤調整順序，子標籤會跟隨所屬頂級標籤一起移動。再次點擊右下角按鈕即可儲存。</string>
     <string name="no_tags_for_config">還沒有標籤。</string>
     <string name="sort_order">排序</string>
     <string name="save_order">儲存順序</string>

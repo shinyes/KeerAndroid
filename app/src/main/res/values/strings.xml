@@ -40,7 +40,7 @@
     <string name="column_pin_update_failed">Failed to update the column pin state.</string>
     <string name="tag_config">Tag Settings</string>
     <string name="tag_config_hint">Toggle whether a tag appears in the drawer. Long press a tag to rename or delete it.</string>
-    <string name="reorder_tags_hint">Drag tags to reorder them. Tap the floating button again to save.</string>
+    <string name="reorder_tags_hint">Drag top-level tags to reorder them. Child tags follow their parent group automatically. Tap the floating button again to save.</string>
     <string name="no_tags_for_config">No tags yet.</string>
     <string name="sort_order">Sort</string>
     <string name="save_order">Save order</string>

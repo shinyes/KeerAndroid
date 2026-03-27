@@ -57,6 +57,7 @@ import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.isTagVisibleInDrawer
 import site.lcyk.keer.data.model.orderTagsForDrawer
+import site.lcyk.keer.data.model.orderTopLevelTagsForDrawer
 import site.lcyk.keer.data.model.withReorderedTagDrawerEntries
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
@@ -92,6 +93,9 @@ fun TagConfigPage(
     val orderedTags = remember(availableTags, generalSettings) {
         generalSettings.orderTagsForDrawer(availableTags)
     }
+    val orderedTopLevelTags = remember(availableTags, generalSettings) {
+        generalSettings.orderTopLevelTagsForDrawer(availableTags)
+    }
 
     var activeTagActionTarget by remember { mutableStateOf<String?>(null) }
     var renameTargetTag by remember { mutableStateOf<String?>(null) }
@@ -102,10 +106,10 @@ fun TagConfigPage(
     var tagActionErrorMessage by remember { mutableStateOf<String?>(null) }
     var tagActionInProgress by remember { mutableStateOf(false) }
     var sortMode by rememberSaveable { mutableStateOf(false) }
-    var draftTags by remember { mutableStateOf(orderedTags) }
+    var draftTopLevelTags by remember { mutableStateOf(orderedTopLevelTags) }
 
     fun exitSortMode() {
-        draftTags = orderedTags
+        draftTopLevelTags = orderedTopLevelTags
         sortMode = false
     }
 
@@ -116,20 +120,20 @@ fun TagConfigPage(
         confirmDeleteAndMemosTargetTag = null
         confirmDeleteAndMemosInput = ""
         tagActionErrorMessage = null
-        draftTags = orderedTags
+        draftTopLevelTags = orderedTopLevelTags
         sortMode = true
     }
 
     suspend fun saveDraftTagOrder() {
         userStateViewModel.updateExploreDrawerEntries(
-            generalSettings.withReorderedTagDrawerEntries(draftTags).exploreDrawerEntries
+            generalSettings.withReorderedTagDrawerEntries(draftTopLevelTags).exploreDrawerEntries
         )
         sortMode = false
     }
 
-    LaunchedEffect(orderedTags, sortMode) {
+    LaunchedEffect(orderedTopLevelTags, sortMode) {
         if (!sortMode) {
-            draftTags = orderedTags
+            draftTopLevelTags = orderedTopLevelTags
         }
     }
 
@@ -215,11 +219,11 @@ fun TagConfigPage(
             } else if (sortMode) {
                 ReorderableSettingsList(
                     modifier = Modifier.fillMaxSize(),
-                    items = draftTags,
+                    items = draftTopLevelTags,
                     key = { it },
                     contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp),
                     onMove = { fromIndex, toIndex ->
-                        draftTags = draftTags.moveItem(fromIndex, toIndex)
+                        draftTopLevelTags = draftTopLevelTags.moveItem(fromIndex, toIndex)
                     },
                 ) { tag, _ ->
                     TagConfigItem(

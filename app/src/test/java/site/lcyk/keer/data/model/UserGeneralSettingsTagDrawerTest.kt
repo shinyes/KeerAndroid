@@ -78,19 +78,35 @@ class UserGeneralSettingsTagDrawerTest {
         )
 
         val ordered = settings.orderTagsForDrawer(
-            listOf("alpha", "gamma", "beta")
+            listOf("alpha/one", "gamma/root", "beta/two", "beta")
         )
 
-        assertEquals(listOf("beta", "alpha", "gamma"), ordered)
+        assertEquals(listOf("beta/two", "beta", "alpha/one", "gamma/root"), ordered)
     }
 
     @Test
-    fun withReorderedTagDrawerEntries_reordersTagsAndPreservesVisibility() {
+    fun orderTopLevelTagsForDrawer_onlyConsidersTopLevelTags() {
+        val settings = UserGeneralSettings(
+            exploreDrawerEntries = listOf(
+                ExploreDrawerEntryConfig(entryId = "drawer_tag:beta/child", visibleInExplore = true),
+                ExploreDrawerEntryConfig(entryId = "drawer_tag:alpha", visibleInExplore = true),
+            )
+        )
+
+        val orderedTopLevels = settings.orderTopLevelTagsForDrawer(
+            listOf("alpha/one", "gamma/root", "beta/two", "beta/three")
+        )
+
+        assertEquals(listOf("beta", "alpha", "gamma"), orderedTopLevels)
+    }
+
+    @Test
+    fun withReorderedTagDrawerEntries_reordersTopLevelBlocksAndPreservesVisibility() {
         val settings = UserGeneralSettings(
             exploreDrawerEntries = listOf(
                 ExploreDrawerEntryConfig(entryId = "group:abc", visibleInExplore = true),
-                ExploreDrawerEntryConfig(entryId = "drawer_tag:alpha", visibleInExplore = false),
-                ExploreDrawerEntryConfig(entryId = "drawer_tag:beta", visibleInExplore = true),
+                ExploreDrawerEntryConfig(entryId = "drawer_tag:alpha/one", visibleInExplore = false),
+                ExploreDrawerEntryConfig(entryId = "drawer_tag:beta/two", visibleInExplore = true),
             )
         )
 
@@ -99,11 +115,18 @@ class UserGeneralSettingsTagDrawerTest {
         )
 
         assertEquals(
-            listOf("group:abc", "drawer_tag:beta", "drawer_tag:alpha", "drawer_tag:gamma"),
+            listOf(
+                "group:abc",
+                "drawer_tag:beta",
+                "drawer_tag:beta/two",
+                "drawer_tag:alpha",
+                "drawer_tag:alpha/one",
+                "drawer_tag:gamma",
+            ),
             reordered.exploreDrawerEntries.map { it.entryId }
         )
-        assertTrue(reordered.isTagVisibleInDrawer("beta"))
-        assertFalse(reordered.isTagVisibleInDrawer("alpha"))
+        assertTrue(reordered.isTagVisibleInDrawer("beta/two"))
+        assertFalse(reordered.isTagVisibleInDrawer("alpha/one"))
         assertTrue(reordered.isTagVisibleInDrawer("gamma"))
     }
 

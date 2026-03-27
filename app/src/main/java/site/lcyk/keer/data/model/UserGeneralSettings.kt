@@ -102,19 +102,41 @@ fun UserGeneralSettings.orderTagsForDrawer(tags: List<String>): List<String> {
     if (normalizedTags.isEmpty()) {
         return emptyList()
     }
+    val tagsByTopLevel = linkedMapOf<String, MutableList<String>>()
+    normalizedTags.forEach { tag ->
+        val topLevelTag = tag.toTopLevelTag()
+        tagsByTopLevel.getOrPut(topLevelTag) { mutableListOf() } += tag
+    }
+    val ordered = mutableListOf<String>()
+    orderTopLevelTagsForDrawer(normalizedTags).forEach { topLevelTag ->
+        ordered += tagsByTopLevel[topLevelTag].orEmpty()
+    }
+    return ordered
+}
+
+fun UserGeneralSettings.orderTopLevelTagsForDrawer(tags: List<String>): List<String> {
+    val topLevelTags = normalizeTagList(tags)
+        .map(String::toTopLevelTag)
+        .distinct()
+    if (topLevelTags.isEmpty()) {
+        return emptyList()
+    }
     val ordered = mutableListOf<String>()
     val seen = linkedSetOf<String>()
 
     exploreDrawerEntries.forEach { config ->
-        val tagPath = config.entryId.toTagDrawerPathOrNull() ?: return@forEach
-        if (tagPath in normalizedTags && seen.add(tagPath)) {
-            ordered += tagPath
+        val topLevelTag = config.entryId
+            .toTagDrawerPathOrNull()
+            ?.toTopLevelTag()
+            ?: return@forEach
+        if (topLevelTag in topLevelTags && seen.add(topLevelTag)) {
+            ordered += topLevelTag
         }
     }
 
-    normalizedTags.forEach { tag ->
-        if (seen.add(tag)) {
-            ordered += tag
+    topLevelTags.forEach { topLevelTag ->
+        if (seen.add(topLevelTag)) {
+            ordered += topLevelTag
         }
     }
 
@@ -122,51 +144,75 @@ fun UserGeneralSettings.orderTagsForDrawer(tags: List<String>): List<String> {
 }
 
 fun UserGeneralSettings.withReorderedTagDrawerEntries(
-    orderedTags: List<String>,
+    orderedTopLevelTags: List<String>,
 ): UserGeneralSettings {
-    val normalizedOrderedTags = normalizeTagList(orderedTags)
-    if (normalizedOrderedTags.isEmpty()) {
+    val normalizedOrderedTopLevels = normalizeTagList(orderedTopLevelTags)
+        .map(String::toTopLevelTag)
+        .distinct()
+    if (normalizedOrderedTopLevels.isEmpty()) {
         return this
     }
 
-    val existingTagConfigsByPath = linkedMapOf<String, ExploreDrawerEntryConfig>()
+    val existingTagBlocksByTopLevel = linkedMapOf<String, MutableList<ExploreDrawerEntryConfig>>()
     exploreDrawerEntries.forEach { config ->
         val tagPath = config.entryId.toTagDrawerPathOrNull() ?: return@forEach
-        existingTagConfigsByPath.putIfAbsent(
-            tagPath,
-            config.copy(entryId = toTagDrawerEntryId(tagPath)),
-        )
+        val topLevelTag = tagPath.toTopLevelTag()
+        existingTagBlocksByTopLevel
+            .getOrPut(topLevelTag) { mutableListOf() }
+            .add(config.copy(entryId = toTagDrawerEntryId(tagPath)))
     }
 
-    val orderedTagConfigs = normalizedOrderedTags.map { tag ->
-        existingTagConfigsByPath[tag] ?: ExploreDrawerEntryConfig(
-            entryId = toTagDrawerEntryId(tag),
-            visibleInExplore = true,
+    val normalizedBlocksByTopLevel = existingTagBlocksByTopLevel.mapValues { (topLevelTag, block) ->
+        if (block.any { it.entryId == toTagDrawerEntryId(topLevelTag) }) {
+            block.toMutableList()
+        } else {
+            mutableListOf(
+                ExploreDrawerEntryConfig(
+                    entryId = toTagDrawerEntryId(topLevelTag),
+                    visibleInExplore = true,
+                )
+            ).apply {
+                addAll(block)
+            }
+        }
+    }.toMutableMap()
+
+    val orderedTopLevels = normalizedOrderedTopLevels +
+        normalizedBlocksByTopLevel.keys.filterNot { it in normalizedOrderedTopLevels }
+
+    val orderedBlocks = orderedTopLevels.map { topLevelTag ->
+        normalizedBlocksByTopLevel[topLevelTag] ?: mutableListOf(
+            ExploreDrawerEntryConfig(
+                entryId = toTagDrawerEntryId(topLevelTag),
+                visibleInExplore = true,
+            )
         )
-    }
+    }.iterator()
 
-    val remainingExistingTagConfigs = existingTagConfigsByPath
-        .filterKeys { tag -> tag !in normalizedOrderedTags }
-        .values
-
-    val reorderedTagConfigs = (orderedTagConfigs + remainingExistingTagConfigs).iterator()
     val updatedEntries = mutableListOf<ExploreDrawerEntryConfig>()
+    val consumedOriginalTopLevels = mutableSetOf<String>()
 
     exploreDrawerEntries.forEach { config ->
-        if (config.entryId.toTagDrawerPathOrNull() != null) {
-            if (reorderedTagConfigs.hasNext()) {
-                updatedEntries += reorderedTagConfigs.next()
-            }
-        } else {
+        val tagPath = config.entryId.toTagDrawerPathOrNull()
+        if (tagPath == null) {
             updatedEntries += config
+            return@forEach
+        }
+        val topLevelTag = tagPath.toTopLevelTag()
+        if (consumedOriginalTopLevels.add(topLevelTag) && orderedBlocks.hasNext()) {
+            updatedEntries += orderedBlocks.next()
         }
     }
 
-    while (reorderedTagConfigs.hasNext()) {
-        updatedEntries += reorderedTagConfigs.next()
+    while (orderedBlocks.hasNext()) {
+        updatedEntries += orderedBlocks.next()
     }
 
     return copy(exploreDrawerEntries = updatedEntries)
+}
+
+private fun String.toTopLevelTag(): String {
+    return trim().substringBefore("/")
 }
 
 fun UserGeneralSettings.withRenamedTagDrawerEntries(
