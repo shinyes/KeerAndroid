@@ -86,6 +86,7 @@ import java.io.File
 import java.io.RandomAccessFile
 import java.security.MessageDigest
 import java.time.Instant
+import java.util.concurrent.TimeUnit
 import kotlin.math.min
 
 private const val PAGE_SIZE = 200
@@ -122,6 +123,11 @@ class KeerV2Repository(
     private val accountKeyManager: AccountKeyManager,
     private val memoContentCodec: MemoContentCodec
 ): RemoteRepository() {
+    // SSE is a long-lived stream and must not inherit regular request deadlines.
+    private val streamHttpClient: OkHttpClient = okHttpClient.newBuilder()
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .callTimeout(0, TimeUnit.MILLISECONDS)
+        .build()
     private val uploadCheckpointStore = ResumableUploadCheckpointStore(
         File(
             File(appContext.filesDir, "resumable_uploads"),
@@ -786,9 +792,10 @@ class KeerV2Repository(
         val request = Request.Builder()
             .get()
             .url(streamUrl)
+            .header("Accept", "text/event-stream")
             .build()
         val response = try {
-            okHttpClient.newCall(request).execute()
+            streamHttpClient.newCall(request).execute()
         } catch (e: Exception) {
             return ApiResponse.Failure.Exception(e)
         }
