@@ -90,6 +90,12 @@
     <string name="password">密碼</string>
     <string name="confirm_password">確認密碼</string>
     <string name="choose_image_viewer">選擇圖片開啟方式</string>
+    <string name="image_open_failed_title">無法開啟圖片</string>
+    <string name="image_open_failed_message">開啟圖片失敗，請重試。</string>
+    <string name="image_open_original_unavailable_title">原圖暫時不可用</string>
+    <string name="image_open_original_unavailable_message">目前無法取得原圖，請同步後再試。</string>
+    <string name="image_open_unknown_mime_title">無法識別圖片類型</string>
+    <string name="image_open_unknown_mime_message">無法識別此圖片的 MIME 類型，請重新上傳此圖片。</string>
     <string name="passwords_do_not_match">兩次輸入的密碼不一致。</string>
     <string name="sign_in">登入</string>
     <string name="register">註冊</string>

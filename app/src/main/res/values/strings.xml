@@ -97,6 +97,12 @@
     <string name="password">Password</string>
     <string name="confirm_password">Confirm password</string>
     <string name="choose_image_viewer">Choose image viewer</string>
+    <string name="image_open_failed_title">Unable to open image</string>
+    <string name="image_open_failed_message">Failed to open this image. Please try again.</string>
+    <string name="image_open_original_unavailable_title">Original image unavailable</string>
+    <string name="image_open_original_unavailable_message">The original image is not available right now. Please sync and try again.</string>
+    <string name="image_open_unknown_mime_title">Unknown image type</string>
+    <string name="image_open_unknown_mime_message">Cannot identify this image MIME type. Please re-upload this image.</string>
     <string name="passwords_do_not_match">Passwords do not match.</string>
     <string name="switch_to_register">No account yet? Register</string>
     <string name="switch_to_sign_in">Already have an account? Sign in</string>

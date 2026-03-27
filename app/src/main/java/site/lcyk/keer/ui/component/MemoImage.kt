@@ -72,6 +72,9 @@ fun MemoImage(
     var viewerSelection by remember(resource.remoteId, resource.uri, resource.localUri) {
         mutableStateOf<ImageViewerSelectionState?>(null)
     }
+    var imageOpenError by remember(resource.remoteId, resource.uri, resource.localUri) {
+        mutableStateOf<ImageOpenErrorDialogState?>(null)
+    }
     val imageLoader = mediaImageLoader ?: rememberMemoMediaImageLoader()
     val runtimeCachedPreviewUri = MediaPreviewRuntimeCache.resolvePreviewUri(previewCacheKey(liveResource))
     val previewIdentity = (liveResource as? ResourceEntity)?.identifier
@@ -163,10 +166,24 @@ fun MemoImage(
                         okHttpClient = userStateViewModel.okHttpClient,
                         currentAccountKey = currentAccount?.accountKey(),
                         memosViewModel = memosViewModel
-                    ) ?: return@launch
+                    )
+                    if (localFile == null) {
+                        imageOpenError = ImageOpenErrorDialogState(
+                            titleResId = R.string.image_open_original_unavailable_title,
+                            messageResId = R.string.image_open_original_unavailable_message
+                        )
+                        return@launch
+                    }
 
                     val fileUri: Uri = KeerFileProvider.getFileUri(context, localFile)
-                    val mimeType = resolveMimeType(resolvedResource, localFile)
+                    val mimeType = resolveMemoImageViewerMimeType(resolvedResource, localFile)
+                    if (mimeType == null) {
+                        imageOpenError = ImageOpenErrorDialogState(
+                            titleResId = R.string.image_open_unknown_mime_title,
+                            messageResId = R.string.image_open_unknown_mime_message
+                        )
+                        return@launch
+                    }
                     when (val launch = prepareImageViewerLaunch(context, fileUri, mimeType)) {
                         is ImageViewerLaunch.Direct -> {
                             context.startActivity(launch.intent)
@@ -181,6 +198,10 @@ fun MemoImage(
                     }
                 } catch (e: Throwable) {
                     Timber.d(e)
+                    imageOpenError = ImageOpenErrorDialogState(
+                        titleResId = R.string.image_open_failed_title,
+                        messageResId = R.string.image_open_failed_message
+                    )
                     return@launch
                 } finally {
                     opening = false
@@ -246,6 +267,20 @@ fun MemoImage(
             }
         )
     }
+
+    val openError = imageOpenError
+    if (openError != null) {
+        AlertDialog(
+            onDismissRequest = { imageOpenError = null },
+            title = { androidx.compose.material3.Text(openError.titleResId.string) },
+            text = { androidx.compose.material3.Text(openError.messageResId.string) },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { imageOpenError = null }) {
+                    androidx.compose.material3.Text(R.string.confirm.string)
+                }
+            }
+        )
+    }
 }
 
 internal fun resolveMemoImagePreviewUri(resource: ResourceRepresentable): String {
@@ -280,6 +315,11 @@ private data class ImageViewerSelectionState(
     val fileUri: Uri,
     val mimeType: String,
     val options: List<ImageViewerOption>
+)
+
+private data class ImageOpenErrorDialogState(
+    val titleResId: Int,
+    val messageResId: Int
 )
 
 private sealed interface ImageViewerLaunch {
@@ -367,7 +407,7 @@ private fun queryImageViewerOptions(
         @Suppress("DEPRECATION")
         packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY)
     }
-    return resolved
+    val options = resolved
         .mapNotNull { info ->
             val packageName = info.activityInfo?.packageName?.trim().orEmpty()
             if (packageName.isEmpty()) {
@@ -382,11 +422,68 @@ private fun queryImageViewerOptions(
         }
         .distinctBy { it.packageName }
         .sortedBy { it.label.lowercase() }
+    val browserPackages = queryBrowserPackages(context)
+    val nonBrowserOptions = options.filterNot { option ->
+        option.packageName in browserPackages
+    }
+    return if (nonBrowserOptions.isNotEmpty()) {
+        nonBrowserOptions
+    } else {
+        options
+    }
+}
+
+private fun queryBrowserPackages(context: Context): Set<String> {
+    val packageManager = context.packageManager
+    val browserIntent = Intent(Intent.ACTION_VIEW, "https://example.com/".toUri())
+    val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        packageManager.queryIntentActivities(
+            browserIntent,
+            PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        packageManager.queryIntentActivities(browserIntent, PackageManager.MATCH_DEFAULT_ONLY)
+    }
+    return resolved
+        .mapNotNull { info -> info.activityInfo?.packageName?.trim()?.ifBlank { null } }
+        .toSet()
+}
+
+private fun resolveMemoImageViewerMimeType(
+    resource: ResourceRepresentable,
+    file: File
+): String? {
+    val resolvedMimeType = resolveMimeType(resource, file)
+    if (resolvedMimeType.startsWith("image/")) {
+        return resolvedMimeType
+    }
+    return null
+}
+
+private fun isLikelyThumbnailFile(
+    resource: ResourceRepresentable,
+    file: File
+): Boolean {
+    val normalizedPath = file.absolutePath.replace('\\', '/')
+    if (normalizedPath.contains("/thumbnail_cache/")) {
+        return true
+    }
+    val thumbnailPath = resource.thumbnailLocalUri
+        ?.toUri()
+        ?.takeIf { uri -> uri.scheme == "file" }
+        ?.path
+        ?.let(::File)
+        ?.absolutePath
+    if (!thumbnailPath.isNullOrBlank() && file.absolutePath == thumbnailPath) {
+        return true
+    }
+    return file.name.contains(".thumb", ignoreCase = true)
 }
 
 /**
- * Resolve memo image resource file, preferring thumbnail when available
- * to avoid downloading full-resolution original unnecessarily.
+ * Resolve memo image file for click-to-open.
+ * Always requires the original file and never falls back to thumbnail.
  */
 private suspend fun resolveMemoImageResource(
     context: Context,
@@ -395,24 +492,15 @@ private suspend fun resolveMemoImageResource(
     currentAccountKey: String?,
     memosViewModel: MemosViewModel
 ): File? {
-    // Check if we already have a local file
-    // Try to get existing local file from resource fields
-    resource.localUri?.toUri()?.takeIf { it.scheme == "file" }?.path?.let(::File)?.takeIf { it.exists() }?.let { return it }
-    
-    // For images, prefer thumbnail if available to avoid downloading full resolution
-    val thumbnailLocalUri = resource.thumbnailLocalUri
-    if (!thumbnailLocalUri.isNullOrBlank()) {
-        val thumbnailUri = thumbnailLocalUri.toUri()
-        if (thumbnailUri.scheme == "file") {
-            val thumbnailFile = File(thumbnailUri.path ?: return null)
-            if (thumbnailFile.exists()) {
-                return thumbnailFile
-            }
-        }
-    }
-    
-    // Fallback to downloading the full resolution original
-    return resolveAttachmentFile(
+    resource.localUri
+        ?.toUri()
+        ?.takeIf { uri -> uri.scheme == "file" }
+        ?.path
+        ?.let(::File)
+        ?.takeIf { file -> file.exists() && !isLikelyThumbnailFile(resource, file) }
+        ?.let { localMain -> return localMain }
+
+    resolveAttachmentFile(
         context = context,
         resource = resource,
         okHttpClient = okHttpClient,
@@ -426,5 +514,9 @@ private suspend fun resolveMemoImageResource(
                 null
             }
         }
-    )
+    )?.let { downloadedMain ->
+        return downloadedMain
+    }
+
+    return null
 }

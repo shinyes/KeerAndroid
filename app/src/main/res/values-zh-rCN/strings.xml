@@ -95,6 +95,12 @@
     <string name="password">密码</string>
     <string name="confirm_password">确认密码</string>
     <string name="choose_image_viewer">选择图片打开方式</string>
+    <string name="image_open_failed_title">无法打开图片</string>
+    <string name="image_open_failed_message">打开图片失败，请重试。</string>
+    <string name="image_open_original_unavailable_title">原图暂不可用</string>
+    <string name="image_open_original_unavailable_message">当前无法获取原图，请同步后重试。</string>
+    <string name="image_open_unknown_mime_title">图片类型无法识别</string>
+    <string name="image_open_unknown_mime_message">无法识别该图片的 MIME 类型，请重新上传该图片。</string>
     <string name="passwords_do_not_match">两次输入的密码不一致。</string>
     <string name="sign_in">登录</string>
     <string name="register">注册</string>
