@@ -13,9 +13,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.util.Consumer
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -46,6 +48,8 @@ fun Navigation() {
     val navController = rememberNavController()
     val userStateViewModel = LocalUserState.current
     val context = LocalContext.current
+    val accounts by userStateViewModel.accounts.collectAsStateWithLifecycle()
+    val hasAnyAccount = accounts.isNotEmpty()
 
     CompositionLocalProvider(LocalRootNavController provides navController) {
         KeerTheme {
@@ -190,8 +194,8 @@ fun Navigation() {
     }
 
 
-    LaunchedEffect(Unit) {
-        if (!userStateViewModel.hasAnyAccount()) {
+    LaunchedEffect(hasAnyAccount) {
+        if (!hasAnyAccount) {
             if (navController.currentDestination?.route != RouteName.LOGIN) {
                 navController.navigate(RouteName.LOGIN) {
                     popUpTo(navController.graph.id) {
@@ -200,9 +204,9 @@ fun Navigation() {
                     launchSingleTop = true
                 }
             }
-            return@LaunchedEffect
+        } else {
+            userStateViewModel.loadCurrentUserIfStale()
         }
-        userStateViewModel.loadCurrentUserIfStale()
     }
 
     fun handleIntent(intent: Intent) {

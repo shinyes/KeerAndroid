@@ -36,6 +36,12 @@ class AuthSessionManager @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val secureTokenStorage: SecureTokenStorage,
 ) {
+    private sealed interface RefreshSessionResult {
+        data class Success(val session: AuthSessionResponse) : RefreshSessionResult
+        data object Unauthorized : RefreshSessionResult
+        data object Failed : RefreshSessionResult
+    }
+
     private val networkJson = Json {
         ignoreUnknownKeys = true
         coerceInputValues = true
@@ -104,12 +110,20 @@ class AuthSessionManager @Inject constructor(
         val account = Account.parseUserData(userData) ?: return null
         val tokens = getStoredTokens(userData.accountKey)
         return when (account) {
-            is Account.KeerV2 -> Account.KeerV2(
-                account.info.copy(
-                    accessToken = tokens?.accessToken.orEmpty(),
-                    refreshToken = tokens?.refreshToken.orEmpty(),
-                )
-            )
+            is Account.KeerV2 -> {
+                val accessToken = tokens?.accessToken.orEmpty().trim()
+                val refreshToken = tokens?.refreshToken.orEmpty().trim()
+                if (accessToken.isBlank() || refreshToken.isBlank()) {
+                    null
+                } else {
+                    Account.KeerV2(
+                        account.info.copy(
+                            accessToken = accessToken,
+                            refreshToken = refreshToken,
+                        )
+                    )
+                }
+            }
 
             is Account.Local -> null
         }
@@ -167,6 +181,7 @@ class AuthSessionManager @Inject constructor(
         synchronized(lock) {
             val latestTokens = getStoredTokens(accountKey) ?: return null
             if (latestTokens.refreshToken.isBlank()) {
+                removeTokens(accountKey)
                 return null
             }
 
@@ -184,19 +199,29 @@ class AuthSessionManager @Inject constructor(
                     .build()
             }
 
-            val refreshedSession = refreshSessionBlocking(host, latestTokens.refreshToken) ?: return null
-            saveTokens(
-                accountKey = accountKey,
-                accessToken = refreshedSession.accessToken,
-                refreshToken = refreshedSession.refreshToken,
-            )
-            return response.request.newBuilder()
-                .header("Authorization", "Bearer ${refreshedSession.accessToken}")
-                .build()
+            return when (val refreshedSession = refreshSessionBlocking(host, latestTokens.refreshToken)) {
+                is RefreshSessionResult.Success -> {
+                    saveTokens(
+                        accountKey = accountKey,
+                        accessToken = refreshedSession.session.accessToken,
+                        refreshToken = refreshedSession.session.refreshToken,
+                    )
+                    response.request.newBuilder()
+                        .header("Authorization", "Bearer ${refreshedSession.session.accessToken}")
+                        .build()
+                }
+
+                RefreshSessionResult.Unauthorized -> {
+                    removeTokens(accountKey)
+                    null
+                }
+
+                RefreshSessionResult.Failed -> null
+            }
         }
     }
 
-    private fun refreshSessionBlocking(host: String, refreshToken: String): AuthSessionResponse? {
+    private fun refreshSessionBlocking(host: String, refreshToken: String): RefreshSessionResult {
         val body = networkJson.encodeToString(
             RefreshSessionRequest.serializer(),
             RefreshSessionRequest(refreshToken = refreshToken),
@@ -208,19 +233,27 @@ class AuthSessionManager @Inject constructor(
 
         val response = runCatching {
             okHttpClient.newCall(request).execute()
-        }.getOrNull() ?: return null
+        }.getOrNull() ?: return RefreshSessionResult.Failed
 
         response.use { httpResponse ->
             if (!httpResponse.isSuccessful) {
-                return null
+                return if (httpResponse.code in setOf(400, 401, 403)) {
+                    RefreshSessionResult.Unauthorized
+                } else {
+                    RefreshSessionResult.Failed
+                }
             }
             val responseBody = httpResponse.body.string()
             if (responseBody.isBlank()) {
-                return null
+                return RefreshSessionResult.Failed
             }
             return runCatching {
-                networkJson.decodeFromString(AuthSessionResponse.serializer(), responseBody)
-            }.getOrNull()
+                RefreshSessionResult.Success(
+                    networkJson.decodeFromString(AuthSessionResponse.serializer(), responseBody)
+                )
+            }.getOrElse {
+                RefreshSessionResult.Failed
+            }
         }
     }
 

@@ -799,134 +799,138 @@ class KeerV2Repository(
         } catch (e: Exception) {
             return ApiResponse.Failure.Exception(e)
         }
-        response.use { rawResponse ->
-            if (!rawResponse.isSuccessful) {
-                return ApiResponse.Failure.Exception(
-                    IllegalStateException("Sync stream failed: HTTP ${rawResponse.code}")
-                )
-            }
-            val body = rawResponse.body
-            var currentCursor = normalizedCursor
-            var lastDeliveredCursor = normalizedCursor
-            var bootstrapEnded = false
-            var currentEvent = ""
-            val currentData = mutableListOf<String>()
-
-            suspend fun deliverChunk(
-                nextCursor: String,
-                hasMore: Boolean,
-                patches: SyncPullPatches,
-            ): ApiResponse<Unit> {
-                return onChunk(
-                    SyncPullResult(
-                        nextCursor = nextCursor,
-                        hasMore = hasMore,
-                        patches = patches,
-                    )
-                )
-            }
-
-            suspend fun flushEvent(): ApiResponse<Unit>? {
-                if (currentEvent.isBlank() && currentData.isEmpty()) {
-                    return null
-                }
-                val eventName = currentEvent.trim().lowercase().ifEmpty { "message" }
-                val payload = currentData.joinToString("\n").trim()
-                currentEvent = ""
-                currentData.clear()
-                if (payload.isEmpty()) {
-                    return ApiResponse.Success(Unit)
-                }
-
-                val envelope = runCatching {
-                    uploadJson.decodeFromString(SyncStreamEventEnvelope.serializer(), payload)
-                }.getOrElse { throwable ->
+        return try {
+            response.use { rawResponse ->
+                if (!rawResponse.isSuccessful) {
                     return ApiResponse.Failure.Exception(
-                        IllegalStateException("Invalid sync stream payload", throwable)
+                        IllegalStateException("Sync stream failed: HTTP ${rawResponse.code}")
                     )
                 }
-                val envelopeCursor = envelope.cursor.trim().ifEmpty { currentCursor }
-                currentCursor = envelopeCursor
+                val body = rawResponse.body
+                var currentCursor = normalizedCursor
+                var lastDeliveredCursor = normalizedCursor
+                var bootstrapEnded = false
+                var currentEvent = ""
+                val currentData = mutableListOf<String>()
 
-                when (eventName) {
-                    "patch" -> {
-                        val converted = convertSyncPullPatches(envelope.patches)
-                        val chunkResult = deliverChunk(
-                            nextCursor = currentCursor,
-                            hasMore = true,
-                            patches = converted,
+                suspend fun deliverChunk(
+                    nextCursor: String,
+                    hasMore: Boolean,
+                    patches: SyncPullPatches,
+                ): ApiResponse<Unit> {
+                    return onChunk(
+                        SyncPullResult(
+                            nextCursor = nextCursor,
+                            hasMore = hasMore,
+                            patches = patches,
                         )
-                        if (chunkResult !is ApiResponse.Success) {
-                            return chunkResult
-                        }
-                        lastDeliveredCursor = currentCursor
+                    )
+                }
+
+                suspend fun flushEvent(): ApiResponse<Unit>? {
+                    if (currentEvent.isBlank() && currentData.isEmpty()) {
+                        return null
                     }
-                    "checkpoint" -> {
-                        if (currentCursor != lastDeliveredCursor) {
+                    val eventName = currentEvent.trim().lowercase().ifEmpty { "message" }
+                    val payload = currentData.joinToString("\n").trim()
+                    currentEvent = ""
+                    currentData.clear()
+                    if (payload.isEmpty()) {
+                        return ApiResponse.Success(Unit)
+                    }
+
+                    val envelope = runCatching {
+                        uploadJson.decodeFromString(SyncStreamEventEnvelope.serializer(), payload)
+                    }.getOrElse { throwable ->
+                        return ApiResponse.Failure.Exception(
+                            IllegalStateException("Invalid sync stream payload", throwable)
+                        )
+                    }
+                    val envelopeCursor = envelope.cursor.trim().ifEmpty { currentCursor }
+                    currentCursor = envelopeCursor
+
+                    when (eventName) {
+                        "patch" -> {
+                            val converted = convertSyncPullPatches(envelope.patches)
                             val chunkResult = deliverChunk(
                                 nextCursor = currentCursor,
                                 hasMore = true,
-                                patches = SyncPullPatches(),
+                                patches = converted,
                             )
                             if (chunkResult !is ApiResponse.Success) {
                                 return chunkResult
                             }
                             lastDeliveredCursor = currentCursor
                         }
-                    }
-                    "bootstrap_end" -> {
-                        bootstrapEnded = true
-                        if (currentCursor != lastDeliveredCursor) {
-                            val chunkResult = deliverChunk(
-                                nextCursor = currentCursor,
-                                hasMore = false,
-                                patches = SyncPullPatches(),
-                            )
-                            if (chunkResult !is ApiResponse.Success) {
-                                return chunkResult
+                        "checkpoint" -> {
+                            if (currentCursor != lastDeliveredCursor) {
+                                val chunkResult = deliverChunk(
+                                    nextCursor = currentCursor,
+                                    hasMore = true,
+                                    patches = SyncPullPatches(),
+                                )
+                                if (chunkResult !is ApiResponse.Success) {
+                                    return chunkResult
+                                }
+                                lastDeliveredCursor = currentCursor
                             }
-                            lastDeliveredCursor = currentCursor
+                        }
+                        "bootstrap_end" -> {
+                            bootstrapEnded = true
+                            if (currentCursor != lastDeliveredCursor) {
+                                val chunkResult = deliverChunk(
+                                    nextCursor = currentCursor,
+                                    hasMore = false,
+                                    patches = SyncPullPatches(),
+                                )
+                                if (chunkResult !is ApiResponse.Success) {
+                                    return chunkResult
+                                }
+                                lastDeliveredCursor = currentCursor
+                            }
                         }
                     }
+                    return ApiResponse.Success(Unit)
                 }
-                return ApiResponse.Success(Unit)
-            }
 
-            body.charStream().buffered().use { reader ->
-                while (true) {
-                    val line = reader.readLine() ?: break
-                    if (line.isEmpty()) {
-                        when (val flush = flushEvent()) {
-                            is ApiResponse.Success -> Unit
-                            is ApiResponse.Failure.Error -> return flush
-                            is ApiResponse.Failure.Exception -> return flush
-                            null -> Unit
-                        }
-                        if (bootstrapEnded) {
-                            if (mode == SyncStreamMode.BOOTSTRAP) {
-                                break
+                body.charStream().buffered().use { reader ->
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        if (line.isEmpty()) {
+                            when (val flush = flushEvent()) {
+                                is ApiResponse.Success -> Unit
+                                is ApiResponse.Failure.Error -> return flush
+                                is ApiResponse.Failure.Exception -> return flush
+                                null -> Unit
+                            }
+                            if (bootstrapEnded) {
+                                if (mode == SyncStreamMode.BOOTSTRAP) {
+                                    break
+                                }
+                                continue
                             }
                             continue
                         }
-                        continue
-                    }
-                    when {
-                        line.startsWith("event:") -> {
-                            currentEvent = line.substringAfter("event:").trim()
-                        }
-                        line.startsWith("data:") -> {
-                            currentData += line.substringAfter("data:").trimStart()
+                        when {
+                            line.startsWith("event:") -> {
+                                currentEvent = line.substringAfter("event:").trim()
+                            }
+                            line.startsWith("data:") -> {
+                                currentData += line.substringAfter("data:").trimStart()
+                            }
                         }
                     }
                 }
+                when (val flush = flushEvent()) {
+                    is ApiResponse.Success -> Unit
+                    is ApiResponse.Failure.Error -> return flush
+                    is ApiResponse.Failure.Exception -> return flush
+                    null -> Unit
+                }
+                ApiResponse.Success(currentCursor)
             }
-            when (val flush = flushEvent()) {
-                is ApiResponse.Success -> Unit
-                is ApiResponse.Failure.Error -> return flush
-                is ApiResponse.Failure.Exception -> return flush
-                null -> Unit
-            }
-            return ApiResponse.Success(currentCursor)
+        } catch (e: Exception) {
+            ApiResponse.Failure.Exception(e)
         }
     }
 

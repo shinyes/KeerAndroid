@@ -11,6 +11,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -86,6 +88,8 @@ class AccountService @Inject constructor(
 
     @Volatile
     private var remoteRepository: RemoteRepository? = null
+    @Volatile
+    private var activeSessionIdentity: String = sessionIdentity(null)
 
     private val mutex = Mutex()
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -98,17 +102,31 @@ class AccountService @Inject constructor(
     init {
         serviceScope.launch {
             try {
-                mutex.withLock {
-                    updateCurrentAccount(currentAccount.first())
-                }
-                initialization.complete(Unit)
+                currentAccount
+                    .distinctUntilChangedBy(::sessionIdentity)
+                    .collectLatest { account ->
+                        mutex.withLock {
+                            updateCurrentAccount(account)
+                        }
+                        if (!initialization.isCompleted) {
+                            initialization.complete(Unit)
+                        }
+                    }
             } catch (e: Throwable) {
-                initialization.completeExceptionally(e)
+                if (!initialization.isCompleted) {
+                    initialization.completeExceptionally(e)
+                } else {
+                    throw e
+                }
             }
         }
     }
 
     private fun updateCurrentAccount(account: Account?) {
+        val targetIdentity = sessionIdentity(account)
+        if (targetIdentity == activeSessionIdentity) {
+            return
+        }
         repository.close()
         accountKeyManager.onActiveAccountChanged(account)
         val session = repositoryFactory.createSession(
@@ -125,6 +143,7 @@ class AccountService @Inject constructor(
         repository = session.repository
         remoteRepository = session.remoteRepository
         httpClient = session.httpClient
+        activeSessionIdentity = targetIdentity
     }
 
     suspend fun switchAccount(accountKey: String) {
@@ -492,6 +511,14 @@ class AccountService @Inject constructor(
 
     private suspend fun writeSyncedUserIDs(accountKey: String, userIDs: List<String>) {
         accountLocalSettingsStore.writeSyncedUserIDs(accountKey, userIDs)
+    }
+
+    private fun sessionIdentity(account: Account?): String {
+        return when (account) {
+            null -> "none"
+            is Account.Local -> "local:${account.accountKey()}"
+            is Account.KeerV2 -> "keer:${account.accountKey()}:${account.info.host}"
+        }
     }
 
     private fun Account.toPersistedUserData(settings: UserSettings): UserData {
