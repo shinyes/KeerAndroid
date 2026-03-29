@@ -103,7 +103,8 @@ class MemosViewModel @Inject constructor(
     )
     private val drawerProjectionStore = DrawerProjectionStore(
         scope = viewModelScope,
-        idleCommitDelayMillis = SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS,
+        idleCommitDelayMillis = DRAWER_SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS,
+        liveCommitDebounceMillis = DRAWER_LIVE_COMMIT_DEBOUNCE_MILLIS,
     )
 
     var errorMessage: String? by mutableStateOf(null)
@@ -615,6 +616,8 @@ class MemosViewModel @Inject constructor(
         private const val FEED_PROFILE_LOG_THRESHOLD_MILLIS = 12L
         private const val PROJECTION_MEMO_DEBOUNCE_MILLIS = 64L
         private const val SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS = 300L
+        private const val DRAWER_SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS = 0L
+        private const val DRAWER_LIVE_COMMIT_DEBOUNCE_MILLIS = 16L
         private const val FEED_PROFILE_TAG = "FeedProfile"
         private val FOREGROUND_SYNC_BLOCKING_INTERACTIONS = setOf(
             UiInteractionType.LIST_SCROLL,

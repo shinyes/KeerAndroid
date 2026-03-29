@@ -48,4 +48,34 @@ class InteractionSnapshotStoreTest {
         runCurrent()
         assertEquals(1, store.visibleState.value)
     }
+
+    @Test
+    fun `drawer projection store commits immediately after unfreeze`() = runTest {
+        val store = DrawerProjectionStore(scope = backgroundScope)
+
+        store.setFrozen(true)
+        store.updateLiveState(DrawerUiState(tags = listOf("focus")))
+        assertEquals(emptyList<String>(), store.visibleState.value.tags)
+
+        store.setFrozen(false)
+        runCurrent()
+
+        assertEquals(listOf("focus"), store.visibleState.value.tags)
+    }
+
+    @Test
+    fun `drawer projection store publishes live state with short debounce`() = runTest {
+        val store = DrawerProjectionStore(scope = backgroundScope)
+
+        store.updateLiveState(DrawerUiState(tags = listOf("focus")))
+        assertEquals(emptyList<String>(), store.visibleState.value.tags)
+
+        advanceTimeBy(15)
+        runCurrent()
+        assertEquals(emptyList<String>(), store.visibleState.value.tags)
+
+        advanceTimeBy(1)
+        runCurrent()
+        assertEquals(listOf("focus"), store.visibleState.value.tags)
+    }
 }

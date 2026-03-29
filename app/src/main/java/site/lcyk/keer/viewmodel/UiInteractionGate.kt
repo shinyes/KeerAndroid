@@ -56,8 +56,7 @@ class UiInteractionGate @Inject constructor() {
                 val scopeInteractions = activeByScope[scope].orEmpty()
                 val freezeByScope = when (scope) {
                     MemoUiScope.DRAWER -> {
-                        scopeInteractions.contains(UiInteractionType.DRAWER_TRANSITION) ||
-                            scopeInteractions.contains(UiInteractionType.DRAWER_HIDDEN)
+                        scopeInteractions.contains(UiInteractionType.DRAWER_TRANSITION)
                     }
                     else -> {
                         scopeInteractions
