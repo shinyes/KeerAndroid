@@ -25,8 +25,24 @@ class SecureTokenStorage @Inject constructor(
         val refreshToken: String,
     )
 
+    private val appContext = context.applicationContext
+    private var sharedPreferencesOverride: SharedPreferences? = null
+    private var encryptor: (String) -> String? = ::encryptWithAndroidKeyStore
+    private var decryptor: (String) -> String? = ::decryptWithAndroidKeyStore
+
+    internal constructor(
+        context: Context,
+        sharedPreferences: SharedPreferences,
+        encryptor: (String) -> String?,
+        decryptor: (String) -> String?,
+    ) : this(context) {
+        this.sharedPreferencesOverride = sharedPreferences
+        this.encryptor = encryptor
+        this.decryptor = decryptor
+    }
+
     private val sharedPreferences: SharedPreferences by lazy {
-        context.getSharedPreferences(TOKENS_FILE_NAME, Context.MODE_PRIVATE)
+        sharedPreferencesOverride ?: appContext.getSharedPreferences(TOKENS_FILE_NAME, Context.MODE_PRIVATE)
     }
 
     private val keyStore: KeyStore by lazy {
@@ -41,8 +57,8 @@ class SecureTokenStorage @Inject constructor(
             return null
         }
 
-        val accessToken = encryptedAccess?.let(::decrypt) ?: ""
-        val refreshToken = encryptedRefresh?.let(::decrypt) ?: ""
+        val accessToken = encryptedAccess?.let(decryptor) ?: ""
+        val refreshToken = encryptedRefresh?.let(decryptor) ?: ""
         if ((encryptedAccess != null && accessToken.isBlank()) || (encryptedRefresh != null && refreshToken.isBlank())) {
             removeToken(accountKey)
             return null
@@ -64,12 +80,12 @@ class SecureTokenStorage @Inject constructor(
         val encryptedAccess = if (accessToken.isBlank()) {
             null
         } else {
-            encrypt(accessToken)
+            encryptor(accessToken)
         }
         val encryptedRefresh = if (refreshToken.isBlank()) {
             null
         } else {
-            encrypt(refreshToken)
+            encryptor(refreshToken)
         }
         if ((accessToken.isNotBlank() && encryptedAccess == null) || (refreshToken.isNotBlank() && encryptedRefresh == null)) {
             removeToken(accountKey)
@@ -78,17 +94,17 @@ class SecureTokenStorage @Inject constructor(
         sharedPreferences.edit()
             .putString(accessKey(accountKey), encryptedAccess)
             .putString(refreshKey(accountKey), encryptedRefresh)
-            .apply()
+            .commit()
     }
 
     fun removeToken(accountKey: String) {
         sharedPreferences.edit()
             .remove(accessKey(accountKey))
             .remove(refreshKey(accountKey))
-            .apply()
+            .commit()
     }
 
-    private fun encrypt(plainText: String): String? {
+    private fun encryptWithAndroidKeyStore(plainText: String): String? {
         return try {
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.ENCRYPT_MODE, getOrCreateSecretKey())
@@ -102,7 +118,7 @@ class SecureTokenStorage @Inject constructor(
         }
     }
 
-    private fun decrypt(payload: String): String? {
+    private fun decryptWithAndroidKeyStore(payload: String): String? {
         val parts = payload.split(':', limit = 2)
         if (parts.size != 2) {
             return null
