@@ -77,6 +77,7 @@ class UserStateViewModel @Inject constructor(
     val okHttpClient: OkHttpClient get() = accountService.httpClient
     val collaboratorProfiles = userDirectoryRepository.collaboratorProfiles
     val friends = userDirectoryRepository.friends
+    val accountsFlow = accountService.accounts
     val accounts = accountService.accounts.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
     val currentAccount = accountService.currentAccount.stateIn(viewModelScope, SharingStarted.Lazily, null)
     val generalSettings = userGeneralSettingsRepository.observeCurrentGeneralSettings()

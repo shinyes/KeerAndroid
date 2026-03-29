@@ -48,8 +48,8 @@ fun Navigation() {
     val navController = rememberNavController()
     val userStateViewModel = LocalUserState.current
     val context = LocalContext.current
-    val accounts by userStateViewModel.accounts.collectAsStateWithLifecycle()
-    val hasAnyAccount = accounts.isNotEmpty()
+    val accounts by userStateViewModel.accountsFlow.collectAsStateWithLifecycle(initialValue = null)
+    val hasAnyAccount = accounts?.isNotEmpty() == true
 
     CompositionLocalProvider(LocalRootNavController provides navController) {
         KeerTheme {
@@ -194,7 +194,10 @@ fun Navigation() {
     }
 
 
-    LaunchedEffect(hasAnyAccount) {
+    LaunchedEffect(accounts, hasAnyAccount) {
+        if (accounts == null) {
+            return@LaunchedEffect
+        }
         if (!hasAnyAccount) {
             if (navController.currentDestination?.route != RouteName.LOGIN) {
                 navController.navigate(RouteName.LOGIN) {

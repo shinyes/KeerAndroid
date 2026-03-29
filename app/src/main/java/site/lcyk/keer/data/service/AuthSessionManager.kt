@@ -113,7 +113,7 @@ class AuthSessionManager @Inject constructor(
             is Account.KeerV2 -> {
                 val accessToken = tokens?.accessToken.orEmpty().trim()
                 val refreshToken = tokens?.refreshToken.orEmpty().trim()
-                if (accessToken.isBlank() && refreshToken.isBlank()) {
+                if (accessToken.isBlank() || refreshToken.isBlank()) {
                     null
                 } else {
                     Account.KeerV2(

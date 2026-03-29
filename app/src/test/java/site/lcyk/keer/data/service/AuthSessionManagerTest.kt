@@ -27,7 +27,7 @@ class AuthSessionManagerTest {
     )
 
     @Test
-    fun parseAccountWithStoredTokens_accessTokenOnly_restoresAccount() {
+    fun parseAccountWithStoredTokens_accessTokenOnly_returnsNull() {
         val userData = sampleUserData()
         every { secureTokenStorage.getTokens(userData.accountKey) } returns SecureTokenStorage.StoredTokens(
             accessToken = "access-token",
@@ -36,14 +36,11 @@ class AuthSessionManagerTest {
 
         val restored = authSessionManager.parseAccountWithStoredTokens(userData)
 
-        assertNotNull(restored)
-        val account = restored as site.lcyk.keer.data.model.Account.KeerV2
-        assertEquals("access-token", account.info.accessToken)
-        assertEquals("", account.info.refreshToken)
+        assertNull(restored)
     }
 
     @Test
-    fun parseAccountWithStoredTokens_refreshTokenOnly_restoresAccount() {
+    fun parseAccountWithStoredTokens_refreshTokenOnly_returnsNull() {
         val userData = sampleUserData()
         every { secureTokenStorage.getTokens(userData.accountKey) } returns SecureTokenStorage.StoredTokens(
             accessToken = "",
@@ -52,9 +49,22 @@ class AuthSessionManagerTest {
 
         val restored = authSessionManager.parseAccountWithStoredTokens(userData)
 
+        assertNull(restored)
+    }
+
+    @Test
+    fun parseAccountWithStoredTokens_bothTokensPresent_restoresAccount() {
+        val userData = sampleUserData()
+        every { secureTokenStorage.getTokens(userData.accountKey) } returns SecureTokenStorage.StoredTokens(
+            accessToken = "access-token",
+            refreshToken = "refresh-token",
+        )
+
+        val restored = authSessionManager.parseAccountWithStoredTokens(userData)
+
         assertNotNull(restored)
         val account = restored as site.lcyk.keer.data.model.Account.KeerV2
-        assertEquals("", account.info.accessToken)
+        assertEquals("access-token", account.info.accessToken)
         assertEquals("refresh-token", account.info.refreshToken)
     }
 
