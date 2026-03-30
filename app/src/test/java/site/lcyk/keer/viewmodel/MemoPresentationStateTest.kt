@@ -862,6 +862,7 @@ class MemoPresentationStateTest {
         assertEquals(1, workflowState.uploads.imageSection.totalCount)
         assertEquals(1, workflowState.uploads.imageSection.highlightedCount)
         assertTrue(workflowState.uploads.imageSection.canClearAll)
+        assertTrue(workflowState.uploads.imageSection.isExpanded)
         assertEquals(0, workflowState.uploads.attachmentSection.totalCount)
     }
 
@@ -919,9 +920,11 @@ class MemoPresentationStateTest {
         assertEquals(1, uploadsState.imageSection.totalCount)
         assertEquals(0, uploadsState.imageSection.highlightedCount)
         assertTrue(uploadsState.imageSection.canClearAll)
+        assertTrue(uploadsState.imageSection.isExpanded)
         assertEquals(1, uploadsState.attachmentSection.totalCount)
         assertEquals(1, uploadsState.attachmentSection.highlightedCount)
         assertTrue(uploadsState.attachmentSection.canClearAll)
+        assertTrue(uploadsState.attachmentSection.isExpanded)
         assertTrue(uploadsState.feedback.showRecentCompletionHint)
         assertEquals(1, uploadsState.feedback.recentlyCompletedResourceCount)
         assertEquals("file-b", uploadsState.feedback.recentCompletionTriggerId)
@@ -999,6 +1002,41 @@ class MemoPresentationStateTest {
         assertTrue(sectionState.canClearFailedTasks)
         assertTrue(sectionState.canCollapse)
         assertTrue(sectionState.defaultExpanded)
+        assertTrue(sectionState.isExpanded)
+    }
+
+    @Test
+    fun buildMemoEditorUploadsState_applies_expanded_preferences() {
+        val image = resourceEntity(identifier = "image-a", remoteId = null)
+        val attachment = resourceEntity(
+            identifier = "file-b",
+            remoteId = null,
+        ).copy(
+            filename = "file-b.pdf",
+            mimeType = "application/pdf",
+            uri = "content://file-b",
+        )
+        val task = UploadTaskState(
+            id = "task-failed",
+            sequence = 1L,
+            filename = "failed.pdf",
+            uploadedBytes = 0L,
+            totalBytes = 50L,
+            status = UploadTaskStatus.FAILED,
+            sourceUri = "content://failed",
+        )
+
+        val uploadsState = buildMemoEditorUploadsState(
+            uploadResources = listOf(image, attachment),
+            uploadTasks = listOf(task),
+            imageSectionExpanded = false,
+            attachmentSectionExpanded = false,
+            taskSectionExpanded = false,
+        )
+
+        assertFalse(uploadsState.imageSection.isExpanded)
+        assertFalse(uploadsState.attachmentSection.isExpanded)
+        assertFalse(uploadsState.taskSection.isExpanded)
     }
 
     @Test

@@ -5,7 +5,10 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.skydoves.sandwich.ApiResponse
@@ -24,6 +27,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
+import site.lcyk.keer.data.model.MemoEditorUploadTaskPersistenceState
+import site.lcyk.keer.data.model.MemoEditorWorkflowPersistenceState
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.service.MemoService
@@ -62,10 +67,24 @@ class MemoInputViewModel @Inject constructor(
     private val context = application
     private val uploadTaskSequence = AtomicLong(0L)
     private val uploadTaskJobs = ConcurrentHashMap<String, Job>()
+    private var persistEditorWorkflowJob: Job? = null
+    private var restoringPersistedWorkflow = false
     val draft = accountLocalSettingsStore.observeCurrentUserSettings().map { settings -> settings?.draft }
     var uploadResources = mutableStateListOf<ResourceEntity>()
     var uploadTasks = mutableStateListOf<UploadTaskState>()
     var recentlyUploadedResourceIdentifiers = mutableStateListOf<String>()
+    var imageUploadSectionExpanded by mutableStateOf<Boolean?>(null)
+        private set
+    var attachmentUploadSectionExpanded by mutableStateOf<Boolean?>(null)
+        private set
+    var taskUploadSectionExpanded by mutableStateOf<Boolean?>(null)
+        private set
+
+    init {
+        viewModelScope.launch {
+            restorePersistedEditorWorkflowState()
+        }
+    }
 
     suspend fun createMemo(
         content: String,
@@ -228,10 +247,26 @@ class MemoInputViewModel @Inject constructor(
         removeUploadTask(taskId)
     }
 
+    fun updateImageUploadSectionExpanded(expanded: Boolean?) {
+        imageUploadSectionExpanded = expanded
+        schedulePersistEditorWorkflowState()
+    }
+
+    fun updateAttachmentUploadSectionExpanded(expanded: Boolean?) {
+        attachmentUploadSectionExpanded = expanded
+        schedulePersistEditorWorkflowState()
+    }
+
+    fun updateTaskUploadSectionExpanded(expanded: Boolean?) {
+        taskUploadSectionExpanded = expanded
+        schedulePersistEditorWorkflowState()
+    }
+
     fun clearUploadResources() {
         viewModelScope.launch(Dispatchers.Main.immediate) {
             uploadResources.clear()
             recentlyUploadedResourceIdentifiers.clear()
+            schedulePersistEditorWorkflowState()
         }
     }
 
@@ -250,6 +285,7 @@ class MemoInputViewModel @Inject constructor(
             } else {
                 uploadTasks.clear()
             }
+            schedulePersistEditorWorkflowState()
         }
     }
 
@@ -335,6 +371,7 @@ class MemoInputViewModel @Inject constructor(
         memoService.getRepository().deleteResource(resourceIdentifier).suspendOnSuccess {
             uploadResources.removeIf { it.identifier == resourceIdentifier }
             recentlyUploadedResourceIdentifiers.remove(resourceIdentifier)
+            schedulePersistEditorWorkflowState()
         }
     }
 
@@ -343,11 +380,13 @@ class MemoInputViewModel @Inject constructor(
             memoService.getRepository().deleteResource(resource.identifier).suspendOnSuccess {
                 uploadResources.removeIf { it.identifier == resource.identifier }
                 recentlyUploadedResourceIdentifiers.remove(resource.identifier)
+                schedulePersistEditorWorkflowState()
             }
             return@launch
         }
         uploadResources.removeIf { it.identifier == resource.identifier }
         recentlyUploadedResourceIdentifiers.remove(resource.identifier)
+        schedulePersistEditorWorkflowState()
     }
 
     private fun addOrUpdateUploadTask(task: UploadTaskState) {
@@ -358,12 +397,14 @@ class MemoInputViewModel @Inject constructor(
             } else {
                 uploadTasks.add(task)
             }
+            schedulePersistEditorWorkflowState()
         }
     }
 
     private fun removeUploadTask(taskId: String) {
         viewModelScope.launch(Dispatchers.Main.immediate) {
             uploadTasks.removeAll { it.id == taskId }
+            schedulePersistEditorWorkflowState()
         }
     }
 
@@ -389,6 +430,126 @@ class MemoInputViewModel @Inject constructor(
             withContext(Dispatchers.Main.immediate) {
                 recentlyUploadedResourceIdentifiers.remove(resourceIdentifier)
             }
+        }
+    }
+
+    private suspend fun restorePersistedEditorWorkflowState() {
+        restoringPersistedWorkflow = true
+        try {
+            val persistedState = accountLocalSettingsStore.currentMemoEditorWorkflowState()
+            val repository = memoService.getRepository()
+            val restoredResources = buildList {
+                persistedState.uploadResourceIdentifiers
+                    .asSequence()
+                    .map(String::trim)
+                    .filter { it.isNotEmpty() }
+                    .distinct()
+                    .forEach { identifier ->
+                        repository.getResourceById(identifier)?.let(::add)
+                    }
+            }
+            val restoredTasks = persistedState.uploadTasks
+                .map(::restorePersistedUploadTask)
+                .sortedBy { task -> task.sequence }
+
+            withContext(Dispatchers.Main.immediate) {
+                uploadResources.clear()
+                uploadResources.addAll(restoredResources)
+                uploadTasks.clear()
+                uploadTasks.addAll(restoredTasks)
+                recentlyUploadedResourceIdentifiers.clear()
+                imageUploadSectionExpanded = persistedState.imageSectionExpanded
+                attachmentUploadSectionExpanded = persistedState.attachmentSectionExpanded
+                taskUploadSectionExpanded = persistedState.taskSectionExpanded
+            }
+
+            val restoredSequence = maxOf(
+                persistedState.lastUploadTaskSequence,
+                restoredTasks.maxOfOrNull(UploadTaskState::sequence) ?: 0L,
+            )
+            uploadTaskSequence.set(restoredSequence)
+        } finally {
+            restoringPersistedWorkflow = false
+        }
+        persistEditorWorkflowStateNow()
+    }
+
+    private fun restorePersistedUploadTask(
+        persistedTask: MemoEditorUploadTaskPersistenceState,
+    ): UploadTaskState {
+        val originalStatus = persistedTask.status
+            .trim()
+            .takeIf { it.isNotEmpty() }
+            ?.let { raw ->
+                runCatching { UploadTaskStatus.valueOf(raw) }.getOrNull()
+            }
+            ?: UploadTaskStatus.FAILED
+        val restoredStatus = when (originalStatus) {
+            UploadTaskStatus.PREPARING,
+            UploadTaskStatus.UPLOADING -> UploadTaskStatus.FAILED
+            UploadTaskStatus.FAILED -> UploadTaskStatus.FAILED
+        }
+        val restoredErrorMessage = when {
+            originalStatus == UploadTaskStatus.PREPARING || originalStatus == UploadTaskStatus.UPLOADING ->
+                context.getString(site.lcyk.keer.R.string.upload_interrupted_retry)
+            else -> persistedTask.errorMessage
+        }
+        return UploadTaskState(
+            id = persistedTask.id.trim().ifEmpty { UUID.randomUUID().toString() },
+            sequence = persistedTask.sequence,
+            filename = persistedTask.filename.trim().ifEmpty { "attachment" },
+            uploadedBytes = persistedTask.uploadedBytes,
+            totalBytes = persistedTask.totalBytes,
+            status = restoredStatus,
+            errorMessage = restoredErrorMessage,
+            sourceUri = persistedTask.sourceUri.trim().ifEmpty { null },
+            targetMemoIdentifier = persistedTask.targetMemoIdentifier.trim().ifEmpty { null },
+        )
+    }
+
+    private fun schedulePersistEditorWorkflowState() {
+        if (restoringPersistedWorkflow) {
+            return
+        }
+        persistEditorWorkflowJob?.cancel()
+        persistEditorWorkflowJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(200L)
+            persistEditorWorkflowStateNow()
+        }
+    }
+
+    private suspend fun persistEditorWorkflowStateNow() {
+        if (restoringPersistedWorkflow) {
+            return
+        }
+        val snapshot = MemoEditorWorkflowPersistenceState(
+            uploadResourceIdentifiers = uploadResources
+                .map { resource -> resource.identifier.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct(),
+            uploadTasks = uploadTasks.map { task ->
+                MemoEditorUploadTaskPersistenceState(
+                    id = task.id,
+                    sequence = task.sequence,
+                    filename = task.filename,
+                    uploadedBytes = task.uploadedBytes,
+                    totalBytes = task.totalBytes,
+                    status = task.status.name,
+                    errorMessage = task.errorMessage,
+                    sourceUri = task.sourceUri.orEmpty(),
+                    targetMemoIdentifier = task.targetMemoIdentifier.orEmpty(),
+                )
+            },
+            imageSectionExpanded = imageUploadSectionExpanded,
+            attachmentSectionExpanded = attachmentUploadSectionExpanded,
+            taskSectionExpanded = taskUploadSectionExpanded,
+            lastUploadTaskSequence = maxOf(
+                uploadTaskSequence.get(),
+                uploadTasks.maxOfOrNull(UploadTaskState::sequence) ?: 0L,
+            ),
+        )
+        accountLocalSettingsStore.updateCurrentMemoEditorWorkflowState {
+            snapshot
         }
     }
 }

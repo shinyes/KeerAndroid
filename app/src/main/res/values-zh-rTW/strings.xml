@@ -232,6 +232,7 @@
     <string name="upload_failed">附件處理失敗</string>
     <string name="retry_failed_uploads">重試失敗任務</string>
     <string name="cancel_active_uploads">取消進行中的上傳</string>
+    <string name="upload_interrupted_retry">應用重新啟動後上傳已中斷，請重試繼續。</string>
     <string name="clear_failed_uploads">清理失敗任務</string>
     <string name="upload_summary_ready">已就緒：%1$d</string>
     <string name="upload_summary_active">處理中：%1$d · 已就緒：%2$d</string>

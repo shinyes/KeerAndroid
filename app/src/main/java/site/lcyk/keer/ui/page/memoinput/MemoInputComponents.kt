@@ -73,7 +73,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
@@ -865,52 +864,16 @@ internal fun MemoInputEditor(
     onRemoveUploadResource: (ResourceEntity) -> Unit,
     onClearImageUploadResources: () -> Unit,
     onClearAttachmentUploadResources: () -> Unit,
+    onToggleImageUploadSection: (Boolean) -> Unit,
+    onToggleAttachmentUploadSection: (Boolean) -> Unit,
     onCancelUploadTask: (String) -> Unit,
     onCancelActiveUploadTasks: () -> Unit,
     onRetryFailedUploadTasks: () -> Unit,
     onClearFailedUploadTasks: () -> Unit,
     onRetryUploadTask: (String) -> Unit,
-    onDismissUploadTask: (String) -> Unit
+    onDismissUploadTask: (String) -> Unit,
+    onToggleTaskUploadSection: (Boolean) -> Unit,
 ) {
-    var taskSectionExpanded by rememberSaveable { mutableStateOf(uploadsState.taskSection.defaultExpanded) }
-    var imageSectionExpanded by rememberSaveable { mutableStateOf(uploadsState.imageSection.defaultExpanded) }
-    var attachmentSectionExpanded by rememberSaveable { mutableStateOf(uploadsState.attachmentSection.defaultExpanded) }
-
-    LaunchedEffect(
-        uploadsState.taskSection.defaultExpanded,
-        uploadsState.taskSection.totalCount,
-        uploadsState.taskSection.activeCount,
-        uploadsState.taskSection.failedCount,
-    ) {
-        if (uploadsState.taskSection.totalCount == 0) {
-            taskSectionExpanded = uploadsState.taskSection.defaultExpanded
-        } else if (uploadsState.taskSection.defaultExpanded) {
-            taskSectionExpanded = true
-        }
-    }
-    LaunchedEffect(
-        uploadsState.imageSection.defaultExpanded,
-        uploadsState.imageSection.totalCount,
-        uploadsState.imageSection.highlightedCount,
-    ) {
-        if (uploadsState.imageSection.totalCount == 0) {
-            imageSectionExpanded = uploadsState.imageSection.defaultExpanded
-        } else if (uploadsState.imageSection.defaultExpanded && uploadsState.imageSection.highlightedCount > 0) {
-            imageSectionExpanded = true
-        }
-    }
-    LaunchedEffect(
-        uploadsState.attachmentSection.defaultExpanded,
-        uploadsState.attachmentSection.totalCount,
-        uploadsState.attachmentSection.highlightedCount,
-    ) {
-        if (uploadsState.attachmentSection.totalCount == 0) {
-            attachmentSectionExpanded = uploadsState.attachmentSection.defaultExpanded
-        } else if (uploadsState.attachmentSection.defaultExpanded && uploadsState.attachmentSection.highlightedCount > 0) {
-            attachmentSectionExpanded = true
-        }
-    }
-
     Column(
         modifier
             .then(
@@ -988,10 +951,9 @@ internal fun MemoInputEditor(
         if (uploadsState.taskSection.totalCount > 0) {
             UploadTaskSectionHeader(
                 section = uploadsState.taskSection,
-                expanded = taskSectionExpanded,
-                onToggleExpanded = { taskSectionExpanded = !taskSectionExpanded },
+                onToggleExpanded = { onToggleTaskUploadSection(!uploadsState.taskSection.isExpanded) },
             )
-            if (taskSectionExpanded) {
+            if (uploadsState.taskSection.isExpanded) {
                 LazyRow(
                     modifier = Modifier
                         .padding(start = 15.dp, end = 15.dp, bottom = 8.dp),
@@ -1012,11 +974,10 @@ internal fun MemoInputEditor(
         if (uploadsState.imageSection.totalCount > 0) {
             UploadResourceSectionHeader(
                 section = uploadsState.imageSection,
-                expanded = imageSectionExpanded,
-                onToggleExpanded = { imageSectionExpanded = !imageSectionExpanded },
+                onToggleExpanded = { onToggleImageUploadSection(!uploadsState.imageSection.isExpanded) },
                 onClearAll = onClearImageUploadResources,
             )
-            if (imageSectionExpanded) {
+            if (uploadsState.imageSection.isExpanded) {
                 LazyRow(
                     modifier = Modifier
                         .height(80.dp)
@@ -1042,11 +1003,10 @@ internal fun MemoInputEditor(
         if (uploadsState.attachmentSection.totalCount > 0) {
             UploadResourceSectionHeader(
                 section = uploadsState.attachmentSection,
-                expanded = attachmentSectionExpanded,
-                onToggleExpanded = { attachmentSectionExpanded = !attachmentSectionExpanded },
+                onToggleExpanded = { onToggleAttachmentUploadSection(!uploadsState.attachmentSection.isExpanded) },
                 onClearAll = onClearAttachmentUploadResources,
             )
-            if (attachmentSectionExpanded) {
+            if (uploadsState.attachmentSection.isExpanded) {
                 LazyRow(
                     modifier = Modifier
                         .padding(start = 15.dp, end = 15.dp),
@@ -1155,7 +1115,6 @@ private fun UploadSummaryBar(
 @Composable
 private fun UploadResourceSectionHeader(
     section: MemoEditorUploadSectionState,
-    expanded: Boolean,
     onToggleExpanded: () -> Unit,
     onClearAll: () -> Unit,
 ) {
@@ -1184,13 +1143,13 @@ private fun UploadResourceSectionHeader(
                         modifier = Modifier.size(28.dp),
                     ) {
                         Icon(
-                            imageVector = if (expanded) {
+                            imageVector = if (section.isExpanded) {
                                 Icons.Filled.ExpandMore
                             } else {
                                 Icons.AutoMirrored.Filled.KeyboardArrowRight
                             },
                             contentDescription = stringResource(
-                                if (expanded) R.string.collapse else R.string.expand,
+                                if (section.isExpanded) R.string.collapse else R.string.expand,
                             ),
                         )
                     }
@@ -1224,7 +1183,6 @@ private fun UploadResourceSectionHeader(
 @Composable
 private fun UploadTaskSectionHeader(
     section: MemoEditorUploadTaskSectionState,
-    expanded: Boolean,
     onToggleExpanded: () -> Unit,
 ) {
     val title = stringResource(R.string.upload_section_tasks, section.totalCount)
@@ -1260,13 +1218,13 @@ private fun UploadTaskSectionHeader(
                         modifier = Modifier.size(28.dp),
                     ) {
                         Icon(
-                            imageVector = if (expanded) {
+                            imageVector = if (section.isExpanded) {
                                 Icons.Filled.ExpandMore
                             } else {
                                 Icons.AutoMirrored.Filled.KeyboardArrowRight
                             },
                             contentDescription = stringResource(
-                                if (expanded) R.string.collapse else R.string.expand,
+                                if (section.isExpanded) R.string.collapse else R.string.expand,
                             ),
                         )
                     }

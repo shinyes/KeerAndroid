@@ -233,6 +233,7 @@
     <string name="upload_preparing">Preparing attachment…</string>
     <string name="uploading">Saving attachment…</string>
     <string name="upload_failed">Attachment processing failed</string>
+    <string name="upload_interrupted_retry">Upload was interrupted after app restart. Retry to continue.</string>
     <string name="retry_failed_uploads">Retry failed uploads</string>
     <string name="cancel_active_uploads">Cancel active uploads</string>
     <string name="clear_failed_uploads">Clear failed uploads</string>

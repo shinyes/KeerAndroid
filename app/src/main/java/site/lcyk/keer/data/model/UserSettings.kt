@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class UserSettings(
     val draft: String = "",
+    val editorWorkflowState: MemoEditorWorkflowPersistenceState = MemoEditorWorkflowPersistenceState(),
     val acceptedUnsupportedSyncVersions: List<String> = emptyList(),
     val generalSettings: UserGeneralSettings = UserGeneralSettings(),
     val avatarUri: String = "",

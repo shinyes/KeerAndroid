@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.data.model.MemoEditorWorkflowPersistenceState
 import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.data.model.UserData
 import site.lcyk.keer.data.model.UserGeneralSettings
@@ -118,6 +119,24 @@ class AccountLocalSettingsStore @Inject constructor(
             settings.updateCurrentUserData { user ->
                 user.copy(settings = transform(user.settings))
             }
+        }
+    }
+
+    fun observeCurrentMemoEditorWorkflowState(): Flow<MemoEditorWorkflowPersistenceState> {
+        return observeCurrentUserSettings().map { settings ->
+            settings?.editorWorkflowState ?: MemoEditorWorkflowPersistenceState()
+        }
+    }
+
+    suspend fun currentMemoEditorWorkflowState(): MemoEditorWorkflowPersistenceState {
+        return currentUserSettings()?.editorWorkflowState ?: MemoEditorWorkflowPersistenceState()
+    }
+
+    suspend fun updateCurrentMemoEditorWorkflowState(
+        transform: (MemoEditorWorkflowPersistenceState) -> MemoEditorWorkflowPersistenceState,
+    ) {
+        updateCurrentUserSettings { settings ->
+            settings.copy(editorWorkflowState = transform(settings.editorWorkflowState))
         }
     }
 

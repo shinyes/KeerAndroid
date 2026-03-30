@@ -232,6 +232,7 @@
     <string name="upload_preparing">正在准备附件…</string>
     <string name="uploading">正在保存附件…</string>
     <string name="upload_failed">附件处理失败</string>
+    <string name="upload_interrupted_retry">应用重启后上传已中断，请重试继续。</string>
     <string name="retry_failed_uploads">重试失败任务</string>
     <string name="cancel_active_uploads">取消进行中的上传</string>
     <string name="clear_failed_uploads">清理失败任务</string>

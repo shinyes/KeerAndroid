@@ -205,6 +205,9 @@ fun QuickMemoComposer(
         uploadResources,
         uploadTasks,
         recentlyUploadedResourceIdentifiers,
+        inputViewModel.imageUploadSectionExpanded,
+        inputViewModel.attachmentUploadSectionExpanded,
+        inputViewModel.taskUploadSectionExpanded,
     ) {
         buildMemoEditorUploadWorkflowState(
             memoIdentifier = null,
@@ -213,6 +216,9 @@ fun QuickMemoComposer(
             highlightedResourceIdentifiers = recentlyUploadedResourceIdentifiers,
             focusDelayMillis = 120L,
             showKeyboardAfterUpload = true,
+            imageSectionExpanded = inputViewModel.imageUploadSectionExpanded,
+            attachmentSectionExpanded = inputViewModel.attachmentUploadSectionExpanded,
+            taskSectionExpanded = inputViewModel.taskUploadSectionExpanded,
         )
     }
     MemoUploadFeedbackSnackbarEffect(
@@ -649,12 +655,15 @@ fun QuickMemoComposer(
                         onRemoveUploadResource = { resource -> inputViewModel.removeResourceFromDraft(resource) },
                         onClearImageUploadResources = inputViewModel::clearImageUploadResources,
                         onClearAttachmentUploadResources = inputViewModel::clearAttachmentUploadResources,
+                        onToggleImageUploadSection = inputViewModel::updateImageUploadSectionExpanded,
+                        onToggleAttachmentUploadSection = inputViewModel::updateAttachmentUploadSectionExpanded,
                         onCancelUploadTask = inputViewModel::cancelUploadTask,
                         onCancelActiveUploadTasks = inputViewModel::cancelActiveUploadTasks,
                         onRetryFailedUploadTasks = inputViewModel::retryFailedUploadTasks,
                         onClearFailedUploadTasks = inputViewModel::clearFailedUploadTasks,
                         onRetryUploadTask = inputViewModel::retryUploadTask,
-                        onDismissUploadTask = inputViewModel::dismissUploadTask
+                        onDismissUploadTask = inputViewModel::dismissUploadTask,
+                        onToggleTaskUploadSection = inputViewModel::updateTaskUploadSectionExpanded,
                     )
                     MemoInputBottomBar(
                         selectedTags = selectedTags,
