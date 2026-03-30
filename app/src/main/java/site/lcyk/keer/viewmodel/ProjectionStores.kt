@@ -24,6 +24,10 @@ class FeedProjectionStore(
     fun setFrozen(active: Boolean) {
         store.setFrozen(active)
     }
+
+    fun restoreVisibleState(state: FeedUiState) {
+        store.restoreSnapshot(state)
+    }
 }
 
 class DrawerProjectionStore(
@@ -46,6 +50,10 @@ class DrawerProjectionStore(
 
     fun setFrozen(active: Boolean) {
         store.setFrozen(active)
+    }
+
+    fun restoreVisibleState(state: DrawerUiState) {
+        store.restoreSnapshot(state)
     }
 }
 

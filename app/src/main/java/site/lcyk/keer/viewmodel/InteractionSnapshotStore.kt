@@ -50,6 +50,15 @@ class InteractionSnapshotStore<T>(
         }
     }
 
+    fun restoreSnapshot(state: T) {
+        pendingUnfreezeCommitJob?.cancel()
+        pendingUnfreezeCommitJob = null
+        pendingLiveCommitJob?.cancel()
+        pendingLiveCommitJob = null
+        latestLiveState = state
+        _visibleState.value = state
+    }
+
     private fun scheduleLiveCommit() {
         if (liveCommitDebounceMillis <= 0L) {
             commitLatestVisibleState()

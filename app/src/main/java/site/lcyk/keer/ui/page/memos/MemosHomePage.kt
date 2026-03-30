@@ -17,7 +17,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,11 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
-import site.lcyk.keer.data.model.SyncDomain
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.SyncAlertDialog
@@ -66,13 +62,8 @@ fun MemosHomePage(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
-    val homeMemos by memosViewModel.visibleHomeMemos.collectAsStateWithLifecycle()
-    val homeMemoItemsById = remember(homeMemos) {
-        homeMemos.associateBy { item -> item.memo.identifier }
-    }
-    val homeFeedMemos = remember(homeMemos) {
-        homeMemos.map { item -> item.memo }
-    }
+    val homeFeedListState by memosViewModel.visibleHomeFeedListState.collectAsStateWithLifecycle()
+    val homeMemoCardsById by memosViewModel.visibleHomeMemoCardIndex.collectAsStateWithLifecycle()
 
     val expandedFab by remember {
         derivedStateOf {
@@ -153,7 +144,9 @@ fun MemosHomePage(
 
             content = { innerPadding ->
                 MemosList(
-                    memos = homeFeedMemos,
+                    memoCards = homeFeedListState.cards,
+                    prefetchMemoEntities = homeFeedListState.prefetchMemos,
+                    collaboratorIdsToPrefetch = homeFeedListState.collaboratorIdsToPrefetch,
                     lazyListState = listState,
                     contentPadding = innerPadding,
                     onRefresh = { requestManualSync() },
@@ -161,7 +154,7 @@ fun MemosHomePage(
                         navController.navigateToTagPage(tag)
                     },
                     onRequestEdit = { memo ->
-                        val item = homeMemoItemsById[memo.identifier]
+                        val item = homeMemoCardsById[memo.identifier]
                         if (item?.groupId.isNullOrBlank()) {
                             rootNavController.navigate("${RouteName.EDIT}?memoId=${memo.identifier}")
                         } else {
@@ -172,7 +165,7 @@ fun MemosHomePage(
                         }
                     },
                     editGestureResolver = { memo, defaultGesture ->
-                        val item = homeMemoItemsById[memo.identifier]
+                        val item = homeMemoCardsById[memo.identifier]
                         if (item?.groupId.isNullOrBlank()) {
                             defaultGesture
                         } else {
@@ -180,7 +173,7 @@ fun MemosHomePage(
                         }
                     },
                     actionButton = { memo ->
-                        val item = homeMemoItemsById[memo.identifier]
+                        val item = homeMemoCardsById[memo.identifier]
                         if (item?.groupId.isNullOrBlank()) {
                             MemosCardActionButton(
                                 memo = memo,

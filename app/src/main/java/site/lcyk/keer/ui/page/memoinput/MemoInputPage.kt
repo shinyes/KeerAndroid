@@ -17,8 +17,10 @@ import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -36,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
@@ -51,12 +54,9 @@ import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.suspendOnErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.MemoQuoteReferenceCard
+import site.lcyk.keer.ui.component.SurfaceHydrationLine
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
-import site.lcyk.keer.util.MemoQuoteDescriptor
-import site.lcyk.keer.util.MemoQuoteSourceKind
-import site.lcyk.keer.util.buildMemoQuoteDescriptor
-import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.isQuoteTag
 import site.lcyk.keer.util.mergeTagsWithCollaboratorsAndQuote
@@ -64,17 +64,19 @@ import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.normalizeTagName
 import site.lcyk.keer.util.resolveMemoByIdentifier
-import site.lcyk.keer.util.resolveMemoFromQuoteDescriptor
-import site.lcyk.keer.util.resolveMemoQuoteDescriptor
-import site.lcyk.keer.util.resolveMemoByRemoteId
-import site.lcyk.keer.util.storedMemoQuotePreviewOrNull
-import site.lcyk.keer.util.stripCollaboratorTags
-import site.lcyk.keer.util.stripQuoteTags
-import site.lcyk.keer.util.toMemoQuotePreview
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
+import site.lcyk.keer.viewmodel.buildActiveMemoQuoteDescriptor
+import site.lcyk.keer.viewmodel.buildMemoEditorDirtyState
+import site.lcyk.keer.viewmodel.buildMemoEditorFieldsState
+import site.lcyk.keer.viewmodel.buildMemoEditorResourceIdentifiers
+import site.lcyk.keer.viewmodel.buildMemoEditorResolvedScreenState
+import site.lcyk.keer.viewmodel.buildMemoEditorRestoreState
+import site.lcyk.keer.viewmodel.buildRequestedLocalQuoteDescriptor
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 import kotlin.coroutines.resume
+
+private const val NEW_MEMO_EDITOR_SEED = "__new__"
 
 @Composable
 fun MemoInputPage(
@@ -102,79 +104,51 @@ fun MemoInputPage(
                 )
         }
     }
-    val existingQuoteDescriptor = remember(memo?.quoteSourceKind, memo?.quoteSource, memo?.tags) {
-        memo?.resolveMemoQuoteDescriptor()
-    }
+    var retainedMemo by remember(memoIdentifier) { mutableStateOf<site.lcyk.keer.data.local.entity.MemoEntity?>(null) }
+    val displayMemo = memo ?: retainedMemo
     val requestedQuoteDescriptor = remember(quoteSourceMemoIdentifier) {
-        val source = quoteSourceMemoIdentifier?.trim().orEmpty()
-        if (source.isEmpty()) {
-            null
-        } else {
-            MemoQuoteDescriptor(
-                sourceKind = MemoQuoteSourceKind.LOCAL,
-                source = source
-            )
-        }
+        buildRequestedLocalQuoteDescriptor(quoteSourceMemoIdentifier)
     }
-    val activeQuoteDescriptor = if (memo != null) existingQuoteDescriptor else requestedQuoteDescriptor
-    val quotedMemo = remember(activeQuoteDescriptor, memoSnapshot) {
-        val descriptor = activeQuoteDescriptor ?: return@remember null
-        memosViewModel.getMemoForDetail(descriptor.source)
-            ?: resolveMemoFromQuoteDescriptor(
-                descriptor = descriptor,
-                memos = memoSnapshot,
-            )
-    }
-    val quotePreview = remember(
-        quotedMemo?.content,
-        quotedMemo?.resources,
-        memo?.quoteStatus,
-        memo?.quoteContentPreview,
-        memo?.quoteDate,
-        memo?.quoteHasAttachments,
+    val editorResolvedScreenState = remember(
+        memoIdentifier,
+        memo,
+        displayMemo?.quoteSourceKind,
+        displayMemo?.quoteSource,
+        displayMemo?.quoteStatus,
+        displayMemo?.quoteContentPreview,
+        displayMemo?.quoteDate,
+        displayMemo?.quoteHasAttachments,
+        requestedQuoteDescriptor,
+        memoSnapshot,
     ) {
-        quotedMemo?.toMemoQuotePreview() ?: memo?.storedMemoQuotePreviewOrNull()
-    }
-    val quoteDescriptorForSubmit = remember(activeQuoteDescriptor, quotedMemo) {
-        quotedMemo?.let(::buildMemoQuoteDescriptor) ?: activeQuoteDescriptor
-    }
-    var initialContent by remember { mutableStateOf(memo?.content ?: "") }
-    var initialTags by remember {
-        mutableStateOf(
-            normalizeTagList(
-                stripQuoteTags(stripCollaboratorTags(memo?.tags ?: emptyList()))
-            )
+        buildMemoEditorResolvedScreenState(
+            hasTarget = !memoIdentifier.isNullOrBlank(),
+            liveValueAvailable = memo != null,
+            displayMemo = displayMemo,
+            requestedQuoteDescriptor = requestedQuoteDescriptor,
+            primaryQuotedMemo = buildActiveMemoQuoteDescriptor(
+                displayMemo = displayMemo,
+                requestedQuoteDescriptor = requestedQuoteDescriptor,
+            )?.source?.let(memosViewModel::getMemoForDetail),
+            memos = memoSnapshot,
         )
     }
-    var initialCollaborators by remember {
-        mutableStateOf(
-            memo?.tags
-                ?.let(::extractCollaboratorIds)
-                .orEmpty()
-                .map(::normalizeCollaboratorId)
-                .filter { it.isNotEmpty() }
-                .distinct()
-        )
+    val quotedMemo = editorResolvedScreenState.lookup.quotedMemo
+    val editorScreenState = editorResolvedScreenState.screen
+    val quotePreview = editorScreenState.quotePreview
+    val quoteDescriptorForSubmit = editorScreenState.quoteDescriptorForSubmit
+    val initialFields = editorScreenState.initialFields
+    var editorBaseline by remember {
+        mutableStateOf(initialFields.baseline)
     }
     var text by rememberSaveable(stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(memo?.content ?: "", TextRange(memo?.content?.length ?: 0)))
+        mutableStateOf(TextFieldValue(initialFields.content, TextRange(initialFields.content.length)))
     }
     var selectedTags by rememberSaveable {
-        mutableStateOf(
-            normalizeTagList(
-                stripQuoteTags(stripCollaboratorTags(memo?.tags ?: emptyList()))
-            )
-        )
+        mutableStateOf(initialFields.selectedTags)
     }
     var selectedCollaborators by rememberSaveable {
-        mutableStateOf(
-            memo?.tags
-                ?.let(::extractCollaboratorIds)
-                .orEmpty()
-                .map(::normalizeCollaboratorId)
-                .filter { it.isNotEmpty() }
-                .distinct()
-        )
+        mutableStateOf(initialFields.selectedCollaborators)
     }
     var showTagSelector by remember { mutableStateOf(false) }
     var showCollaboratorSelector by remember { mutableStateOf(false) }
@@ -198,15 +172,32 @@ fun MemoInputPage(
         )
     }
     var pendingSubmitAfterLocationPermission by remember { mutableStateOf(false) }
+    var editorSeed by rememberSaveable(memoIdentifier, quoteSourceMemoIdentifier) { mutableStateOf<String?>(null) }
+    val hydrationState = editorScreenState.hydrationState
+    val quotePreviewContent: (@Composable () -> Unit)? = if (quoteDescriptorForSubmit == null) {
+        null
+    } else {
+        {
+            MemoQuoteReferenceCard(
+                quotedMemo = quotePreview,
+                onClick = quotedMemo?.let { source ->
+                    {
+                        memosViewModel.cacheMemoForDetail(source)
+                        navController.navigateToMemoDetailPage(source.identifier)
+                    }
+                }
+            )
+        }
+    }
 
-    val resolvedVisibility = memo?.visibility ?: site.lcyk.keer.data.model.MemoVisibility.PRIVATE
+    val resolvedVisibility = displayMemo?.visibility ?: site.lcyk.keer.data.model.MemoVisibility.PRIVATE
 
     val validMimeTypePrefixes = remember {
         setOf("text/")
     }
 
     fun startLocationPrefetch(force: Boolean = false) {
-        if (memo != null || !hasLocationPermission(navController.context)) {
+        if (!memoIdentifier.isNullOrBlank() || displayMemo != null || !hasLocationPermission(navController.context)) {
             return
         }
 
@@ -269,9 +260,14 @@ fun MemoInputPage(
             normalizedSelectedCollaborators,
             quoteDescriptorForSubmit
         )
-        memo?.let {
+        val editingMemo = displayMemo
+        if (!memoIdentifier.isNullOrBlank()) {
+            val targetMemo = editingMemo ?: run {
+                snackbarState.showSnackbar(R.string.memo_not_found.string)
+                return@launch
+            }
             viewModel.editMemo(
-                identifier = memo.identifier,
+                identifier = targetMemo.identifier,
                 content = text.text,
                 visibility = resolvedVisibility,
                 tags = mergedTags
@@ -322,10 +318,14 @@ fun MemoInputPage(
             }
             return
         }
-        if (text.text != initialContent ||
-            normalizedSelectedTags != initialTags ||
-            normalizedSelectedCollaborators != initialCollaborators ||
-            viewModel.uploadResources.size != (memo?.resources?.size ?: 0)
+        val currentResourceIdentifiers = buildMemoEditorResourceIdentifiers(viewModel.uploadResources.toList())
+        if (buildMemoEditorDirtyState(
+                baseline = editorBaseline,
+                content = text.text,
+                selectedTags = normalizedSelectedTags,
+                selectedCollaborators = normalizedSelectedCollaborators,
+                resourceIdentifiers = currentResourceIdentifiers,
+            )
         ) {
             showExitConfirmation = true
         } else {
@@ -334,12 +334,19 @@ fun MemoInputPage(
     }
 
     fun uploadResource(uri: Uri) = coroutineScope.launch {
-        viewModel.upload(uri, memo?.identifier).suspendOnSuccess {
+        viewModel.upload(uri, memoIdentifier ?: displayMemo?.identifier).suspendOnSuccess {
             delay(300)
             focusRequester.requestFocus()
         }.suspendOnErrorMessage { message ->
             snackbarState.showSnackbar(message)
         }
+    }
+
+    fun applyFieldsState(fieldsState: site.lcyk.keer.viewmodel.MemoEditorFieldsState) {
+        text = TextFieldValue(fieldsState.content, TextRange(fieldsState.content.length))
+        selectedTags = fieldsState.selectedTags
+        selectedCollaborators = fieldsState.selectedCollaborators
+        editorBaseline = fieldsState.baseline
     }
 
     val pickImage = rememberLauncherForActivityResult(OpenDocument()) { uri ->
@@ -395,7 +402,7 @@ fun MemoInputPage(
     val pickAttachment = rememberLauncherForActivityResult(OpenDocument()) { uri ->
         uri?.let {
             coroutineScope.launch {
-                viewModel.upload(it, memo?.identifier).suspendOnErrorMessage { message ->
+                viewModel.upload(it, memoIdentifier ?: displayMemo?.identifier).suspendOnErrorMessage { message ->
                     snackbarState.showSnackbar(message)
                 }
             }
@@ -403,7 +410,7 @@ fun MemoInputPage(
     }
 
     fun attemptSubmit() {
-        if (memo == null && !hasLocationPermission(navController.context)) {
+        if (memoIdentifier.isNullOrBlank() && displayMemo == null && !hasLocationPermission(navController.context)) {
             pendingSubmitAfterLocationPermission = true
             requestLocationPermissions.launch(locationPermissions)
         } else {
@@ -419,7 +426,7 @@ fun MemoInputPage(
         modifier = Modifier.imePadding(),
         topBar = {
             MemoInputTopBar(
-                isEditMode = memo != null,
+                isEditMode = !memoIdentifier.isNullOrBlank(),
                 canSubmit = (text.text.isNotEmpty() || viewModel.uploadResources.isNotEmpty()) && !viewModel.hasActiveUpload(),
                 onClose = { handleExit() },
                 onSubmit = { attemptSubmit() }
@@ -474,48 +481,43 @@ fun MemoInputPage(
             SnackbarHost(hostState = snackbarState)
         }
     ) { innerPadding ->
-        MemoInputEditor(
-            modifier = Modifier.padding(innerPadding),
-            text = text,
-            onTextChange = { updated ->
-                if (
-                    text.text != updated.text &&
-                    updated.selection.start == updated.selection.end &&
-                    updated.text.length == text.text.length + 1 &&
-                    updated.selection.start > 0 &&
-                    updated.text[updated.selection.start - 1] == '\n'
-                ) {
-                    val handled = handleEnterInText(text)
-                    if (handled != null) {
-                        text = handled
-                        return@MemoInputEditor
-                    }
-                }
-                text = updated
-            },
-            focusRequester = focusRequester,
-            quotePreview = quoteDescriptorForSubmit?.let {
-                {
-                    MemoQuoteReferenceCard(
-                        quotedMemo = quotePreview,
-                        onClick = quotedMemo?.let { source ->
-                            {
-                                memosViewModel.cacheMemoForDetail(source)
-                                navController.navigateToMemoDetailPage(source.identifier)
-                            }
+        Box(modifier = Modifier.padding(innerPadding)) {
+            MemoInputEditor(
+                text = text,
+                onTextChange = onTextChange@{ updated ->
+                    if (
+                        text.text != updated.text &&
+                        updated.selection.start == updated.selection.end &&
+                        updated.text.length == text.text.length + 1 &&
+                        updated.selection.start > 0 &&
+                        updated.text[updated.selection.start - 1] == '\n'
+                    ) {
+                        val handled = handleEnterInText(text)
+                        if (handled != null) {
+                            text = handled
+                            return@onTextChange
                         }
-                    )
-                }
-            },
-            validMimeTypePrefixes = validMimeTypePrefixes,
-            onDroppedText = { droppedText ->
-                text = text.copy(text = text.text + droppedText)
-            },
-            uploadResources = viewModel.uploadResources.toList(),
-            inputViewModel = viewModel,
-            uploadTasks = viewModel.uploadTasks.toList(),
-            onDismissUploadTask = { taskId -> viewModel.dismissUploadTask(taskId) }
-        )
+                    }
+                    text = updated
+                },
+                focusRequester = focusRequester,
+                quotePreview = quotePreviewContent,
+                validMimeTypePrefixes = validMimeTypePrefixes,
+                onDroppedText = { droppedText ->
+                    text = text.copy(text = text.text + droppedText)
+                },
+                uploadResources = viewModel.uploadResources.toList(),
+                inputViewModel = viewModel,
+                uploadTasks = viewModel.uploadTasks.toList(),
+                onDismissUploadTask = { taskId -> viewModel.dismissUploadTask(taskId) }
+            )
+            SurfaceHydrationLine(
+                hydrationState = hydrationState,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
     }
 
     if (showTagSelector) {
@@ -555,33 +557,44 @@ fun MemoInputPage(
         )
     }
 
-    LaunchedEffect(Unit) {
-        viewModel.uploadResources.clear()
-        viewModel.uploadTasks.clear()
+    LaunchedEffect(memo?.identifier, memo?.content, memo?.date, memo?.lastModified) {
+        if (memo != null) {
+            retainedMemo = memo
+        }
+    }
+
+    LaunchedEffect(memoIdentifier, quoteSourceMemoIdentifier, displayMemo?.identifier, displayMemo?.lastModified) {
         memosViewModel.loadTags()
         userStateViewModel.refreshFriends()
         when {
-            memo != null -> {
-                viewModel.uploadResources.addAll(memo.resources)
-                initialContent = memo.content
-                val strippedTags = normalizeTagList(
-                    stripQuoteTags(stripCollaboratorTags(memo.tags))
+            !memoIdentifier.isNullOrBlank() -> {
+                val targetMemo = displayMemo ?: return@LaunchedEffect
+                val nextSeed = "${targetMemo.identifier}:${targetMemo.lastModified.toEpochMilli()}"
+                if (editorSeed == nextSeed) {
+                    return@LaunchedEffect
+                }
+                viewModel.uploadResources.clear()
+                viewModel.uploadTasks.clear()
+                viewModel.uploadResources.addAll(targetMemo.resources)
+                val restoreState = buildMemoEditorRestoreState(
+                    memo = targetMemo,
+                    resourceIdentifiers = buildMemoEditorResourceIdentifiers(viewModel.uploadResources.toList()),
                 )
-                val collaboratorIds = memo.tags
-                    .let(::extractCollaboratorIds)
-                    .map(::normalizeCollaboratorId)
-                    .filter { it.isNotEmpty() }
-                    .distinct()
-                initialTags = strippedTags
-                initialCollaborators = collaboratorIds
-                selectedTags = strippedTags
-                selectedCollaborators = collaboratorIds
+                applyFieldsState(buildMemoEditorFieldsState(restoreState))
+                editorSeed = nextSeed
             }
 
-            else -> {
-                viewModel.draft.first()?.let {
-                    text = TextFieldValue(it, TextRange(it.length))
-                }
+            editorSeed != NEW_MEMO_EDITOR_SEED -> {
+                viewModel.uploadResources.clear()
+                viewModel.uploadTasks.clear()
+                val restoredDraft = viewModel.draft.first().orEmpty()
+                val restoreState = buildMemoEditorRestoreState(
+                    content = restoredDraft,
+                    tags = emptyList(),
+                    collaboratorIds = emptyList(),
+                )
+                applyFieldsState(buildMemoEditorFieldsState(restoreState))
+                editorSeed = NEW_MEMO_EDITOR_SEED
             }
         }
         startLocationPrefetch(force = true)
@@ -592,7 +605,7 @@ fun MemoInputPage(
     DisposableEffect(Unit) {
         onDispose {
             stopLocationTracking?.invoke()
-            if (memo == null) {
+            if (memoIdentifier.isNullOrBlank()) {
                 viewModel.updateDraft(text.text)
             }
         }

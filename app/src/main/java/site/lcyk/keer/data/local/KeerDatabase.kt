@@ -10,6 +10,7 @@ import androidx.sqlite.db.SimpleSQLiteQuery
 import androidx.sqlite.db.SupportSQLiteDatabase
 import site.lcyk.keer.data.local.dao.MemoDao
 import site.lcyk.keer.data.local.dao.OfflineGroupDao
+import site.lcyk.keer.data.local.dao.UiSurfaceSnapshotDao
 import site.lcyk.keer.data.local.entity.MemoTagCrossRef
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.OfflineCachedGroupMemoEntity
@@ -22,6 +23,7 @@ import site.lcyk.keer.data.local.entity.OfflinePendingGroupOperationEntity
 import site.lcyk.keer.data.local.entity.OfflinePinnedGroupMemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.local.entity.TagEntity
+import site.lcyk.keer.data.local.entity.UiSurfaceSnapshotEntity
 
 @Database(
     entities = [
@@ -37,13 +39,15 @@ import site.lcyk.keer.data.local.entity.TagEntity
         OfflineCachedGroupMemoEntity::class,
         OfflineCachedGroupTagEntity::class,
         OfflinePinnedGroupMemoEntity::class,
+        UiSurfaceSnapshotEntity::class,
     ],
-    version = 16
+    version = 17
 )
 @TypeConverters(Converters::class)
 abstract class KeerDatabase : RoomDatabase() {
     abstract fun memoDao(): MemoDao
     abstract fun offlineGroupDao(): OfflineGroupDao
+    abstract fun uiSurfaceSnapshotDao(): UiSurfaceSnapshotDao
 
     companion object {
         @Volatile
@@ -71,6 +75,7 @@ abstract class KeerDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_13_14)
                     .addMigrations(MIGRATION_14_15)
                     .addMigrations(MIGRATION_15_16)
+                    .addMigrations(MIGRATION_16_17)
                     .build()
                 INSTANCE = instance
                 instance
@@ -431,6 +436,34 @@ abstract class KeerDatabase : RoomDatabase() {
                         """.trimIndent()
                     )
                 }
+            }
+        }
+
+        private val MIGRATION_16_17: Migration = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS ui_surface_snapshots (
+                        accountKey TEXT NOT NULL,
+                        surfaceKey TEXT NOT NULL,
+                        payloadJson TEXT NOT NULL,
+                        updatedAtEpochMillis INTEGER NOT NULL,
+                        PRIMARY KEY(accountKey, surfaceKey)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS index_ui_surface_snapshots_accountKey
+                    ON ui_surface_snapshots(accountKey)
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS index_ui_surface_snapshots_accountKey_updatedAtEpochMillis
+                    ON ui_surface_snapshots(accountKey, updatedAtEpochMillis)
+                    """.trimIndent()
+                )
             }
         }
 

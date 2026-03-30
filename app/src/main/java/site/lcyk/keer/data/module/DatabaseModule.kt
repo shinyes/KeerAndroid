@@ -9,6 +9,7 @@ import dagger.hilt.components.SingletonComponent
 import site.lcyk.keer.data.local.FileStorage
 import site.lcyk.keer.data.local.KeerDatabase
 import site.lcyk.keer.data.local.dao.MemoDao
+import site.lcyk.keer.data.local.dao.UiSurfaceSnapshotDao
 import site.lcyk.keer.data.repository.LocalDatabaseRepository
 import javax.inject.Singleton
 
@@ -25,6 +26,12 @@ object DatabaseModule {
     @Singleton
     @Provides
     fun provideMemoDao(database: KeerDatabase) = database.memoDao()
+
+    @Singleton
+    @Provides
+    fun provideUiSurfaceSnapshotDao(database: KeerDatabase): UiSurfaceSnapshotDao {
+        return database.uiSurfaceSnapshotDao()
+    }
 
     @Singleton
     @Provides

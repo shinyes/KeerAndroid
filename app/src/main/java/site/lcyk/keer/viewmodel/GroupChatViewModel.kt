@@ -10,6 +10,10 @@ import java.time.Instant
 import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +24,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.data.local.entity.ResourceEntity
+import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.CachedMemoItem
@@ -49,16 +54,21 @@ import site.lcyk.keer.util.resolveAvatarUrl
 import site.lcyk.keer.util.toMemoEntityForCard
 
 @HiltViewModel
+@OptIn(ExperimentalCoroutinesApi::class)
 class GroupChatViewModel @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val accountService: AccountService,
     private val accountLocalSettingsStore: AccountLocalSettingsStore,
     private val offlineGroupStore: OfflineGroupStore,
     private val memoService: MemoService,
+    private val uiProjectionEngine: UiProjectionEngine,
     private val uiInteractionGate: UiInteractionGate,
 ) : ViewModel() {
     private val lastGroupSyncAtMillis = mutableMapOf<String, Long>()
     private val lastGroupTagFetchAtMillis = mutableMapOf<String, Long>()
+    private var activeGroupId: String? = null
+    private val activeGroupIdFlow = MutableStateFlow<String?>(null)
+    private var placeholderGuardUntilMillis: Long = 0L
     private val snapshotStore = InteractionSnapshotStore(
         scope = viewModelScope,
         initialState = GroupChatUiState(),
@@ -75,11 +85,86 @@ class GroupChatViewModel @Inject constructor(
             .map { it.resolvedQuoteByMemoId }
             .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyMap())
 
+    private val currentAccountKeyFlow: StateFlow<String> =
+        accountService.currentAccount
+            .map { account -> account?.accountKey().orEmpty() }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, "")
+
+    private val currentUserIdFlow: StateFlow<String> =
+        accountService.currentAccount
+            .map { account ->
+                when (account) {
+                    is Account.KeerV2 -> account.info.id.toString()
+                    is Account.Local -> "local"
+                    null -> ""
+                }
+            }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, "")
+
+    val visibleCardItems: StateFlow<List<GroupChatCardUiModel>> =
+        combine(
+            snapshotStore.visibleState,
+            activeGroupIdFlow,
+            currentAccountKeyFlow,
+            currentUserIdFlow,
+        ) { state, groupId, accountKey, currentUserId ->
+            GroupCardProjectionFallbackInput(
+                state = state,
+                groupId = groupId,
+                accountKey = accountKey,
+                currentUserId = currentUserId,
+            )
+        }
+            .mapLatest { input ->
+                val groupId = input.groupId
+                if (input.state.cardItems.isNotEmpty() || input.state.memos.isEmpty() || groupId.isNullOrBlank()) {
+                    input.state.cardItems
+                } else {
+                    withContext(Dispatchers.Default) {
+                        val memoEntities = input.state.memos.map { memo ->
+                            memo.toGroupMemoEntity(
+                                accountKey = input.accountKey,
+                                groupId = groupId,
+                            )
+                        }
+                        buildGroupChatCardUiModels(
+                            memos = input.state.memos,
+                            memoEntities = memoEntities,
+                            resolvedQuoteByMemoId = input.state.resolvedQuoteByMemoId,
+                            canManage = { memo -> canManageGroupMemo(memo, input.currentUserId) },
+                        )
+                    }
+                }
+            }
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
+
+    val visibleCardListState: StateFlow<CardListUiState<GroupChatCardUiModel>> =
+        visibleCardItems
+            .map(::buildGroupChatCardListUiState)
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, CardListUiState())
+
+    val visiblePrefetchMemos: StateFlow<List<MemoEntity>> =
+        visibleCardListState
+            .map { state -> state.prefetchMemos }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
+
+    val visiblePrefetchCollaboratorIds: StateFlow<List<String>> =
+        visibleCardListState
+            .map { state -> state.collaboratorIdsToPrefetch }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, emptyList())
+
     private val _loading = MutableStateFlow(false)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+    private val _hydrationState = MutableStateFlow(UiHydrationState())
+    val hydrationState: StateFlow<UiHydrationState> = _hydrationState.asStateFlow()
 
     private val _groupTags = MutableStateFlow<List<String>>(emptyList())
     val groupTags: StateFlow<List<String>> = _groupTags.asStateFlow()
@@ -93,6 +178,7 @@ class GroupChatViewModel @Inject constructor(
     }
 
     suspend fun loadGroupMemos(groupId: String, forceSync: Boolean = false) = withContext(viewModelScope.coroutineContext) {
+        maybeRestoreGroupSnapshot(groupId)
         val localState = readLocalState(groupId)
         publishGroupUiState(
             groupId,
@@ -812,11 +898,84 @@ class GroupChatViewModel @Inject constructor(
         val resolvedQuotes = withContext(Dispatchers.Default) {
             buildResolvedMemoQuoteMap(quoteCandidates)
         }
-        snapshotStore.updateLiveState(
-            GroupChatUiState(
+        val currentUserId = currentUserIdFlow.value
+        val cardItems = withContext(Dispatchers.Default) {
+            buildGroupChatCardUiModels(
                 memos = groupMemos,
+                memoEntities = quoteCandidates,
                 resolvedQuoteByMemoId = resolvedQuotes,
+                canManage = { memo -> canManageGroupMemo(memo, currentUserId) },
             )
+        }
+        val uiState = GroupChatUiState(
+            memos = groupMemos,
+            resolvedQuoteByMemoId = resolvedQuotes,
+            cardItems = cardItems,
+        )
+        if (shouldSkipPlaceholderCommit(groupId, uiState)) {
+            return
+        }
+        snapshotStore.updateLiveState(uiState)
+        if (accountKey.isNotBlank()) {
+            uiProjectionEngine.saveGroupChatSnapshot(accountKey, groupId, uiState)
+        }
+        _hydrationState.value = buildHydrationState(
+            hasWarmSnapshot = true,
+            isHydrating = false,
+        )
+    }
+
+    private suspend fun maybeRestoreGroupSnapshot(groupId: String) {
+        if (groupId == activeGroupId) {
+            activeGroupIdFlow.value = groupId
+            return
+        }
+        activeGroupId = groupId
+        activeGroupIdFlow.value = groupId
+        placeholderGuardUntilMillis = 0L
+        val accountKey = readCurrentAccountKey().orEmpty()
+        if (accountKey.isBlank()) {
+            snapshotStore.restoreSnapshot(GroupChatUiState())
+            _hydrationState.value = UiHydrationState(isHydrating = false)
+            return
+        }
+
+        val snapshot = uiProjectionEngine.readGroupChatSnapshot(accountKey, groupId)
+        val now = System.currentTimeMillis()
+        if (snapshot != null) {
+            snapshotStore.restoreSnapshot(snapshot.state)
+            placeholderGuardUntilMillis = now + WARM_PLACEHOLDER_GUARD_MILLIS
+            _hydrationState.value = buildHydrationState(
+                snapshotAgeMillis = now - snapshot.updatedAtEpochMillis,
+                hasWarmSnapshot = true,
+                isHydrating = true,
+            )
+        } else {
+            snapshotStore.restoreSnapshot(GroupChatUiState())
+            _hydrationState.value = UiHydrationState(isHydrating = true)
+        }
+    }
+
+    private fun shouldSkipPlaceholderCommit(
+        groupId: String,
+        state: GroupChatUiState,
+    ): Boolean {
+        return groupId == activeGroupId &&
+            placeholderGuardUntilMillis > System.currentTimeMillis() &&
+            state.memos.isEmpty() &&
+            state.resolvedQuoteByMemoId.isEmpty()
+    }
+
+    private fun buildHydrationState(
+        snapshotAgeMillis: Long? = null,
+        hasWarmSnapshot: Boolean,
+        isHydrating: Boolean,
+    ): UiHydrationState {
+        return UiHydrationState(
+            snapshotAgeMillis = snapshotAgeMillis,
+            isHydrating = isHydrating,
+            isStale = snapshotAgeMillis?.let { it > STALE_WARM_SNAPSHOT_MILLIS } == true,
+            hasWarmSnapshot = hasWarmSnapshot,
         )
     }
 
@@ -825,6 +984,8 @@ class GroupChatViewModel @Inject constructor(
         private const val GROUP_PENDING_SYNC_INTERVAL_MILLIS = 20_000L
         private const val GROUP_TAG_FETCH_INTERVAL_MILLIS = 120_000L
         private const val SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS = 300L
+        private const val WARM_PLACEHOLDER_GUARD_MILLIS = 1_200L
+        private const val STALE_WARM_SNAPSHOT_MILLIS = 120_000L
     }
 }
 
@@ -852,3 +1013,10 @@ private fun Memo.toGroupMemoEntity(
         needsSync = remoteId.startsWith("local:"),
     )
 }
+
+private data class GroupCardProjectionFallbackInput(
+    val state: GroupChatUiState,
+    val groupId: String?,
+    val accountKey: String,
+    val currentUserId: String,
+)

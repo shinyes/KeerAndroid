@@ -21,19 +21,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
-import site.lcyk.keer.ext.getErrorMessage
-import site.lcyk.keer.data.local.entity.MemoEntity
-import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ui.component.MemosCardActionButton
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.page.common.PageScaffold
 import site.lcyk.keer.ui.page.memoinput.QuickMemoComposer
-import site.lcyk.keer.util.normalizeTagName
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 
@@ -47,22 +45,36 @@ fun ColumnMemoPage(
     val listState = rememberLazyListState()
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
-    val generalSettings by userStateViewModel.generalSettings.collectAsState()
-    val personalMemos by memosViewModel.visibleMemos.collectAsState()
+    val generalSettings by userStateViewModel.generalSettings.collectAsStateWithLifecycle()
     val column = remember(generalSettings, columnId) {
         generalSettings.memoColumns.firstOrNull { column -> column.id == columnId }
     }
     val scope = rememberCoroutineScope()
-    val filteredMemos = remember(personalMemos, column) {
-        val requiredTags = column?.requiredTags.orEmpty()
-        val pinnedMemoIds = column?.pinnedMemoRemoteIds.orEmpty().toSet()
-        personalMemos.filter { memo ->
-            memo.visibility == MemoVisibility.PRIVATE &&
-                memoMatchesColumn(memo, requiredTags)
-        }.map { memo ->
-            memo.withColumnPinned(pinnedMemoIds.contains(memo.remoteId))
-        }
+    val filteredMemoCardListStateFlow = remember(
+        memosViewModel,
+        column?.id,
+        column?.requiredTags,
+        column?.pinnedMemoRemoteIds,
+    ) {
+        memosViewModel.observeMemoCardListStateForColumn(
+            requiredTags = column?.requiredTags.orEmpty(),
+            pinnedMemoRemoteIds = column?.pinnedMemoRemoteIds.orEmpty().toSet(),
+        )
     }
+    val initialFilteredMemoCardListState = remember(
+        memosViewModel,
+        column?.id,
+        column?.requiredTags,
+        column?.pinnedMemoRemoteIds,
+    ) {
+        memosViewModel.currentMemoCardListStateForColumn(
+            requiredTags = column?.requiredTags.orEmpty(),
+            pinnedMemoRemoteIds = column?.pinnedMemoRemoteIds.orEmpty().toSet(),
+        )
+    }
+    val filteredMemoCardListState by filteredMemoCardListStateFlow.collectAsStateWithLifecycle(
+        initialValue = initialFilteredMemoCardListState
+    )
     val expandedFab by remember {
         derivedStateOf { listState.firstVisibleItemIndex == 0 }
     }
@@ -107,7 +119,9 @@ fun ColumnMemoPage(
                 MemosList(
                     contentPadding = innerPadding,
                     lazyListState = listState,
-                    memos = filteredMemos,
+                    memoCards = filteredMemoCardListState.cards,
+                    prefetchMemoEntities = filteredMemoCardListState.prefetchMemos,
+                    collaboratorIdsToPrefetch = filteredMemoCardListState.collaboratorIdsToPrefetch,
                     onRefresh = { requestManualSync() },
                     actionButton = { memo ->
                         MemosCardActionButton(
@@ -164,29 +178,4 @@ fun ColumnMemoPage(
         alert = syncAlert,
         onDismiss = { syncAlert = null }
     )
-}
-
-private fun MemoEntity.withColumnPinned(columnPinned: Boolean): MemoEntity {
-    if (pinned == columnPinned) {
-        return this
-    }
-    return copy(pinned = columnPinned).also { copied ->
-        copied.resources = resources
-        copied.tags = tags
-    }
-}
-
-private fun memoMatchesColumn(
-    memo: MemoEntity,
-    requiredTags: List<String>
-): Boolean {
-    if (requiredTags.isEmpty()) {
-        return true
-    }
-    return requiredTags.all { rawTag ->
-        val requiredTag = normalizeTagName(rawTag)
-        requiredTag.isNotEmpty() && memo.tags.any { memoTag ->
-            memoTag == requiredTag || memoTag.startsWith("$requiredTag/")
-        }
-    }
 }

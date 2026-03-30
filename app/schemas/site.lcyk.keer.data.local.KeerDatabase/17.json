@@ -1,0 +1,1097 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 17,
+    "identityHash": "1c116974930c17042aa8e0a8e0905e05",
+    "entities": [
+      {
+        "tableName": "memos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`identifier` TEXT NOT NULL, `remoteId` TEXT, `accountKey` TEXT NOT NULL, `content` TEXT NOT NULL, `date` INTEGER NOT NULL, `visibility` TEXT NOT NULL, `pinned` INTEGER NOT NULL, `archived` INTEGER NOT NULL, `latitude` REAL, `longitude` REAL, `quoteSourceKind` TEXT, `quoteSource` TEXT, `quoteStatus` TEXT, `quoteContentPreview` TEXT, `quoteDate` INTEGER, `quoteHasAttachments` INTEGER NOT NULL, `needsSync` INTEGER NOT NULL, `isDeleted` INTEGER NOT NULL, `lastModified` INTEGER NOT NULL, `lastSyncedAt` INTEGER, PRIMARY KEY(`identifier`))",
+        "fields": [
+          {
+            "fieldPath": "identifier",
+            "columnName": "identifier",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteId",
+            "columnName": "remoteId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "accountKey",
+            "columnName": "accountKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "date",
+            "columnName": "date",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "visibility",
+            "columnName": "visibility",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pinned",
+            "columnName": "pinned",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "archived",
+            "columnName": "archived",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "latitude",
+            "columnName": "latitude",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "longitude",
+            "columnName": "longitude",
+            "affinity": "REAL"
+          },
+          {
+            "fieldPath": "quoteSourceKind",
+            "columnName": "quoteSourceKind",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "quoteSource",
+            "columnName": "quoteSource",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "quoteStatus",
+            "columnName": "quoteStatus",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "quoteContentPreview",
+            "columnName": "quoteContentPreview",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "quoteDate",
+            "columnName": "quoteDate",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "quoteHasAttachments",
+            "columnName": "quoteHasAttachments",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "needsSync",
+            "columnName": "needsSync",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isDeleted",
+            "columnName": "isDeleted",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastModified",
+            "columnName": "lastModified",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSyncedAt",
+            "columnName": "lastSyncedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "identifier"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_memos_accountKey",
+            "unique": false,
+            "columnNames": [
+              "accountKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memos_accountKey` ON `${TABLE_NAME}` (`accountKey`)"
+          },
+          {
+            "name": "index_memos_accountKey_remoteId",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "remoteId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memos_accountKey_remoteId` ON `${TABLE_NAME}` (`accountKey`, `remoteId`)"
+          },
+          {
+            "name": "index_memos_accountKey_needsSync",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "needsSync"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memos_accountKey_needsSync` ON `${TABLE_NAME}` (`accountKey`, `needsSync`)"
+          },
+          {
+            "name": "index_memos_accountKey_lastModified",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "lastModified"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memos_accountKey_lastModified` ON `${TABLE_NAME}` (`accountKey`, `lastModified`)"
+          },
+          {
+            "name": "index_memos_accountKey_lastSyncedAt",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "lastSyncedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memos_accountKey_lastSyncedAt` ON `${TABLE_NAME}` (`accountKey`, `lastSyncedAt`)"
+          },
+          {
+            "name": "index_memos_accountKey_isDeleted_needsSync",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "isDeleted",
+              "needsSync"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memos_accountKey_isDeleted_needsSync` ON `${TABLE_NAME}` (`accountKey`, `isDeleted`, `needsSync`)"
+          },
+          {
+            "name": "index_memos_accountKey_archived_isDeleted_pinned_date",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "archived",
+              "isDeleted",
+              "pinned",
+              "date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memos_accountKey_archived_isDeleted_pinned_date` ON `${TABLE_NAME}` (`accountKey`, `archived`, `isDeleted`, `pinned`, `date`)"
+          }
+        ]
+      },
+      {
+        "tableName": "resources",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`identifier` TEXT NOT NULL, `remoteId` TEXT, `accountKey` TEXT NOT NULL, `date` INTEGER NOT NULL, `filename` TEXT NOT NULL, `uri` TEXT NOT NULL, `localUri` TEXT, `mimeType` TEXT, `encryptionMetadata` TEXT, `thumbnailUri` TEXT, `thumbnailLocalUri` TEXT, `memoId` TEXT, PRIMARY KEY(`identifier`), FOREIGN KEY(`memoId`) REFERENCES `memos`(`identifier`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "identifier",
+            "columnName": "identifier",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteId",
+            "columnName": "remoteId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "accountKey",
+            "columnName": "accountKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "date",
+            "columnName": "date",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "filename",
+            "columnName": "filename",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "uri",
+            "columnName": "uri",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localUri",
+            "columnName": "localUri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "mimeType",
+            "columnName": "mimeType",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "encryptionMetadata",
+            "columnName": "encryptionMetadata",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbnailUri",
+            "columnName": "thumbnailUri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "thumbnailLocalUri",
+            "columnName": "thumbnailLocalUri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "memoId",
+            "columnName": "memoId",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "identifier"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_resources_memoId",
+            "unique": false,
+            "columnNames": [
+              "memoId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_resources_memoId` ON `${TABLE_NAME}` (`memoId`)"
+          },
+          {
+            "name": "index_resources_accountKey",
+            "unique": false,
+            "columnNames": [
+              "accountKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_resources_accountKey` ON `${TABLE_NAME}` (`accountKey`)"
+          },
+          {
+            "name": "index_resources_accountKey_remoteId",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "remoteId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_resources_accountKey_remoteId` ON `${TABLE_NAME}` (`accountKey`, `remoteId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "memos",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "memoId"
+            ],
+            "referencedColumns": [
+              "identifier"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "tags",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountKey` TEXT NOT NULL, `name` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`accountKey`, `name`))",
+        "fields": [
+          {
+            "fieldPath": "accountKey",
+            "columnName": "accountKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountKey",
+            "name"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_tags_accountKey",
+            "unique": false,
+            "columnNames": [
+              "accountKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_tags_accountKey` ON `${TABLE_NAME}` (`accountKey`)"
+          },
+          {
+            "name": "index_tags_accountKey_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_tags_accountKey_updatedAt` ON `${TABLE_NAME}` (`accountKey`, `updatedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "memo_tags",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`memoId` TEXT NOT NULL, `accountKey` TEXT NOT NULL, `tagName` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`memoId`, `accountKey`, `tagName`), FOREIGN KEY(`memoId`) REFERENCES `memos`(`identifier`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`accountKey`, `tagName`) REFERENCES `tags`(`accountKey`, `name`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "memoId",
+            "columnName": "memoId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountKey",
+            "columnName": "accountKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tagName",
+            "columnName": "tagName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "memoId",
+            "accountKey",
+            "tagName"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_memo_tags_memoId",
+            "unique": false,
+            "columnNames": [
+              "memoId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memo_tags_memoId` ON `${TABLE_NAME}` (`memoId`)"
+          },
+          {
+            "name": "index_memo_tags_tagName",
+            "unique": false,
+            "columnNames": [
+              "tagName"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memo_tags_tagName` ON `${TABLE_NAME}` (`tagName`)"
+          },
+          {
+            "name": "index_memo_tags_accountKey",
+            "unique": false,
+            "columnNames": [
+              "accountKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memo_tags_accountKey` ON `${TABLE_NAME}` (`accountKey`)"
+          },
+          {
+            "name": "index_memo_tags_accountKey_tagName",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "tagName"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memo_tags_accountKey_tagName` ON `${TABLE_NAME}` (`accountKey`, `tagName`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "memos",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "memoId"
+            ],
+            "referencedColumns": [
+              "identifier"
+            ]
+          },
+          {
+            "table": "tags",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "accountKey",
+              "tagName"
+            ],
+            "referencedColumns": [
+              "accountKey",
+              "name"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "offline_groups",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountKey` TEXT NOT NULL, `groupId` TEXT NOT NULL, `name` TEXT NOT NULL, `description` TEXT NOT NULL, `creatorId` TEXT NOT NULL, `creatorName` TEXT NOT NULL, `groupType` TEXT NOT NULL, `hasUnreadMessages` INTEGER NOT NULL, `createdAtEpochMillis` INTEGER NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`accountKey`, `groupId`))",
+        "fields": [
+          {
+            "fieldPath": "accountKey",
+            "columnName": "accountKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "creatorId",
+            "columnName": "creatorId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "creatorName",
+            "columnName": "creatorName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupType",
+            "columnName": "groupType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hasUnreadMessages",
+            "columnName": "hasUnreadMessages",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMillis",
+            "columnName": "createdAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMillis",
+            "columnName": "updatedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountKey",
+            "groupId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_offline_groups_accountKey",
+            "unique": false,
+            "columnNames": [
+              "accountKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_offline_groups_accountKey` ON `${TABLE_NAME}` (`accountKey`)"
+          },
+          {
+            "name": "index_offline_groups_accountKey_createdAtEpochMillis",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "createdAtEpochMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_offline_groups_accountKey_createdAtEpochMillis` ON `${TABLE_NAME}` (`accountKey`, `createdAtEpochMillis`)"
+          },
+          {
+            "name": "index_offline_groups_accountKey_updatedAtEpochMillis",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "updatedAtEpochMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_offline_groups_accountKey_updatedAtEpochMillis` ON `${TABLE_NAME}` (`accountKey`, `updatedAtEpochMillis`)"
+          }
+        ]
+      },
+      {
+        "tableName": "offline_group_members",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountKey` TEXT NOT NULL, `groupId` TEXT NOT NULL, `userId` TEXT NOT NULL, `userName` TEXT NOT NULL, PRIMARY KEY(`accountKey`, `groupId`, `userId`))",
+        "fields": [
+          {
+            "fieldPath": "accountKey",
+            "columnName": "accountKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userName",
+            "columnName": "userName",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountKey",
+            "groupId",
+            "userId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_offline_group_members_accountKey_groupId",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "groupId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_offline_group_members_accountKey_groupId` ON `${TABLE_NAME}` (`accountKey`, `groupId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "offline_group_aliases",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountKey` TEXT NOT NULL, `localId` TEXT NOT NULL, `remoteId` TEXT NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`accountKey`, `localId`, `remoteId`))",
+        "fields": [
+          {
+            "fieldPath": "accountKey",
+            "columnName": "accountKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localId",
+            "columnName": "localId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteId",
+            "columnName": "remoteId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMillis",
+            "columnName": "updatedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountKey",
+            "localId",
+            "remoteId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_offline_group_aliases_accountKey",
+            "unique": false,
+            "columnNames": [
+              "accountKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_offline_group_aliases_accountKey` ON `${TABLE_NAME}` (`accountKey`)"
+          },
+          {
+            "name": "index_offline_group_aliases_accountKey_updatedAtEpochMillis",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "updatedAtEpochMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_offline_group_aliases_accountKey_updatedAtEpochMillis` ON `${TABLE_NAME}` (`accountKey`, `updatedAtEpochMillis`)"
+          }
+        ]
+      },
+      {
+        "tableName": "offline_pending_group_operations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountKey` TEXT NOT NULL, `operationId` TEXT NOT NULL, `type` TEXT NOT NULL, `groupId` TEXT NOT NULL, `name` TEXT, `description` TEXT, `tag` TEXT, `createdAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`accountKey`, `operationId`))",
+        "fields": [
+          {
+            "fieldPath": "accountKey",
+            "columnName": "accountKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operationId",
+            "columnName": "operationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "tag",
+            "columnName": "tag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAtEpochMillis",
+            "columnName": "createdAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountKey",
+            "operationId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_offline_pending_group_operations_accountKey_createdAtEpochMillis",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "createdAtEpochMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_offline_pending_group_operations_accountKey_createdAtEpochMillis` ON `${TABLE_NAME}` (`accountKey`, `createdAtEpochMillis`)"
+          },
+          {
+            "name": "index_offline_pending_group_operations_accountKey_groupId",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "groupId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_offline_pending_group_operations_accountKey_groupId` ON `${TABLE_NAME}` (`accountKey`, `groupId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "offline_pending_group_memos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountKey` TEXT NOT NULL, `localId` TEXT NOT NULL, `groupId` TEXT NOT NULL, `content` TEXT NOT NULL, `tagsJson` TEXT NOT NULL, `creatorId` TEXT NOT NULL, `creatorName` TEXT NOT NULL, `creatorAvatarUrl` TEXT, `createdAtEpochMillis` INTEGER NOT NULL, `resourceIdsJson` TEXT NOT NULL, PRIMARY KEY(`accountKey`, `groupId`, `localId`))",
+        "fields": [
+          {
+            "fieldPath": "accountKey",
+            "columnName": "accountKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localId",
+            "columnName": "localId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tagsJson",
+            "columnName": "tagsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "creatorId",
+            "columnName": "creatorId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "creatorName",
+            "columnName": "creatorName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "creatorAvatarUrl",
+            "columnName": "creatorAvatarUrl",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAtEpochMillis",
+            "columnName": "createdAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "resourceIdsJson",
+            "columnName": "resourceIdsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountKey",
+            "groupId",
+            "localId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_offline_pending_group_memos_accountKey_createdAtEpochMillis",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "createdAtEpochMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_offline_pending_group_memos_accountKey_createdAtEpochMillis` ON `${TABLE_NAME}` (`accountKey`, `createdAtEpochMillis`)"
+          },
+          {
+            "name": "index_offline_pending_group_memos_accountKey_groupId",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "groupId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_offline_pending_group_memos_accountKey_groupId` ON `${TABLE_NAME}` (`accountKey`, `groupId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "offline_cached_group_memos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountKey` TEXT NOT NULL, `groupId` TEXT NOT NULL, `remoteId` TEXT NOT NULL, `payloadJson` TEXT NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`accountKey`, `groupId`, `remoteId`))",
+        "fields": [
+          {
+            "fieldPath": "accountKey",
+            "columnName": "accountKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteId",
+            "columnName": "remoteId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadJson",
+            "columnName": "payloadJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMillis",
+            "columnName": "updatedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountKey",
+            "groupId",
+            "remoteId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_offline_cached_group_memos_accountKey_groupId",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "groupId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_offline_cached_group_memos_accountKey_groupId` ON `${TABLE_NAME}` (`accountKey`, `groupId`)"
+          },
+          {
+            "name": "index_offline_cached_group_memos_accountKey_updatedAtEpochMillis",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "updatedAtEpochMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_offline_cached_group_memos_accountKey_updatedAtEpochMillis` ON `${TABLE_NAME}` (`accountKey`, `updatedAtEpochMillis`)"
+          }
+        ]
+      },
+      {
+        "tableName": "offline_cached_group_tags",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountKey` TEXT NOT NULL, `groupId` TEXT NOT NULL, `tagsJson` TEXT NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`accountKey`, `groupId`))",
+        "fields": [
+          {
+            "fieldPath": "accountKey",
+            "columnName": "accountKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tagsJson",
+            "columnName": "tagsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMillis",
+            "columnName": "updatedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountKey",
+            "groupId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_offline_cached_group_tags_accountKey_updatedAtEpochMillis",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "updatedAtEpochMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_offline_cached_group_tags_accountKey_updatedAtEpochMillis` ON `${TABLE_NAME}` (`accountKey`, `updatedAtEpochMillis`)"
+          }
+        ]
+      },
+      {
+        "tableName": "offline_pinned_group_memos",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountKey` TEXT NOT NULL, `groupId` TEXT NOT NULL, `memoRemoteId` TEXT NOT NULL, PRIMARY KEY(`accountKey`, `groupId`, `memoRemoteId`))",
+        "fields": [
+          {
+            "fieldPath": "accountKey",
+            "columnName": "accountKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "groupId",
+            "columnName": "groupId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "memoRemoteId",
+            "columnName": "memoRemoteId",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountKey",
+            "groupId",
+            "memoRemoteId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_offline_pinned_group_memos_accountKey_groupId",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "groupId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_offline_pinned_group_memos_accountKey_groupId` ON `${TABLE_NAME}` (`accountKey`, `groupId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "ui_surface_snapshots",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`accountKey` TEXT NOT NULL, `surfaceKey` TEXT NOT NULL, `payloadJson` TEXT NOT NULL, `updatedAtEpochMillis` INTEGER NOT NULL, PRIMARY KEY(`accountKey`, `surfaceKey`))",
+        "fields": [
+          {
+            "fieldPath": "accountKey",
+            "columnName": "accountKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "surfaceKey",
+            "columnName": "surfaceKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadJson",
+            "columnName": "payloadJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAtEpochMillis",
+            "columnName": "updatedAtEpochMillis",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "accountKey",
+            "surfaceKey"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_ui_surface_snapshots_accountKey",
+            "unique": false,
+            "columnNames": [
+              "accountKey"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ui_surface_snapshots_accountKey` ON `${TABLE_NAME}` (`accountKey`)"
+          },
+          {
+            "name": "index_ui_surface_snapshots_accountKey_updatedAtEpochMillis",
+            "unique": false,
+            "columnNames": [
+              "accountKey",
+              "updatedAtEpochMillis"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_ui_surface_snapshots_accountKey_updatedAtEpochMillis` ON `${TABLE_NAME}` (`accountKey`, `updatedAtEpochMillis`)"
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '1c116974930c17042aa8e0a8e0905e05')"
+    ]
+  }
+}

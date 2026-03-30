@@ -25,6 +25,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import kotlinx.coroutines.delay
 import site.lcyk.keer.R
@@ -32,6 +33,7 @@ import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.rememberMemoListState
 import site.lcyk.keer.ui.page.common.navigateToTagPage
+import site.lcyk.keer.viewmodel.LocalMemos
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +45,16 @@ fun SearchPage(navController: NavHostController) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val focusRequester = remember { FocusRequester() }
     val listState = rememberMemoListState(aggressiveCache = false)
+    val memosViewModel = LocalMemos.current
+    val filteredMemoCardListStateFlow = remember(memosViewModel, searchText.text) {
+        memosViewModel.observeMemoCardListStateForSearch(searchText.text)
+    }
+    val initialFilteredMemoCardListState = remember(memosViewModel, searchText.text) {
+        memosViewModel.currentMemoCardListStateForSearch(searchText.text)
+    }
+    val filteredMemoCardListState by filteredMemoCardListStateFlow.collectAsStateWithLifecycle(
+        initialValue = initialFilteredMemoCardListState
+    )
 
     Scaffold(
         topBar = {
@@ -75,7 +87,9 @@ fun SearchPage(navController: NavHostController) {
             MemosList(
                 contentPadding = innerPadding,
                 lazyListState = listState,
-                searchString = searchText.text,
+                memoCards = filteredMemoCardListState.cards,
+                prefetchMemoEntities = filteredMemoCardListState.prefetchMemos,
+                collaboratorIdsToPrefetch = filteredMemoCardListState.collaboratorIdsToPrefetch,
                 onTagClick = { tag ->
                     navController.navigateToTagPage(tag)
                 }

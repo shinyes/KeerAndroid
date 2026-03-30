@@ -17,8 +17,11 @@ import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
@@ -48,6 +51,8 @@ import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.data.model.buildDailyUsageMatrixFromDates
 import site.lcyk.keer.data.model.buildHeatmapTimeline
 import site.lcyk.keer.data.model.isExploreEntryVisible
+import site.lcyk.keer.data.model.isTagVisibleInDrawer
+import site.lcyk.keer.data.model.orderTagsForDrawer
 import site.lcyk.keer.data.model.toMemo
 import site.lcyk.keer.data.repository.JoinedGroupRepository
 import site.lcyk.keer.data.repository.UserGeneralSettingsRepository
@@ -58,6 +63,9 @@ import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.util.buildResolvedMemoQuoteMap
+import site.lcyk.keer.util.isCollaboratorTag
+import site.lcyk.keer.util.isQuoteTag
+import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.resolveMemoGroupExploreEntryId
 import site.lcyk.keer.util.toMemoEntityForCard
@@ -69,6 +77,8 @@ import timber.log.Timber
 data class HomeMemoItem(
     val memo: MemoEntity,
     val groupId: String? = null,
+    val authorName: String? = null,
+    val authorAvatarUrl: String? = null,
 )
 
 private data class MemoQuoteSignature(
@@ -92,6 +102,7 @@ class MemosViewModel @Inject constructor(
     private val joinedGroupRepository: JoinedGroupRepository,
     private val userGeneralSettingsRepository: UserGeneralSettingsRepository,
     private val offlineGroupStore: OfflineGroupStore,
+    private val uiProjectionEngine: UiProjectionEngine,
     private val uiInteractionGate: UiInteractionGate,
     @param:ApplicationContext private val appContext: Context,
 ) : ViewModel() {
@@ -106,6 +117,12 @@ class MemosViewModel @Inject constructor(
         idleCommitDelayMillis = DRAWER_SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS,
         liveCommitDebounceMillis = DRAWER_LIVE_COMMIT_DEBOUNCE_MILLIS,
     )
+    private var feedPlaceholderGuardUntilMillis: Long = 0L
+    private var drawerPlaceholderGuardUntilMillis: Long = 0L
+    private val _feedHydrationState = MutableStateFlow(UiHydrationState())
+    val feedHydrationState: StateFlow<UiHydrationState> = _feedHydrationState.asStateFlow()
+    private val _drawerHydrationState = MutableStateFlow(UiHydrationState())
+    val drawerHydrationState: StateFlow<UiHydrationState> = _drawerHydrationState.asStateFlow()
 
     var errorMessage: String? by mutableStateOf(null)
         private set
@@ -137,11 +154,73 @@ class MemosViewModel @Inject constructor(
             .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    val visibleHomeMemoCards: StateFlow<List<HomeMemoCardUiModel>> =
+        visibleFeedState
+            .mapLatest { latestState ->
+                if (latestState.homeMemoCards.isNotEmpty() || latestState.homeMemos.isEmpty()) {
+                    latestState.homeMemoCards
+                } else {
+                    withContext(Dispatchers.Default) {
+                        buildHomeMemoCardUiModels(
+                            items = latestState.homeMemos,
+                            resolvedQuoteByMemoId = latestState.resolvedQuoteByMemoId,
+                        )
+                    }
+                }
+            }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val visibleHomeFeedCards: StateFlow<List<MemoCardUiModel>> =
+        visibleHomeMemoCards
+            .map { homeCards ->
+                buildHomeFeedCards(homeCards)
+            }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val visibleHomeFeedListState: StateFlow<CardListUiState<MemoCardUiModel>> =
+        visibleHomeFeedCards
+            .map(::buildMemoCardListUiState)
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, CardListUiState())
+
+    val visibleHomeMemoCardIndex: StateFlow<Map<String, HomeMemoCardUiModel>> =
+        visibleHomeMemoCards
+            .map { homeCards ->
+                indexHomeMemoCardsByMemoIdentifier(homeCards)
+            }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
     val visibleResolvedQuotes: StateFlow<Map<String, site.lcyk.keer.util.ResolvedMemoQuote>> =
         visibleFeedState
             .map { it.resolvedQuoteByMemoId }
             .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    val visibleMemoCards: StateFlow<List<MemoCardUiModel>> =
+        visibleFeedState
+            .mapLatest { latestState ->
+                if (latestState.memoCards.isNotEmpty() || latestState.memos.isEmpty()) {
+                    latestState.memoCards
+                } else {
+                    withContext(Dispatchers.Default) {
+                        buildMemoCardUiModels(
+                            memos = latestState.memos,
+                            resolvedQuoteByMemoId = latestState.resolvedQuoteByMemoId,
+                        )
+                    }
+                }
+            }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val visibleMemoCardListState: StateFlow<CardListUiState<MemoCardUiModel>> =
+        visibleMemoCards
+            .map(::buildMemoCardListUiState)
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, CardListUiState())
 
     val drawerGroups: StateFlow<List<MemoGroup>> =
         visibleDrawerState
@@ -180,6 +259,12 @@ class MemosViewModel @Inject constructor(
             }
             .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    private val currentAccountKey: StateFlow<String> =
+        accountService.currentAccount
+            .map { account -> account?.accountKey().orEmpty() }
+            .distinctUntilChanged()
+            .stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     private val projectionMemos: StateFlow<List<MemoEntity>> =
         memoService.memos
@@ -260,6 +345,30 @@ class MemosViewModel @Inject constructor(
                 }
             }
 
+        val liveFeedBaseState = combine(
+            projectionMemos,
+            memoService.tags,
+            liveMatrix,
+            liveHomeMemos,
+            liveResolvedQuotes,
+        ) { latestMemos, latestTags, latestMatrix, latestHomeMemos, resolvedQuotes ->
+            FeedUiState(
+                memos = latestMemos,
+                tags = latestTags,
+                matrix = latestMatrix,
+                homeMemos = latestHomeMemos,
+                homeMemoCards = buildHomeMemoCardUiModels(
+                    items = latestHomeMemos,
+                    resolvedQuoteByMemoId = resolvedQuotes,
+                ),
+                resolvedQuoteByMemoId = resolvedQuotes,
+                memoCards = buildMemoCardUiModels(
+                    memos = latestMemos,
+                    resolvedQuoteByMemoId = resolvedQuotes,
+                ),
+            )
+        }
+
         val liveGeneralSettings = userGeneralSettingsRepository.observeCurrentGeneralSettings()
         val currentUserIdentifier = accountService.currentAccount.map { account ->
             (account as? Account.KeerV2)?.info?.id?.toString()
@@ -282,38 +391,43 @@ class MemosViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            currentAccountKey.collectLatest { accountKey ->
+                restoreFeedAndDrawerSnapshots(accountKey)
+            }
+        }
+
+        viewModelScope.launch {
             combine(
-                projectionMemos,
-                memoService.tags,
-                liveMatrix,
-                liveHomeMemos,
-                liveResolvedQuotes,
-            ) { latestMemos, latestTags, latestMatrix, latestHomeMemos, resolvedQuotes ->
-                FeedUiState(
-                    memos = latestMemos,
-                    tags = latestTags,
-                    matrix = latestMatrix,
-                    homeMemos = latestHomeMemos,
-                    resolvedQuoteByMemoId = resolvedQuotes,
-                )
+                liveFeedBaseState,
+                currentAccountKey,
+            ) { latestState, accountKey ->
+                accountKey to latestState
             }
                 .flowOn(Dispatchers.Default)
                 .conflate()
-                .collectLatest { latestState ->
-                measureFeedSection(
-                    section = "feed_state_commit",
-                    memoCount = latestState.memos.size,
-                ) {
-                    feedProjectionStore.updateLiveState(latestState)
+                .collectLatest { (accountKey, latestState) ->
+                    if (shouldSkipPlaceholderFeedCommit(latestState)) {
+                        return@collectLatest
+                    }
+                    measureFeedSection(
+                        section = "feed_state_commit",
+                        memoCount = latestState.memos.size,
+                    ) {
+                        feedProjectionStore.updateLiveState(latestState)
+                    }
+                    if (accountKey.isNotBlank()) {
+                        uiProjectionEngine.saveFeedSnapshot(accountKey, latestState)
+                    }
+                    _feedHydrationState.value = buildHydrationState(hasWarmSnapshot = true, isHydrating = false)
                 }
-            }
         }
 
         viewModelScope.launch {
             combine(
                 liveDrawerBaseState,
                 currentUserIdentifier,
-            ) { baseState, currentUserId ->
+                currentAccountKey,
+            ) { baseState, currentUserId, accountKey ->
                 val visibleDrawerGroups = baseState.groups.filter { group ->
                     val exploreEntryId = resolveMemoGroupExploreEntryId(
                         group = group,
@@ -324,19 +438,47 @@ class MemosViewModel @Inject constructor(
                 val visibleColumns = baseState.generalSettings.memoColumns.filter { column ->
                     column.visibleInDrawer
                 }
+                val visibleOrderedTags = baseState.generalSettings.orderTagsForDrawer(
+                    normalizeTagList(
+                        baseState.tags
+                            .filterNot(::isCollaboratorTag)
+                            .filterNot(::isQuoteTag)
+                    )
+                        .filter { tag -> baseState.generalSettings.isTagVisibleInDrawer(tag) }
+                )
+                val stats = buildDrawerStatsUiModel(
+                    matrix = baseState.matrix,
+                    tags = baseState.tags,
+                )
+                val tagTree = buildDrawerTagTree(visibleOrderedTags)
                 DrawerUiState(
                     tags = baseState.tags,
+                    visibleOrderedTags = visibleOrderedTags,
+                    tagTree = tagTree,
+                    tagEntries = buildDrawerTagEntries(tagTree),
                     matrix = baseState.matrix,
+                    activeDayCount = stats.activeDayCount,
+                    stats = stats,
                     heatmapTimeline = baseState.heatmapTimeline,
                     drawerGroups = visibleDrawerGroups,
+                    groupItems = buildDrawerGroupUiModels(visibleDrawerGroups),
                     visibleColumns = visibleColumns,
+                    columnItems = buildDrawerColumnUiModels(visibleColumns),
                     groupIdAliases = baseState.groupIdAliases,
                 )
+                    .let { accountKey to it }
             }
                 .flowOn(Dispatchers.Default)
                 .conflate()
-                .collectLatest { latestDrawerState ->
+                .collectLatest { (accountKey, latestDrawerState) ->
+                    if (shouldSkipPlaceholderDrawerCommit(latestDrawerState)) {
+                        return@collectLatest
+                    }
                     drawerProjectionStore.updateLiveState(latestDrawerState)
+                    if (accountKey.isNotBlank()) {
+                        uiProjectionEngine.saveDrawerSnapshot(accountKey, latestDrawerState)
+                    }
+                    _drawerHydrationState.value = buildHydrationState(hasWarmSnapshot = true, isHydrating = false)
                 }
         }
 
@@ -501,6 +643,121 @@ class MemosViewModel @Inject constructor(
 
     fun observeScopeFrozen(scope: MemoUiScope) = uiInteractionGate.observeScopeFrozen(scope)
 
+    fun observeMemoCardsForTag(tag: String): Flow<List<MemoCardUiModel>> {
+        return visibleMemoCards
+            .mapLatest { cards ->
+                withContext(Dispatchers.Default) {
+                    filterMemoCardsByTag(cards, tag)
+                }
+            }
+            .distinctUntilChanged()
+    }
+
+    fun currentMemoCardsForTag(tag: String): List<MemoCardUiModel> {
+        return filterMemoCardsByTag(visibleMemoCards.value, tag)
+    }
+
+    fun observeMemoCardListStateForTag(tag: String): Flow<CardListUiState<MemoCardUiModel>> {
+        return visibleMemoCards
+            .mapLatest { cards ->
+                withContext(Dispatchers.Default) {
+                    buildMemoCardListUiState(filterMemoCardsByTag(cards, tag))
+                }
+            }
+            .distinctUntilChanged()
+    }
+
+    fun currentMemoCardListStateForTag(tag: String): CardListUiState<MemoCardUiModel> {
+        return buildMemoCardListUiState(currentMemoCardsForTag(tag))
+    }
+
+    fun observeMemoCardsForSearch(query: String): Flow<List<MemoCardUiModel>> {
+        return visibleMemoCards
+            .mapLatest { cards ->
+                withContext(Dispatchers.Default) {
+                    filterMemoCardsBySearch(cards, query)
+                }
+            }
+            .distinctUntilChanged()
+    }
+
+    fun currentMemoCardsForSearch(query: String): List<MemoCardUiModel> {
+        return filterMemoCardsBySearch(visibleMemoCards.value, query)
+    }
+
+    fun observeMemoCardListStateForSearch(query: String): Flow<CardListUiState<MemoCardUiModel>> {
+        return visibleMemoCards
+            .mapLatest { cards ->
+                withContext(Dispatchers.Default) {
+                    buildMemoCardListUiState(filterMemoCardsBySearch(cards, query))
+                }
+            }
+            .distinctUntilChanged()
+    }
+
+    fun currentMemoCardListStateForSearch(query: String): CardListUiState<MemoCardUiModel> {
+        return buildMemoCardListUiState(currentMemoCardsForSearch(query))
+    }
+
+    fun observeMemoCardsForColumn(
+        requiredTags: List<String>,
+        pinnedMemoRemoteIds: Set<String>,
+    ): Flow<List<MemoCardUiModel>> {
+        return visibleMemoCards
+            .mapLatest { cards ->
+                withContext(Dispatchers.Default) {
+                    filterMemoCardsByColumn(
+                        cards = cards,
+                        requiredTags = requiredTags,
+                        pinnedMemoRemoteIds = pinnedMemoRemoteIds,
+                    )
+                }
+            }
+            .distinctUntilChanged()
+    }
+
+    fun currentMemoCardsForColumn(
+        requiredTags: List<String>,
+        pinnedMemoRemoteIds: Set<String>,
+    ): List<MemoCardUiModel> {
+        return filterMemoCardsByColumn(
+            cards = visibleMemoCards.value,
+            requiredTags = requiredTags,
+            pinnedMemoRemoteIds = pinnedMemoRemoteIds,
+        )
+    }
+
+    fun observeMemoCardListStateForColumn(
+        requiredTags: List<String>,
+        pinnedMemoRemoteIds: Set<String>,
+    ): Flow<CardListUiState<MemoCardUiModel>> {
+        return visibleMemoCards
+            .mapLatest { cards ->
+                withContext(Dispatchers.Default) {
+                    buildMemoCardListUiState(
+                        filterMemoCardsByColumn(
+                            cards = cards,
+                            requiredTags = requiredTags,
+                            pinnedMemoRemoteIds = pinnedMemoRemoteIds,
+                        )
+                    )
+                }
+            }
+            .distinctUntilChanged()
+    }
+
+    fun currentMemoCardListStateForColumn(
+        requiredTags: List<String>,
+        pinnedMemoRemoteIds: Set<String>,
+    ): CardListUiState<MemoCardUiModel> {
+        return buildMemoCardListUiState(
+            currentMemoCardsForColumn(
+                requiredTags = requiredTags,
+                pinnedMemoRemoteIds = pinnedMemoRemoteIds,
+            )
+        )
+    }
+
     fun cacheMemoForDetail(memo: MemoEntity) {
         transientDetailMemos[memo.identifier] = memo
         if (transientDetailMemos.size > MAX_TRANSIENT_DETAIL_MEMO_COUNT) {
@@ -577,6 +834,8 @@ class MemosViewModel @Inject constructor(
                         lastSyncedAt = syncedAt,
                     ),
                     groupId = groupId,
+                    authorName = resolvedMemo.creator?.name,
+                    authorAvatarUrl = resolvedMemo.creator?.avatarUrl,
                 )
             }
         }
@@ -590,6 +849,76 @@ class MemosViewModel @Inject constructor(
 
     private fun groupMemoKey(groupId: String, memoRemoteId: String): String {
         return "$groupId|$memoRemoteId"
+    }
+
+    private suspend fun restoreFeedAndDrawerSnapshots(accountKey: String) {
+        feedPlaceholderGuardUntilMillis = 0L
+        drawerPlaceholderGuardUntilMillis = 0L
+        if (accountKey.isBlank()) {
+            feedProjectionStore.restoreVisibleState(FeedUiState())
+            drawerProjectionStore.restoreVisibleState(DrawerUiState())
+            _feedHydrationState.value = UiHydrationState(isHydrating = false)
+            _drawerHydrationState.value = UiHydrationState(isHydrating = false)
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val feedSnapshot = uiProjectionEngine.readFeedSnapshot(accountKey)
+        if (feedSnapshot != null) {
+            feedProjectionStore.restoreVisibleState(feedSnapshot.state)
+            feedPlaceholderGuardUntilMillis = now + WARM_PLACEHOLDER_GUARD_MILLIS
+            _feedHydrationState.value = buildHydrationState(
+                snapshotAgeMillis = now - feedSnapshot.updatedAtEpochMillis,
+                hasWarmSnapshot = true,
+                isHydrating = true,
+            )
+        } else {
+            _feedHydrationState.value = UiHydrationState(isHydrating = true)
+        }
+
+        val drawerSnapshot = uiProjectionEngine.readDrawerSnapshot(accountKey)
+        if (drawerSnapshot != null) {
+            drawerProjectionStore.restoreVisibleState(drawerSnapshot.state)
+            drawerPlaceholderGuardUntilMillis = now + WARM_PLACEHOLDER_GUARD_MILLIS
+            _drawerHydrationState.value = buildHydrationState(
+                snapshotAgeMillis = now - drawerSnapshot.updatedAtEpochMillis,
+                hasWarmSnapshot = true,
+                isHydrating = true,
+            )
+        } else {
+            _drawerHydrationState.value = UiHydrationState(isHydrating = true)
+        }
+    }
+
+    private fun shouldSkipPlaceholderFeedCommit(state: FeedUiState): Boolean {
+        return feedPlaceholderGuardUntilMillis > System.currentTimeMillis() &&
+            state.memos.isEmpty() &&
+            state.tags.isEmpty() &&
+            state.homeMemos.isEmpty() &&
+            state.resolvedQuoteByMemoId.isEmpty() &&
+            state.matrix == DailyUsageStat.initialMatrix
+    }
+
+    private fun shouldSkipPlaceholderDrawerCommit(state: DrawerUiState): Boolean {
+        return drawerPlaceholderGuardUntilMillis > System.currentTimeMillis() &&
+            state.tags.isEmpty() &&
+            state.drawerGroups.isEmpty() &&
+            state.visibleColumns.isEmpty() &&
+            state.groupIdAliases.isEmpty() &&
+            state.matrix == DailyUsageStat.initialMatrix
+    }
+
+    private fun buildHydrationState(
+        snapshotAgeMillis: Long? = null,
+        hasWarmSnapshot: Boolean,
+        isHydrating: Boolean,
+    ): UiHydrationState {
+        return UiHydrationState(
+            snapshotAgeMillis = snapshotAgeMillis,
+            isHydrating = isHydrating,
+            isStale = snapshotAgeMillis?.let { age -> age > STALE_WARM_SNAPSHOT_MILLIS } == true,
+            hasWarmSnapshot = hasWarmSnapshot,
+        )
     }
 
     private inline fun <T> measureFeedSection(
@@ -618,6 +947,8 @@ class MemosViewModel @Inject constructor(
         private const val SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS = 300L
         private const val DRAWER_SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS = 0L
         private const val DRAWER_LIVE_COMMIT_DEBOUNCE_MILLIS = 16L
+        private const val WARM_PLACEHOLDER_GUARD_MILLIS = 1_200L
+        private const val STALE_WARM_SNAPSHOT_MILLIS = 120_000L
         private const val FEED_PROFILE_TAG = "FeedProfile"
         private val FOREGROUND_SYNC_BLOCKING_INTERACTIONS = setOf(
             UiInteractionType.LIST_SCROLL,

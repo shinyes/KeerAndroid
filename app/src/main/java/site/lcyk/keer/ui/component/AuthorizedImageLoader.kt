@@ -7,6 +7,7 @@ import androidx.compose.ui.platform.LocalContext
 import coil3.ImageLoader
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import site.lcyk.keer.viewmodel.LocalUserState
 
@@ -40,10 +41,33 @@ fun rememberMemoMediaImageLoader(): ImageLoader {
     }
 }
 
+@Composable
+fun rememberThumbnailListImageLoader(): ImageLoader {
+    val context = LocalContext.current
+    val appContext = context.applicationContext
+    val userStateViewModel = LocalUserState.current
+    val memoryCacheBytes = remember(appContext) {
+        resolveThumbnailListMemoryCacheBytes()
+    }
+    return remember(appContext, userStateViewModel.okHttpClient, memoryCacheBytes) {
+        SharedImageLoaderRegistry.getOrCreateThumbnailListLoader(
+            appContext = appContext,
+            okHttpClient = userStateViewModel.okHttpClient,
+            memoryCacheBytes = memoryCacheBytes,
+        )
+    }
+}
+
 private fun resolveMemoMediaMemoryCacheBytes(): Long {
     val maxHeapBytes = Runtime.getRuntime().maxMemory().coerceAtLeast(1L)
     val preferredBytes = (maxHeapBytes * 24L) / 100L
     return preferredBytes.coerceIn(MEMO_MEDIA_MIN_CACHE_BYTES, MEMO_MEDIA_MAX_CACHE_BYTES)
+}
+
+private fun resolveThumbnailListMemoryCacheBytes(): Long {
+    val maxHeapBytes = Runtime.getRuntime().maxMemory().coerceAtLeast(1L)
+    val preferredBytes = (maxHeapBytes * 8L) / 100L
+    return preferredBytes.coerceIn(THUMBNAIL_LIST_MIN_CACHE_BYTES, THUMBNAIL_LIST_MAX_CACHE_BYTES)
 }
 
 private object SharedImageLoaderRegistry {
@@ -53,6 +77,9 @@ private object SharedImageLoaderRegistry {
     private var mediaLoader: ImageLoader? = null
     private var mediaClient: OkHttpClient? = null
     private var mediaCacheBytes: Long = -1L
+    private var thumbnailListLoader: ImageLoader? = null
+    private var thumbnailListClient: OkHttpClient? = null
+    private var thumbnailListCacheBytes: Long = -1L
 
     fun getOrCreateAuthorizedLoader(
         appContext: Context,
@@ -94,6 +121,31 @@ private object SharedImageLoaderRegistry {
             return created
         }
     }
+
+    fun getOrCreateThumbnailListLoader(
+        appContext: Context,
+        okHttpClient: OkHttpClient,
+        memoryCacheBytes: Long,
+    ): ImageLoader {
+        synchronized(lock) {
+            val existing = thumbnailListLoader
+            if (existing != null &&
+                thumbnailListClient === okHttpClient &&
+                thumbnailListCacheBytes == memoryCacheBytes
+            ) {
+                return existing
+            }
+            val created = buildThumbnailListImageLoader(
+                appContext = appContext,
+                okHttpClient = okHttpClient,
+                memoryCacheBytes = memoryCacheBytes,
+            )
+            thumbnailListLoader = created
+            thumbnailListClient = okHttpClient
+            thumbnailListCacheBytes = memoryCacheBytes
+            return created
+        }
+    }
 }
 
 private fun buildAuthorizedImageLoader(
@@ -124,5 +176,34 @@ private fun buildMemoMediaImageLoader(
         .build()
 }
 
+private fun buildThumbnailListImageLoader(
+    appContext: Context,
+    okHttpClient: OkHttpClient,
+    memoryCacheBytes: Long,
+): ImageLoader {
+    val throttledClient = okHttpClient.newBuilder()
+        .dispatcher(
+            Dispatcher().apply {
+                maxRequests = THUMBNAIL_LIST_MAX_REQUESTS
+                maxRequestsPerHost = THUMBNAIL_LIST_MAX_REQUESTS_PER_HOST
+            }
+        )
+        .build()
+    return ImageLoader.Builder(appContext)
+        .components {
+            add(OkHttpNetworkFetcherFactory(callFactory = { throttledClient }))
+        }
+        .memoryCache {
+            MemoryCache.Builder()
+                .maxSizeBytes(memoryCacheBytes)
+                .build()
+        }
+        .build()
+}
+
+private const val THUMBNAIL_LIST_MIN_CACHE_BYTES = 24L * 1024L * 1024L
+private const val THUMBNAIL_LIST_MAX_CACHE_BYTES = 96L * 1024L * 1024L
+private const val THUMBNAIL_LIST_MAX_REQUESTS = 6
+private const val THUMBNAIL_LIST_MAX_REQUESTS_PER_HOST = 4
 private const val MEMO_MEDIA_MIN_CACHE_BYTES = 48L * 1024L * 1024L
 private const val MEMO_MEDIA_MAX_CACHE_BYTES = 224L * 1024L * 1024L

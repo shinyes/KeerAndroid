@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -65,27 +66,29 @@ import site.lcyk.keer.ui.component.MediaPreviewPrefetchEffect
 import site.lcyk.keer.ui.component.MemoPreviewWarmupEffect
 import site.lcyk.keer.ui.component.PullSyncLineIndicator
 import site.lcyk.keer.ui.component.RefreshableListContainer
+import site.lcyk.keer.ui.component.SurfaceHydrationLineOverlay
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.SyncStatusBadge
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.component.rememberListRenderSchedulerState
 import site.lcyk.keer.ui.component.rememberMemoExtremeListState
-import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
+import site.lcyk.keer.ui.component.rememberThumbnailListImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.memoinput.QuickMemoComposer
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToSearchPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
-import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.normalizeTagList
-import site.lcyk.keer.util.toMemoEntityForCard
+import site.lcyk.keer.viewmodel.GroupChatCardUiModel
 import site.lcyk.keer.viewmodel.GroupChatViewModel
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.MemoUiScope
+import site.lcyk.keer.viewmodel.UiHydrationState
 import site.lcyk.keer.viewmodel.UiInteractionType
+import site.lcyk.keer.viewmodel.patchByKey
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,31 +112,18 @@ fun GroupChatPage(
     val groupFrozen by memosViewModel.observeScopeFrozen(MemoUiScope.GROUP_CHAT)
         .collectAsStateWithLifecycle(initialValue = false)
     val avatarImageLoader = rememberAuthorizedImageLoader()
-    val mediaImageLoader = rememberMemoMediaImageLoader()
+    val mediaImageLoader = rememberThumbnailListImageLoader()
 
     val resolvedGroupId = groupIdAliases
         .firstOrNull { alias -> alias.localId == groupId }
         ?.remoteId
         ?: groupId
-    val activeAccountKey = currentAccount?.accountKey().orEmpty()
-    val currentUserId = when (val account = currentAccount) {
-        is Account.KeerV2 -> account.info.id.toString()
-        is Account.Local -> "local"
-        null -> ""
-    }
     val editGesture = generalSettings.memoEditGesture
     val group = joinedGroups.firstOrNull { it.id == resolvedGroupId }
 
-    val memos by viewModel.memos.collectAsStateWithLifecycle()
-    val prefetchMemoEntities = remember(memos, activeAccountKey, resolvedGroupId) {
-        memos.map { memo ->
-            memo.toGroupMemoEntity(
-                accountKey = activeAccountKey,
-                groupId = resolvedGroupId,
-            )
-        }
-    }
-    val resolvedQuoteMap by viewModel.visibleResolvedQuotes.collectAsStateWithLifecycle()
+    val cardListState by viewModel.visibleCardListState.collectAsStateWithLifecycle()
+    val memos = remember { mutableStateListOf<GroupChatCardUiModel>() }
+    val hydrationState by viewModel.hydrationState.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val groupTags by viewModel.groupTags.collectAsStateWithLifecycle()
@@ -152,6 +142,10 @@ fun GroupChatPage(
 
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
     var showQuickComposer by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(cardListState.cards) {
+        memos.patchByKey(cardListState.cards) { card -> card.source.remoteId }
+    }
 
     val navigationIcon = if (drawerState != null) Icons.Filled.Menu else Icons.AutoMirrored.Filled.ArrowBack
     val navigationContentDescription = if (drawerState != null) R.string.menu.string else R.string.back.string
@@ -188,17 +182,9 @@ fun GroupChatPage(
         val resolvedGroup = group ?: return@LaunchedEffect
         viewModel.loadGroupTags(resolvedGroup.id, forceSync = false)
     }
-
-    val collaboratorIdsToPrefetch = remember(memos) {
-        memos
-            .asSequence()
-            .flatMap { memo -> extractCollaboratorIds(memo.tags).asSequence() }
-            .distinct()
-            .toList()
-    }
-    LaunchedEffect(collaboratorIdsToPrefetch) {
-        if (collaboratorIdsToPrefetch.isNotEmpty()) {
-            userStateViewModel.prefetchCollaboratorAvatars(collaboratorIdsToPrefetch)
+    LaunchedEffect(cardListState.collaboratorIdsToPrefetch) {
+        if (cardListState.collaboratorIdsToPrefetch.isNotEmpty()) {
+            userStateViewModel.prefetchCollaboratorAvatars(cardListState.collaboratorIdsToPrefetch)
         }
     }
 
@@ -227,7 +213,7 @@ fun GroupChatPage(
 
     MediaPreviewPrefetchEffect(
         listState = listState,
-        memos = prefetchMemoEntities,
+        memos = cardListState.prefetchMemos,
         prefetchPaused = prefetchPaused,
         currentAccountKey = currentAccount?.accountKey(),
         okHttpClient = userStateViewModel.okHttpClient,
@@ -242,7 +228,7 @@ fun GroupChatPage(
         },
     )
     MemoPreviewWarmupEffect(
-        memos = prefetchMemoEntities,
+        memos = cardListState.prefetchMemos,
         enabled = warmupEnabled,
     )
 
@@ -326,11 +312,9 @@ fun GroupChatPage(
             }
         ) { innerPadding ->
             GroupChatList(
-                groupId = group.id,
-                memos = memos,
+                memoCards = memos,
                 loading = loading,
-                activeAccountKey = activeAccountKey,
-                currentUserId = currentUserId,
+                hydrationState = hydrationState,
                 editGesture = editGesture,
                 listState = listState,
                 refreshState = refreshState,
@@ -339,7 +323,6 @@ fun GroupChatPage(
                 avatarImageLoader = avatarImageLoader,
                 mediaImageLoader = mediaImageLoader,
                 uiFrozen = effectiveGroupFrozen,
-                resolvedQuoteMap = resolvedQuoteMap,
                 onRefresh = {
                     if (memosViewModel.syncStatus.value.syncing) {
                         return@GroupChatList
@@ -347,9 +330,6 @@ fun GroupChatPage(
                     scope.launch {
                         requestManualSync()
                     }
-                },
-                canManageMemo = { memo ->
-                    viewModel.canManageGroupMemo(memo, currentUserId)
                 },
                 onOpenMemoDetail = { selectedMemo ->
                     memosViewModel.cacheMemoForDetail(selectedMemo)
@@ -379,14 +359,10 @@ fun GroupChatPage(
                     }
                 },
                 onRequestQuote = { source ->
-                    val sourceMemo = source.toGroupMemoEntity(
-                        accountKey = activeAccountKey,
-                        groupId = group.id
-                    )
-                    memosViewModel.cacheMemoForDetail(sourceMemo)
+                    memosViewModel.cacheMemoForDetail(source)
                     navController.navigateToGroupInputPage(
                         groupId = group.id,
-                        quoteMemoIdentifier = sourceMemo.identifier
+                        quoteMemoIdentifier = source.identifier
                     )
                 },
                 onOpenTopic = { _, _ -> },
@@ -525,27 +501,23 @@ private fun GroupChatFab(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GroupChatList(
-    groupId: String,
-    memos: List<Memo>,
-    activeAccountKey: String,
-    currentUserId: String,
+    memoCards: List<GroupChatCardUiModel>,
     editGesture: MemoEditGesture,
     listState: LazyListState,
     refreshState: PullToRefreshState,
     loading: Boolean,
+    hydrationState: UiHydrationState,
     contentPadding: PaddingValues,
     collaboratorProfiles: Map<String, site.lcyk.keer.data.model.CollaboratorProfile>,
     avatarImageLoader: coil3.ImageLoader,
     mediaImageLoader: coil3.ImageLoader,
     uiFrozen: Boolean,
-    resolvedQuoteMap: Map<String, site.lcyk.keer.util.ResolvedMemoQuote>,
     onRefresh: () -> Unit,
-    canManageMemo: (Memo) -> Boolean,
     onOpenMemoDetail: (MemoEntity) -> Unit,
     onTogglePinned: (Memo, Boolean) -> Unit,
     onEditMemo: (Memo) -> Unit,
     onDeleteMemo: (Memo) -> Unit,
-    onRequestQuote: (Memo) -> Unit,
+    onRequestQuote: (MemoEntity) -> Unit,
     onOpenTopic: (String, String) -> Unit,
     onTagClick: (String) -> Unit
 ) {
@@ -559,9 +531,13 @@ private fun GroupChatList(
                 refreshState = refreshState,
                 loading = loading,
             )
+            SurfaceHydrationLineOverlay(
+                hydrationState = hydrationState,
+                topPadding = 18.dp,
+            )
         },
         modifier = Modifier.padding(contentPadding),
-        isEmpty = memos.isEmpty() && !loading,
+        isEmpty = memoCards.isEmpty() && !loading && !hydrationState.isHydrating,
         emptyContent = {
             Text(
                 text = R.string.no_memos.string,
@@ -576,40 +552,31 @@ private fun GroupChatList(
             contentPadding = PaddingValues(vertical = 8.dp)
         ) {
             items(
-                items = memos,
-                key = { it.remoteId },
+                items = memoCards,
+                key = { it.source.remoteId },
                 contentType = { "memo" }
-            ) { memo ->
-                val adaptedMemo = remember(memo, activeAccountKey, groupId) {
-                    memo.toGroupMemoEntity(
-                        accountKey = activeAccountKey,
-                        groupId = groupId
-                    )
-                }
-                val manageable = remember(memo, currentUserId) {
-                    canManageMemo(memo)
-                }
+            ) { card ->
                 MemosCard(
-                    memo = adaptedMemo,
+                    memo = card.memo,
                     onClick = onOpenMemoDetail,
                     editGesture = editGesture,
                     previewMode = true,
                     autoPreviewPrefetch = false,
                     showSyncStatus = true,
-                    authorAvatarUrl = memo.creator?.avatarUrl,
-                    authorName = memo.creator?.name,
-                    onRequestEdit = { onEditMemo(memo) },
+                    authorAvatarUrl = card.authorAvatarUrl,
+                    authorName = card.authorName,
+                    onRequestEdit = { onEditMemo(card.source) },
                     actionButton = { memoEntity ->
                         GroupMemoCardActionButton(
                             memo = memoEntity,
                             pinned = memoEntity.pinned,
-                            canManage = manageable,
+                            canManage = card.canManage,
                             onTogglePinned = {
-                                onTogglePinned(memo, !memoEntity.pinned)
+                                onTogglePinned(card.source, !memoEntity.pinned)
                             },
-                            onQuote = { onRequestQuote(memo) },
-                            onEdit = { onEditMemo(memo) },
-                            onDelete = { onDeleteMemo(memo) }
+                            onQuote = { onRequestQuote(card.memo) },
+                            onEdit = { onEditMemo(card.source) },
+                            onDelete = { onDeleteMemo(card.source) }
                         )
                     },
                     onTagClick = onTagClick,
@@ -618,7 +585,9 @@ private fun GroupChatList(
                     mediaImageLoader = mediaImageLoader,
                     uiFrozen = uiFrozen,
                     prefetchCollaborators = false,
-                    resolvedQuote = resolvedQuoteMap[adaptedMemo.identifier],
+                    resolvedQuote = card.resolvedQuote,
+                    displayTags = card.displayTags,
+                    collaboratorIds = card.collaboratorIds,
                 )
             }
         }
@@ -640,17 +609,6 @@ private fun androidx.compose.foundation.layout.BoxScope.GroupPullSyncIndicator(
     PullSyncLineIndicator(
         refreshState = refreshState,
         syncing = syncing || loading,
-    )
-}
-
-private fun Memo.toGroupMemoEntity(
-    accountKey: String,
-    groupId: String
-): MemoEntity {
-    return toMemoEntityForCard(
-        identifier = "group:$groupId:$remoteId",
-        accountKey = accountKey,
-        needsSync = remoteId.startsWith("local:")
     )
 }
 

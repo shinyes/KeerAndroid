@@ -76,7 +76,6 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.skydoves.sandwich.suspendOnSuccess
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -84,6 +83,7 @@ import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.suspendOnErrorMessage
+import site.lcyk.keer.ui.component.SurfaceHydrationLine
 import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.isQuoteTag
 import site.lcyk.keer.util.mergeTagsWithCollaboratorsAndQuote
@@ -93,6 +93,10 @@ import site.lcyk.keer.util.normalizeTagName
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.MemoInputViewModel
+import site.lcyk.keer.viewmodel.buildDraftEditorScreenState
+import site.lcyk.keer.viewmodel.buildMemoEditorBaseline
+import site.lcyk.keer.viewmodel.buildMemoEditorDirtyState
+import site.lcyk.keer.viewmodel.buildMemoEditorResourceIdentifiers
 import kotlin.coroutines.resume
 
 private val quickComposerEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -139,10 +143,15 @@ fun QuickMemoComposer(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val friends by userStateViewModel.friends.collectAsState()
+    val persistedDraft by if (persistDraft) {
+        inputViewModel.draft.collectAsState(initial = null)
+    } else {
+        remember { mutableStateOf<String?>(null) }
+    }
 
-    var initialContent by remember { mutableStateOf("") }
-    var initialTags by remember { mutableStateOf(emptyList<String>()) }
-    var initialCollaborators by remember { mutableStateOf(emptyList<String>()) }
+    var editorBaseline by remember {
+        mutableStateOf(buildMemoEditorBaseline(content = "", tags = emptyList(), collaboratorIds = emptyList()))
+    }
     var text by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue("", TextRange(0)))
     }
@@ -169,6 +178,21 @@ fun QuickMemoComposer(
             .filter { it.isNotEmpty() }
             .distinct()
     }
+    val draftScreenState = remember(
+        visible,
+        persistDraft,
+        persistedDraft,
+        normalizedForcedTags,
+        text.text,
+    ) {
+        buildDraftEditorScreenState(
+            persistedDraft = persistedDraft,
+            forcedTags = normalizedForcedTags,
+            hasLiveDraft = visible && persistDraft && persistedDraft != null,
+            currentContent = text.text,
+        )
+    }
+    val initialFields = draftScreenState.initialFields
     val validMimeTypePrefixes = remember { setOf("text/") }
 
     fun startLocationPrefetch(force: Boolean = false) {
@@ -253,11 +277,14 @@ fun QuickMemoComposer(
             return
         }
 
-        if (
-            text.text != initialContent ||
-            normalizedSelectedTags != initialTags ||
-            normalizedSelectedCollaborators != initialCollaborators ||
-            inputViewModel.uploadResources.isNotEmpty()
+        val currentResourceIdentifiers = buildMemoEditorResourceIdentifiers(inputViewModel.uploadResources.toList())
+        if (buildMemoEditorDirtyState(
+                baseline = editorBaseline,
+                content = text.text,
+                selectedTags = normalizeTagList(normalizedForcedTags + normalizedSelectedTags),
+                selectedCollaborators = normalizedSelectedCollaborators,
+                resourceIdentifiers = currentResourceIdentifiers,
+            )
         ) {
             showExitConfirmation = true
         } else {
@@ -303,10 +330,7 @@ fun QuickMemoComposer(
         val request = QuickMemoSubmitRequest(
             content = payload,
             tags = mergedTags,
-            resourceIdentifiers = inputViewModel.uploadResources
-                .map { resource -> resource.remoteId?.trim().orEmpty().ifEmpty { resource.identifier.trim() } }
-                .filter { identifier -> identifier.isNotEmpty() }
-                .distinct(),
+            resourceIdentifiers = buildMemoEditorResourceIdentifiers(inputViewModel.uploadResources.toList()),
             latitude = location?.latitude,
             longitude = location?.longitude,
         )
@@ -384,6 +408,13 @@ fun QuickMemoComposer(
         }.suspendOnErrorMessage { message ->
             snackbarState.showSnackbar(message)
         }
+    }
+
+    fun applyFieldsState(fieldsState: site.lcyk.keer.viewmodel.MemoEditorFieldsState) {
+        text = TextFieldValue(fieldsState.content, TextRange(fieldsState.content.length))
+        selectedTags = fieldsState.selectedTags
+        selectedCollaborators = fieldsState.selectedCollaborators
+        editorBaseline = fieldsState.baseline
     }
 
     val pickImage = rememberLauncherForActivityResult(OpenDocument()) { uri ->
@@ -521,6 +552,10 @@ fun QuickMemoComposer(
                             indication = null,
                         ) {}
                 ) {
+                    SurfaceHydrationLine(
+                        hydrationState = draftScreenState.hydrationState,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     MemoInputEditor(
                         modifier = Modifier.fillMaxWidth(),
                         text = text,
@@ -679,15 +714,7 @@ fun QuickMemoComposer(
         memosViewModel.loadTags()
         userStateViewModel.refreshFriends()
         startLocationPrefetch(force = true)
-        val draft = if (persistDraft) {
-            inputViewModel.draft.first().orEmpty()
-        } else {
-            ""
-        }
-        text = TextFieldValue(draft, TextRange(draft.length))
-        initialContent = text.text
-        initialTags = normalizedForcedTags
-        initialCollaborators = emptyList()
+        applyFieldsState(initialFields)
         withFrameNanos { }
         withFrameNanos { }
         focusRequester.requestFocus()

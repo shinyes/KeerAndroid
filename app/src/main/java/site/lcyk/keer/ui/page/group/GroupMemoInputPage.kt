@@ -9,8 +9,10 @@ import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -28,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
@@ -42,6 +45,7 @@ import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.suspendOnErrorMessage
 import site.lcyk.keer.ui.component.MemoQuoteReferenceCard
+import site.lcyk.keer.ui.component.SurfaceHydrationLine
 import site.lcyk.keer.ui.page.memoinput.MarkdownFormat
 import site.lcyk.keer.ui.page.memoinput.MemoCollaboratorDialog
 import site.lcyk.keer.ui.page.memoinput.MemoInputBottomBar
@@ -54,24 +58,23 @@ import site.lcyk.keer.ui.page.memoinput.handleEnterInText
 import site.lcyk.keer.ui.page.memoinput.toggleTodoItemInText
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
-import site.lcyk.keer.util.MemoQuoteDescriptor
-import site.lcyk.keer.util.MemoQuoteSourceKind
-import site.lcyk.keer.util.buildMemoQuoteDescriptor
-import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.mergeTagsWithCollaboratorsAndQuote
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
-import site.lcyk.keer.util.resolveMemoFromQuoteDescriptor
-import site.lcyk.keer.util.resolveMemoQuoteDescriptor
-import site.lcyk.keer.util.storedMemoQuotePreviewOrNull
-import site.lcyk.keer.util.stripCollaboratorTags
-import site.lcyk.keer.util.stripQuoteTags
 import site.lcyk.keer.util.toMemoEntityForCard
-import site.lcyk.keer.util.toMemoQuotePreview
 import site.lcyk.keer.viewmodel.GroupChatViewModel
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
+import site.lcyk.keer.viewmodel.buildActiveMemoQuoteDescriptor
+import site.lcyk.keer.viewmodel.buildMemoEditorDirtyState
+import site.lcyk.keer.viewmodel.buildMemoEditorFieldsState
+import site.lcyk.keer.viewmodel.buildMemoEditorResourceIdentifiers
+import site.lcyk.keer.viewmodel.buildMemoEditorResolvedScreenState
+import site.lcyk.keer.viewmodel.buildMemoEditorRestoreState
+import site.lcyk.keer.viewmodel.buildRequestedLocalQuoteDescriptor
 import site.lcyk.keer.viewmodel.MemoInputViewModel
+
+private const val NEW_GROUP_MEMO_EDITOR_SEED = "__new__"
 
 @Composable
 fun GroupMemoInputPage(
@@ -96,43 +99,19 @@ fun GroupMemoInputPage(
     val groupMemos by groupViewModel.memos.collectAsState()
     val accountKey = currentAccount?.accountKey().orEmpty()
 
-    var initialContent by remember { mutableStateOf("") }
-    var initialTags by remember { mutableStateOf(emptyList<String>()) }
-    var initialCollaborators by remember { mutableStateOf(emptyList<String>()) }
-    var initialResourceIdentifiers by remember { mutableStateOf(emptyList<String>()) }
-    var currentMemo by remember { mutableStateOf<site.lcyk.keer.data.local.entity.MemoEntity?>(null) }
-
-    var text by rememberSaveable(stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue("", TextRange(0)))
-    }
-    var selectedTags by rememberSaveable { mutableStateOf(emptyList<String>()) }
-    var selectedCollaborators by rememberSaveable { mutableStateOf(emptyList<String>()) }
-    var showTagSelector by remember { mutableStateOf(false) }
-    var showCollaboratorSelector by remember { mutableStateOf(false) }
-    var showExitConfirmation by remember { mutableStateOf(false) }
-    val isEditMode = !memoId.isNullOrBlank()
-    val existingQuoteDescriptor = remember(
-        currentMemo?.quoteSourceKind,
-        currentMemo?.quoteSource,
-        currentMemo?.tags,
-    ) {
-        currentMemo?.resolveMemoQuoteDescriptor()
-    }
-    val requestedQuoteDescriptor = remember(quoteSourceMemoIdentifier) {
-        val source = quoteSourceMemoIdentifier?.trim().orEmpty()
-        if (source.isEmpty()) {
+    val liveMemo = remember(groupId, memoId, groupMemos, accountKey) {
+        if (memoId.isNullOrBlank() || accountKey.isBlank()) {
             null
         } else {
-            MemoQuoteDescriptor(
-                sourceKind = MemoQuoteSourceKind.LOCAL,
-                source = source
-            )
+            groupMemos.firstOrNull { memo -> memo.remoteId == memoId }
+                ?.toEditableGroupMemoEntity(groupId = groupId)
         }
     }
-    val activeQuoteDescriptor = if (currentMemo != null) {
-        existingQuoteDescriptor
-    } else {
-        requestedQuoteDescriptor
+    var retainedMemo by remember(memoId) { mutableStateOf<site.lcyk.keer.data.local.entity.MemoEntity?>(null) }
+    val displayMemo = liveMemo ?: retainedMemo
+    val isEditMode = !memoId.isNullOrBlank()
+    val requestedQuoteDescriptor = remember(quoteSourceMemoIdentifier) {
+        buildRequestedLocalQuoteDescriptor(quoteSourceMemoIdentifier)
     }
     val quoteMemoCandidates = remember(groupMemos, accountKey, groupId) {
         if (accountKey.isBlank()) {
@@ -147,26 +126,61 @@ fun GroupMemoInputPage(
             }
         }
     }
-    val quotedMemo = remember(activeQuoteDescriptor, quoteMemoCandidates) {
-        val descriptor = activeQuoteDescriptor ?: return@remember null
-        memosViewModel.getMemoForDetail(descriptor.source)
-            ?: resolveMemoFromQuoteDescriptor(
-                descriptor = descriptor,
-                memos = quoteMemoCandidates,
-            )
-    }
-    val quotePreview = remember(
-        quotedMemo?.content,
-        quotedMemo?.resources,
-        currentMemo?.quoteStatus,
-        currentMemo?.quoteContentPreview,
-        currentMemo?.quoteDate,
-        currentMemo?.quoteHasAttachments,
+    val editorResolvedScreenState = remember(
+        isEditMode,
+        liveMemo,
+        displayMemo?.quoteSourceKind,
+        displayMemo?.quoteSource,
+        displayMemo?.quoteStatus,
+        displayMemo?.quoteContentPreview,
+        displayMemo?.quoteDate,
+        displayMemo?.quoteHasAttachments,
+        requestedQuoteDescriptor,
+        quoteMemoCandidates,
     ) {
-        quotedMemo?.toMemoQuotePreview() ?: currentMemo?.storedMemoQuotePreviewOrNull()
+        buildMemoEditorResolvedScreenState(
+            hasTarget = isEditMode,
+            liveValueAvailable = liveMemo != null,
+            displayMemo = displayMemo,
+            requestedQuoteDescriptor = requestedQuoteDescriptor,
+            primaryQuotedMemo = buildActiveMemoQuoteDescriptor(
+                displayMemo = displayMemo,
+                requestedQuoteDescriptor = requestedQuoteDescriptor,
+            )?.source?.let(memosViewModel::getMemoForDetail),
+            memos = quoteMemoCandidates,
+        )
     }
-    val quoteDescriptorForSubmit = remember(activeQuoteDescriptor, quotedMemo) {
-        quotedMemo?.let(::buildMemoQuoteDescriptor) ?: activeQuoteDescriptor
+    val quotedMemo = editorResolvedScreenState.lookup.quotedMemo
+    val editorScreenState = editorResolvedScreenState.screen
+    val quotePreview = editorScreenState.quotePreview
+    val quoteDescriptorForSubmit = editorScreenState.quoteDescriptorForSubmit
+    val initialFields = editorScreenState.initialFields
+    var editorBaseline by remember {
+        mutableStateOf(initialFields.baseline)
+    }
+
+    var text by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(initialFields.content, TextRange(initialFields.content.length)))
+    }
+    var selectedTags by rememberSaveable { mutableStateOf(initialFields.selectedTags) }
+    var selectedCollaborators by rememberSaveable { mutableStateOf(initialFields.selectedCollaborators) }
+    var showTagSelector by remember { mutableStateOf(false) }
+    var showCollaboratorSelector by remember { mutableStateOf(false) }
+    var showExitConfirmation by remember { mutableStateOf(false) }
+    val quotePreviewContent: (@Composable () -> Unit)? = if (quoteDescriptorForSubmit == null) {
+        null
+    } else {
+        {
+            MemoQuoteReferenceCard(
+                quotedMemo = quotePreview,
+                onClick = quotedMemo?.let { source ->
+                    {
+                        memosViewModel.cacheMemoForDetail(source)
+                        rootNavController.navigateToMemoDetailPage(source.identifier)
+                    }
+                }
+            )
+        }
     }
 
     val validMimeTypePrefixes = remember { setOf("text/") }
@@ -177,6 +191,8 @@ fun GroupMemoInputPage(
             .filter { it.isNotEmpty() }
             .distinct()
     }
+    var editorSeed by rememberSaveable(groupId, memoId, quoteSourceMemoIdentifier) { mutableStateOf<String?>(null) }
+    val hydrationState = editorScreenState.hydrationState
 
     fun handleExit() {
         if (inputViewModel.hasActiveUpload()) {
@@ -185,11 +201,14 @@ fun GroupMemoInputPage(
             }
             return
         }
-        if (
-            text.text != initialContent ||
-            normalizedSelectedTags != initialTags ||
-            normalizedSelectedCollaborators != initialCollaborators ||
-            inputViewModel.uploadResources.map { resource -> resource.remoteId ?: resource.identifier }.distinct() != initialResourceIdentifiers
+        val currentResourceIdentifiers = buildMemoEditorResourceIdentifiers(inputViewModel.uploadResources.toList())
+        if (buildMemoEditorDirtyState(
+                baseline = editorBaseline,
+                content = text.text,
+                selectedTags = normalizedSelectedTags,
+                selectedCollaborators = normalizedSelectedCollaborators,
+                resourceIdentifiers = currentResourceIdentifiers,
+            )
         ) {
             showExitConfirmation = true
         } else {
@@ -216,10 +235,7 @@ fun GroupMemoInputPage(
         }
 
         val payload = text.text.trim()
-        val currentResourceIdentifiers = inputViewModel.uploadResources
-            .map { resource -> resource.remoteId ?: resource.identifier }
-            .filter { identifier -> identifier.isNotBlank() }
-            .distinct()
+        val currentResourceIdentifiers = buildMemoEditorResourceIdentifiers(inputViewModel.uploadResources.toList())
         if (payload.isBlank() && currentResourceIdentifiers.isEmpty()) {
             return@launch
         }
@@ -260,6 +276,13 @@ fun GroupMemoInputPage(
         }.suspendOnErrorMessage { message ->
             snackbarState.showSnackbar(message)
         }
+    }
+
+    fun applyFieldsState(fieldsState: site.lcyk.keer.viewmodel.MemoEditorFieldsState) {
+        text = TextFieldValue(fieldsState.content, TextRange(fieldsState.content.length))
+        selectedTags = fieldsState.selectedTags
+        selectedCollaborators = fieldsState.selectedCollaborators
+        editorBaseline = fieldsState.baseline
     }
 
     val pickImage = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
@@ -366,50 +389,46 @@ fun GroupMemoInputPage(
             SnackbarHost(hostState = snackbarState)
         }
     ) { innerPadding ->
-        MemoInputEditor(
-            modifier = Modifier.padding(innerPadding),
-            text = text,
-            onTextChange = { updated ->
-                if (
-                    text.text != updated.text &&
-                    updated.selection.start == updated.selection.end &&
-                    updated.text.length == text.text.length + 1 &&
-                    updated.selection.start > 0 &&
-                    updated.text[updated.selection.start - 1] == '\n'
-                ) {
-                    val handled = handleEnterInText(text)
-                    if (handled != null) {
-                        text = handled
-                        return@MemoInputEditor
-                    }
-                }
-                text = updated
-            },
-            focusRequester = focusRequester,
-            quotePreview = quoteDescriptorForSubmit?.let {
-                {
-                    MemoQuoteReferenceCard(
-                        quotedMemo = quotePreview,
-                        onClick = quotedMemo?.let { source ->
-                            {
-                                memosViewModel.cacheMemoForDetail(source)
-                                rootNavController.navigateToMemoDetailPage(source.identifier)
-                            }
+        Box(modifier = Modifier.padding(innerPadding)) {
+            MemoInputEditor(
+                text = text,
+                onTextChange = onTextChange@{ updated ->
+                    if (
+                        text.text != updated.text &&
+                        updated.selection.start == updated.selection.end &&
+                        updated.text.length == text.text.length + 1 &&
+                        updated.selection.start > 0 &&
+                        updated.text[updated.selection.start - 1] == '\n'
+                    ) {
+                        val handled = handleEnterInText(text)
+                        if (handled != null) {
+                            text = handled
+                            return@onTextChange
                         }
-                    )
+                    }
+                    text = updated
+                },
+                modifier = Modifier,
+                focusRequester = focusRequester,
+                quotePreview = quotePreviewContent,
+                validMimeTypePrefixes = validMimeTypePrefixes,
+                onDroppedText = { droppedText ->
+                    text = text.copy(text = text.text + droppedText)
+                },
+                uploadResources = inputViewModel.uploadResources.toList(),
+                inputViewModel = inputViewModel,
+                uploadTasks = inputViewModel.uploadTasks.toList(),
+                onDismissUploadTask = { taskId ->
+                    inputViewModel.dismissUploadTask(taskId)
                 }
-            },
-            validMimeTypePrefixes = validMimeTypePrefixes,
-            onDroppedText = { droppedText ->
-                text = text.copy(text = text.text + droppedText)
-            },
-            uploadResources = inputViewModel.uploadResources.toList(),
-            inputViewModel = inputViewModel,
-            uploadTasks = inputViewModel.uploadTasks.toList(),
-            onDismissUploadTask = { taskId ->
-                inputViewModel.dismissUploadTask(taskId)
-            }
-        )
+            )
+            SurfaceHydrationLine(
+                hydrationState = hydrationState,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+            )
+        }
     }
 
     if (showTagSelector) {
@@ -448,27 +467,36 @@ fun GroupMemoInputPage(
         )
     }
 
-    LaunchedEffect(groupId, memoId, quoteSourceMemoIdentifier) {
-        inputViewModel.uploadResources.clear()
-        inputViewModel.uploadTasks.clear()
-        currentMemo = null
+    LaunchedEffect(liveMemo?.identifier, liveMemo?.content, liveMemo?.date, liveMemo?.lastModified) {
+        if (liveMemo != null) {
+            retainedMemo = liveMemo
+        }
+    }
+
+    LaunchedEffect(groupId) {
         userStateViewModel.refreshFriends()
         groupViewModel.loadGroupTags(groupId)
         if (isEditMode) {
             groupViewModel.loadGroupMemos(groupId, forceSync = false)
-            val targetMemo = groupViewModel.findGroupMemo(groupId, memoId.orEmpty())
-            if (targetMemo != null) {
-                val memoEntity = targetMemo.toEditableGroupMemoEntity(groupId = groupId)
-                currentMemo = memoEntity
-                val collaborators = extractCollaboratorIds(targetMemo.tags)
-                val tags = normalizeTagList(
-                    stripQuoteTags(stripCollaboratorTags(targetMemo.tags))
-                )
-                initialContent = targetMemo.content
-                initialTags = tags
-                initialCollaborators = collaborators
+        }
+    }
+
+    LaunchedEffect(groupId, memoId, quoteSourceMemoIdentifier, displayMemo?.identifier, displayMemo?.lastModified) {
+        when {
+            isEditMode -> {
+                val targetMemo = displayMemo ?: return@LaunchedEffect
+                val nextSeed = "${targetMemo.identifier}:${targetMemo.lastModified.toEpochMilli()}"
+                if (editorSeed == nextSeed) {
+                    return@LaunchedEffect
+                }
+                val targetMemoRemoteId = targetMemo.remoteId
+                val targetGroupMemo = groupMemos.firstOrNull { memo ->
+                    memo.remoteId == targetMemoRemoteId
+                }
+                inputViewModel.uploadResources.clear()
+                inputViewModel.uploadTasks.clear()
                 inputViewModel.uploadResources.addAll(
-                    targetMemo.resources.map { resource ->
+                    targetGroupMemo?.resources?.map { resource ->
                         ResourceEntity(
                             identifier = resource.remoteId,
                             remoteId = resource.remoteId,
@@ -482,33 +510,42 @@ fun GroupMemoInputPage(
                             thumbnailUri = resource.thumbnailUri,
                             thumbnailLocalUri = resource.thumbnailLocalUri,
                         )
+                    } ?: targetMemo.resources.mapNotNull { resource ->
+                        val remoteId = resource.remoteId ?: return@mapNotNull null
+                        ResourceEntity(
+                            identifier = remoteId,
+                            remoteId = remoteId,
+                            accountKey = resource.accountKey,
+                            date = resource.date,
+                            filename = resource.filename,
+                            uri = resource.uri,
+                            localUri = resource.localUri,
+                            mimeType = resource.mimeType,
+                            encryptionMetadata = resource.encryptionMetadata,
+                            thumbnailUri = resource.thumbnailUri,
+                            thumbnailLocalUri = resource.thumbnailLocalUri,
+                        )
                     }
                 )
-                initialResourceIdentifiers = inputViewModel.uploadResources
-                    .map { resource -> resource.remoteId ?: resource.identifier }
-                    .distinct()
-                text = TextFieldValue(targetMemo.content, TextRange(targetMemo.content.length))
-                selectedTags = tags
-                selectedCollaborators = collaborators
-            } else {
-                currentMemo = null
-                initialContent = ""
-                initialTags = emptyList()
-                initialCollaborators = emptyList()
-                initialResourceIdentifiers = emptyList()
-                text = TextFieldValue("", TextRange(0))
-                selectedTags = emptyList()
-                selectedCollaborators = emptyList()
+                val restoreState = buildMemoEditorRestoreState(
+                    memo = targetMemo,
+                    resourceIdentifiers = buildMemoEditorResourceIdentifiers(inputViewModel.uploadResources.toList()),
+                )
+                applyFieldsState(buildMemoEditorFieldsState(restoreState))
+                editorSeed = nextSeed
             }
-        } else {
-            currentMemo = null
-            initialContent = ""
-            initialTags = emptyList()
-            initialCollaborators = emptyList()
-            initialResourceIdentifiers = emptyList()
-            text = TextFieldValue("", TextRange(0))
-            selectedTags = emptyList()
-            selectedCollaborators = emptyList()
+
+            editorSeed != NEW_GROUP_MEMO_EDITOR_SEED -> {
+                inputViewModel.uploadResources.clear()
+                inputViewModel.uploadTasks.clear()
+                val restoreState = buildMemoEditorRestoreState(
+                    content = "",
+                    tags = emptyList(),
+                    collaboratorIds = emptyList(),
+                )
+                applyFieldsState(buildMemoEditorFieldsState(restoreState))
+                editorSeed = NEW_GROUP_MEMO_EDITOR_SEED
+            }
         }
         delay(300)
         focusRequester.requestFocus()

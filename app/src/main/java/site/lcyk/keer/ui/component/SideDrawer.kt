@@ -66,8 +66,6 @@ import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemoGroupType
-import site.lcyk.keer.data.model.isTagVisibleInDrawer
-import site.lcyk.keer.data.model.orderTagsForDrawer
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
@@ -76,11 +74,10 @@ import site.lcyk.keer.ui.page.common.navigateToMemosPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
 import site.lcyk.keer.ui.page.common.navigateToTopLevel
 import site.lcyk.keer.ui.page.common.RouteName
-import site.lcyk.keer.util.isCollaboratorTag
-import site.lcyk.keer.util.isQuoteTag
 import site.lcyk.keer.util.isValidTagName
-import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.normalizeTagName
+import site.lcyk.keer.viewmodel.buildDrawerExpandedAncestorPaths
+import site.lcyk.keer.viewmodel.buildVisibleDrawerTagEntries
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import java.time.DayOfWeek
@@ -106,9 +103,9 @@ fun SideDrawer(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsState()
-    val generalSettings by userStateViewModel.generalSettings.collectAsState()
     val drawerUiState by memosViewModel.visibleDrawerState.collectAsStateWithLifecycle()
-    val joinedGroups = drawerUiState.drawerGroups
+    val drawerHydrationState by memosViewModel.drawerHydrationState.collectAsStateWithLifecycle()
+    val groupItems = drawerUiState.groupItems
     val groupIdAliases = drawerUiState.groupIdAliases
     val hasExplore = currentAccount !is Account.Local
     val navBackStackEntry by memosNavController.currentBackStackEntryAsState()
@@ -126,17 +123,6 @@ fun SideDrawer(
     var confirmDeleteAndMemosInput by remember { mutableStateOf("") }
     var tagActionErrorMessage by remember { mutableStateOf<String?>(null) }
     var tagActionInProgress by remember { mutableStateOf(false) }
-    val rawTags = drawerUiState.tags
-    val availableTags = remember(rawTags, generalSettings) {
-        val normalizedVisibleTags = normalizeTagList(
-            rawTags
-                .filterNot(::isCollaboratorTag)
-                .filterNot(::isQuoteTag)
-        )
-            .filter { tag -> generalSettings.isTagVisibleInDrawer(tag) }
-        generalSettings.orderTagsForDrawer(normalizedVisibleTags)
-    }
-    val tagTree = remember(availableTags) { buildTagTree(availableTags) }
     val currentSelectedTag = remember(navBackStackEntry) {
         navBackStackEntry
             ?.arguments
@@ -155,11 +141,11 @@ fun SideDrawer(
             groupIdAliases.firstOrNull { it.localId == selected }?.remoteId ?: selected
         }
     }
-    val visibleTagEntries = remember(tagTree, expandedTagNodes.toMap()) {
-        flattenTagTree(tagTree, expandedTagNodes)
+    val visibleTagEntries = remember(drawerUiState.tagEntries, expandedTagNodes.toMap()) {
+        buildVisibleDrawerTagEntries(drawerUiState.tagEntries, expandedTagNodes)
     }
-    val hasUnreadGroupMessages = remember(joinedGroups, currentSelectedGroupId) {
-        joinedGroups.any { group ->
+    val hasUnreadGroupMessages = remember(groupItems, currentSelectedGroupId) {
+        groupItems.any { group ->
             group.hasUnreadMessages && currentSelectedGroupId != group.id
         }
     }
@@ -169,15 +155,12 @@ fun SideDrawer(
             ?.getString("columnId")
             ?.let(Uri::decode)
     }
-    val visibleColumns = drawerUiState.visibleColumns
-    val statsDays = remember(drawerUiState.matrix) {
-        resolveDrawerStatsActiveDays(drawerUiState.matrix)
-    }
-    val statsText = remember(drawerUiState.matrix, drawerUiState.tags, statsDays) {
+    val columnItems = drawerUiState.columnItems
+    val statsText = remember(drawerUiState.stats) {
         formatDrawerStatsText(
-            memoCount = drawerUiState.matrix.sumOf { it.count },
-            tagCount = drawerUiState.tags.size,
-            days = statsDays,
+            memoCount = drawerUiState.stats.memoCount,
+            tagCount = drawerUiState.stats.tagCount,
+            days = drawerUiState.stats.activeDayCount,
             memoLabel = R.string.memo.string,
             tagLabel = R.string.tag.string,
             dayLabel = R.string.day.string,
@@ -253,6 +236,12 @@ fun SideDrawer(
                         .padding(horizontal = 88.dp)
                         .fillMaxWidth(),
                 )
+                SurfaceHydrationLine(
+                    hydrationState = drawerHydrationState,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 2.dp, start = 20.dp, end = 20.dp),
+                )
             }
         }
 
@@ -304,7 +293,7 @@ fun SideDrawer(
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
             )
         }
-        visibleColumns.forEach { column ->
+        columnItems.forEach { column ->
             item("drawer_column_${column.id}") {
                 NavigationDrawerItem(
                     label = { Text(column.name) },
@@ -376,7 +365,7 @@ fun SideDrawer(
                 )
             }
             if (exploreExpanded) {
-                joinedGroups.forEach { group ->
+                groupItems.forEach { group ->
                     item("drawer_group_${group.id}") {
                         NavigationDrawerItem(
                             label = {
@@ -739,9 +728,9 @@ fun SideDrawer(
         )
     }
 
-    LaunchedEffect(currentSelectedTag, tagTree) {
+    LaunchedEffect(currentSelectedTag, drawerUiState.tagEntries) {
         currentSelectedTag?.let { selectedTag ->
-            ancestorPaths(selectedTag).forEach { ancestor ->
+            buildDrawerExpandedAncestorPaths(selectedTag).forEach { ancestor ->
                 expandedTagNodes[ancestor] = true
             }
         }
@@ -795,107 +784,6 @@ private fun TagActionMenuItem(
             }
         )
     }
-}
-
-private data class TagTreeNode(
-    val segment: String,
-    val fullPath: String,
-    var isRealTag: Boolean = false,
-    val children: LinkedHashMap<String, TagTreeNode> = linkedMapOf()
-)
-
-private data class FlatTagEntry(
-    val fullPath: String,
-    val displayName: String,
-    val depth: Int,
-    val selectable: Boolean,
-    val expandable: Boolean,
-    val expanded: Boolean
-)
-
-private fun buildTagTree(tags: List<String>): List<TagTreeNode> {
-    val roots = linkedMapOf<String, TagTreeNode>()
-
-    tags.forEach { rawTag ->
-        val normalizedTag = normalizeTagName(rawTag)
-        if (normalizedTag.isEmpty()) {
-            return@forEach
-        }
-        val segments = normalizedTag
-            .split("/")
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-        if (segments.isEmpty()) {
-            return@forEach
-        }
-
-        var currentMap = roots
-        var currentPath = ""
-        var lastNode: TagTreeNode? = null
-
-        segments.forEach { segment ->
-            currentPath = if (currentPath.isEmpty()) segment else "$currentPath/$segment"
-            val node = currentMap.getOrPut(segment) {
-                TagTreeNode(
-                    segment = segment,
-                    fullPath = currentPath
-                )
-            }
-            currentMap = node.children
-            lastNode = node
-        }
-        lastNode?.isRealTag = true
-    }
-
-    return roots.values.toList()
-}
-
-private fun flattenTagTree(
-    roots: List<TagTreeNode>,
-    expandedState: Map<String, Boolean>
-): List<FlatTagEntry> {
-    val result = mutableListOf<FlatTagEntry>()
-
-    fun visit(node: TagTreeNode, depth: Int) {
-        val hasChildren = node.children.isNotEmpty()
-        val expanded = expandedState[node.fullPath] ?: true
-
-        result += FlatTagEntry(
-            fullPath = node.fullPath,
-            displayName = node.segment,
-            depth = depth,
-            selectable = node.isRealTag,
-            expandable = hasChildren,
-            expanded = expanded
-        )
-
-        if (hasChildren && expanded) {
-            node.children.values.forEach { child ->
-                visit(child, depth + 1)
-            }
-        }
-    }
-
-    roots.forEach { root ->
-        visit(root, 0)
-    }
-    return result
-}
-
-private fun ancestorPaths(tag: String): List<String> {
-    val normalizedTag = normalizeTagName(tag)
-    if (normalizedTag.isEmpty()) {
-        return emptyList()
-    }
-
-    val segments = normalizedTag.split("/").filter { it.isNotEmpty() }
-    val paths = mutableListOf<String>()
-    var currentPath = ""
-    segments.dropLast(1).forEach { segment ->
-        currentPath = if (currentPath.isEmpty()) segment else "$currentPath/$segment"
-        paths += currentPath
-    }
-    return paths
 }
 
 private fun renameTagWithPrefix(tag: String, oldPrefix: String, newPrefix: String): String {

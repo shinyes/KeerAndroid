@@ -50,6 +50,27 @@ class InteractionSnapshotStoreTest {
     }
 
     @Test
+    fun `restore snapshot publishes immediately and cancels pending delayed commit`() = runTest {
+        val store = InteractionSnapshotStore(
+            scope = backgroundScope,
+            initialState = 0,
+            idleCommitDelayMillis = 50L,
+        )
+
+        store.updateLiveState(1)
+        advanceTimeBy(10)
+        runCurrent()
+        assertEquals(0, store.visibleState.value)
+
+        store.restoreSnapshot(5)
+        assertEquals(5, store.visibleState.value)
+
+        advanceTimeBy(50)
+        runCurrent()
+        assertEquals(5, store.visibleState.value)
+    }
+
+    @Test
     fun `drawer projection store commits immediately after unfreeze`() = runTest {
         val store = DrawerProjectionStore(scope = backgroundScope)
 

@@ -36,7 +36,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -53,19 +52,15 @@ import site.lcyk.keer.ui.component.KeerTagChip
 import site.lcyk.keer.ui.component.MemoContent
 import site.lcyk.keer.ui.component.MemoQuoteReferenceCard
 import site.lcyk.keer.ui.component.MemosCardActionButton
+import site.lcyk.keer.ui.component.SurfaceHydrationLine
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
-import site.lcyk.keer.util.extractCollaboratorIds
-import site.lcyk.keer.util.isCollaboratorTag
-import site.lcyk.keer.util.isQuoteTag
-import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.resolveMemoByIdentifier
-import site.lcyk.keer.util.resolveMemoFromQuoteDescriptor
-import site.lcyk.keer.util.resolveMemoQuoteDescriptor
-import site.lcyk.keer.util.storedMemoQuotePreviewOrNull
-import site.lcyk.keer.util.toMemoQuotePreview
+import site.lcyk.keer.viewmodel.buildQuotedMemoLookupIdentifier
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
+import site.lcyk.keer.viewmodel.buildMemoSurfaceLookupState
+import site.lcyk.keer.viewmodel.buildMemoViewResolvedScreenState
 import site.lcyk.keer.viewmodel.MemoDetailViewModel
 
 private const val EXPLORE_MEMO_PREFIX = "explore:"
@@ -111,24 +106,32 @@ fun MemoDetailPage(
                 memos = memoSnapshot,
             )
     }
+    var retainedMemo by remember(memoIdentifier) { mutableStateOf<MemoEntity?>(null) }
+    val displayMemo = memo ?: retainedMemo
     val readOnlyMemoDetail = remember(memoIdentifier) {
         memoIdentifier.startsWith(EXPLORE_MEMO_PREFIX) || memoIdentifier.startsWith(GROUP_MEMO_PREFIX)
     }
-    val collaboratorIds = remember(memo?.tags) { extractCollaboratorIds(memo?.tags.orEmpty()) }
-    val displayTags = remember(memo?.tags) {
-        normalizeTagList(
-            memo?.tags
-                .orEmpty()
-                .filterNot(::isCollaboratorTag)
-                .filterNot(::isQuoteTag)
+    val surfaceLookupState = remember(
+        memoIdentifier,
+        memo,
+        displayMemo?.quoteSourceKind,
+        displayMemo?.quoteSource,
+        displayMemo?.tags,
+    ) {
+        buildMemoSurfaceLookupState(
+            hasTarget = memoIdentifier.isNotBlank(),
+            liveValueAvailable = memo != null,
+            displayMemo = displayMemo,
+            requestedQuoteDescriptor = null,
         )
     }
-    val quoteDescriptor = remember(memo?.quoteSourceKind, memo?.quoteSource, memo?.tags) {
-        memo?.resolveMemoQuoteDescriptor()
-    }
+    val displayMeta = surfaceLookupState.meta.displayMeta
+    val collaboratorIds = displayMeta.collaboratorIds
+    val displayTags = displayMeta.displayTags
+    val quoteDescriptor = surfaceLookupState.activeQuoteDescriptor
     val quotedFallbackMemo by produceState<MemoEntity?>(
         initialValue = null,
-        memo?.identifier,
+        displayMemo?.identifier,
         quoteDescriptor,
         currentAccount?.accountKey()
     ) {
@@ -138,8 +141,8 @@ fun MemoDetailPage(
             value = null
             return@produceState
         }
-        val candidateIdentifier = buildQuoteCandidateIdentifier(
-            currentMemoIdentifier = memo?.identifier.orEmpty(),
+        val candidateIdentifier = buildQuotedMemoLookupIdentifier(
+            currentMemoIdentifier = displayMemo?.identifier.orEmpty(),
             descriptor = descriptor
         )
         value = if (candidateIdentifier == null) {
@@ -154,34 +157,54 @@ fun MemoDetailPage(
     val quoteSearchSpace = remember(memoSnapshot, quotedFallbackMemo) {
         listOfNotNull(quotedFallbackMemo) + memoSnapshot
     }
-    val quotedMemo = remember(
+    var retainedQuotePreview by remember(memoIdentifier) {
+        mutableStateOf<site.lcyk.keer.data.model.MemoQuotePreview?>(null)
+    }
+    val viewResolvedScreenState = remember(
         quoteDescriptor,
+        displayMemo?.quoteSourceKind,
+        displayMemo?.quoteSource,
         quoteSearchSpace,
+        quotedFallbackMemo?.identifier,
+        retainedQuotePreview?.previewText,
+        retainedQuotePreview?.date,
+        retainedQuotePreview?.hasResources,
     ) {
-        val descriptor = quoteDescriptor ?: return@remember null
-        memosViewModel.getMemoForDetail(descriptor.source)
-            ?: quotedFallbackMemo
-            ?: resolveMemoFromQuoteDescriptor(
-                descriptor = descriptor,
-                memos = quoteSearchSpace,
-            )
+        buildMemoViewResolvedScreenState(
+            hasTarget = memoIdentifier.isNotBlank(),
+            liveValueAvailable = memo != null,
+            displayMemo = displayMemo,
+            requestedQuoteDescriptor = null,
+            primaryQuotedMemo = quoteDescriptor?.source?.let(memosViewModel::getMemoForDetail)
+                ?: quotedFallbackMemo,
+            memos = quoteSearchSpace,
+            retainedQuotePreview = retainedQuotePreview,
+        )
     }
-    val quotePreview = remember(
-        quotedMemo?.content,
-        quotedMemo?.resources,
-        memo?.quoteStatus,
-        memo?.quoteContentPreview,
-        memo?.quoteDate,
-        memo?.quoteHasAttachments,
-    ) {
-        quotedMemo?.toMemoQuotePreview() ?: memo?.storedMemoQuotePreviewOrNull()
-    }
+    val quotedMemo = viewResolvedScreenState.lookup.quotedMemo
+    val viewSurfaceState = viewResolvedScreenState.screen
+    val surfacePresentationState = viewSurfaceState.presentation
+    val quotePreview = surfacePresentationState.quote.preview
+    val displayQuotePreview = viewSurfaceState.displayQuotePreview
     var hadMemo by rememberSaveable(memoIdentifier) { mutableStateOf(false) }
     var showCollaboratorDialog by remember { mutableStateOf(false) }
+    val hydrationState = surfacePresentationState.meta.hydrationState
 
-    LaunchedEffect(memo?.identifier) {
+    LaunchedEffect(memo?.identifier, memo?.content, memo?.date, memo?.lastModified) {
+        if (memo != null) {
+            retainedMemo = memo
+        }
+    }
+
+    LaunchedEffect(quotePreview?.previewText, quotePreview?.date, quotePreview?.hasResources) {
+        if (quotePreview != null) {
+            retainedQuotePreview = quotePreview
+        }
+    }
+
+    LaunchedEffect(memo?.identifier, displayMemo?.identifier) {
         when {
-            memo != null -> hadMemo = true
+            displayMemo != null -> hadMemo = true
             hadMemo -> navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
         }
     }
@@ -203,13 +226,14 @@ fun MemoDetailPage(
                 },
                 actions = {
                     if (!readOnlyMemoDetail) {
-                        memo?.let { MemosCardActionButton(it) }
+                        displayMemo?.let { MemosCardActionButton(it) }
                     }
                 }
             )
         }
     ) { innerPadding ->
-        if (memo == null) {
+        val currentMemo = displayMemo
+        if (currentMemo == null) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -235,7 +259,7 @@ fun MemoDetailPage(
             ) {
                 Text(
                     DateUtils.getRelativeTimeSpanString(
-                        memo.date.toEpochMilli(),
+                        currentMemo.date.toEpochMilli(),
                         System.currentTimeMillis(),
                         DateUtils.SECOND_IN_MILLIS
                     ).toString(),
@@ -269,7 +293,7 @@ fun MemoDetailPage(
                 } else {
                     Spacer(modifier = Modifier.weight(1f))
                 }
-                if (currentAccount !is Account.Local && memo.needsSync) {
+                if (currentAccount !is Account.Local && currentMemo.needsSync) {
                     Icon(
                         imageVector = Icons.Outlined.CloudOff,
                         contentDescription = R.string.memo_sync_pending.string,
@@ -279,24 +303,28 @@ fun MemoDetailPage(
                     )
                 }
             }
+            SurfaceHydrationLine(
+                hydrationState = hydrationState,
+                modifier = Modifier.padding(horizontal = 15.dp, vertical = 4.dp),
+            )
 
             MemoContent(
-                memo = memo,
+                memo = currentMemo,
                 selectable = true,
                 checkboxChange = { checked, startOffset, endOffset ->
                     if (!readOnlyMemoDetail) {
                         scope.launch {
-                            var text = memo.content.substring(startOffset, endOffset)
+                            var text = currentMemo.content.substring(startOffset, endOffset)
                             text = if (checked) {
                                 text.replace("[ ]", "[x]")
                             } else {
                                 text.replace("[x]", "[ ]")
                             }
                             memosViewModel.editMemo(
-                                memo.identifier,
-                                memo.content.replaceRange(startOffset, endOffset, text),
-                                memo.resources,
-                                memo.visibility
+                                currentMemo.identifier,
+                                currentMemo.content.replaceRange(startOffset, endOffset, text),
+                                currentMemo.resources,
+                                currentMemo.visibility
                             )
                         }
                     }
@@ -305,7 +333,7 @@ fun MemoDetailPage(
 
             if (quoteDescriptor != null) {
                 MemoQuoteReferenceCard(
-                    quotedMemo = quotePreview,
+                    quotedMemo = displayQuotePreview,
                     modifier = Modifier
                         .padding(start = 15.dp, end = 15.dp, bottom = 10.dp),
                     onClick = quotedMemo?.let { source ->
@@ -325,28 +353,5 @@ fun MemoDetailPage(
                 onDismiss = { showCollaboratorDialog = false }
             )
         }
-    }
-}
-
-private fun buildQuoteCandidateIdentifier(
-    currentMemoIdentifier: String,
-    descriptor: site.lcyk.keer.util.MemoQuoteDescriptor,
-): String? {
-    val normalizedCurrentIdentifier = currentMemoIdentifier.trim()
-    return when {
-        descriptor.sourceKind == site.lcyk.keer.util.MemoQuoteSourceKind.LOCAL -> descriptor.source
-        normalizedCurrentIdentifier.startsWith(GROUP_MEMO_PREFIX) -> {
-            val payload = normalizedCurrentIdentifier.removePrefix(GROUP_MEMO_PREFIX)
-            val separatorIndex = payload.indexOf(':')
-            if (separatorIndex <= 0) {
-                null
-            } else {
-                "group:${payload.substring(0, separatorIndex)}:${descriptor.source}"
-            }
-        }
-        normalizedCurrentIdentifier.startsWith(EXPLORE_MEMO_PREFIX) -> {
-            "explore:${descriptor.source}"
-        }
-        else -> descriptor.source
     }
 }

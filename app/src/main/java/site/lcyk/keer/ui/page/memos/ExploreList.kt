@@ -21,6 +21,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -29,6 +30,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -36,8 +38,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
-import site.lcyk.keer.data.model.Account
-import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoEditGesture
 import site.lcyk.keer.ui.component.MemoActionMenuButton
 import site.lcyk.keer.ui.component.MemoMenuAction
@@ -46,35 +46,35 @@ import site.lcyk.keer.ui.component.MediaPreviewPrefetchEffect
 import site.lcyk.keer.ui.component.MemoPreviewWarmupEffect
 import site.lcyk.keer.ui.component.PullSyncLineIndicator
 import site.lcyk.keer.ui.component.RefreshableListContainer
+import site.lcyk.keer.ui.component.SurfaceHydrationLineOverlay
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
 import site.lcyk.keer.ui.component.rememberListRenderSchedulerState
 import site.lcyk.keer.ui.component.rememberMemoExtremeListState
-import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
+import site.lcyk.keer.ui.component.rememberThumbnailListImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
-import site.lcyk.keer.util.extractCollaboratorIds
-import site.lcyk.keer.util.normalizeCollaboratorId
-import site.lcyk.keer.util.toMemoEntityForCard
+import site.lcyk.keer.viewmodel.ExploreCardUiModel
 import site.lcyk.keer.viewmodel.ExploreMemoItem
 import site.lcyk.keer.viewmodel.ExploreViewModel
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.MemoUiScope
 import site.lcyk.keer.viewmodel.UiInteractionType
+import site.lcyk.keer.viewmodel.patchByKey
 
 @Composable
 fun ExploreList(
     viewModel: ExploreViewModel = hiltViewModel(),
     contentPadding: PaddingValues,
 ) {
-    val items by viewModel.visibleItems.collectAsStateWithLifecycle()
-    val resolvedQuoteMap by viewModel.visibleResolvedQuotes.collectAsStateWithLifecycle()
+    val cardListState by viewModel.visibleCardListState.collectAsStateWithLifecycle()
+    val hydrationState by viewModel.hydrationState.collectAsStateWithLifecycle()
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val currentAccount by userStateViewModel.currentAccount.collectAsStateWithLifecycle()
@@ -87,7 +87,7 @@ fun ExploreList(
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
     val avatarImageLoader = rememberAuthorizedImageLoader()
-    val mediaImageLoader = rememberMemoMediaImageLoader()
+    val mediaImageLoader = rememberThumbnailListImageLoader()
     val renderSchedulerState = rememberListRenderSchedulerState(
         scopeFrozen = exploreFrozen,
         isScrollInProgressProvider = { listState.isScrollInProgress },
@@ -99,26 +99,15 @@ fun ExploreList(
     var editingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
     var editingContent by remember { mutableStateOf("") }
     var deletingMemo by remember { mutableStateOf<ExploreMemoItem?>(null) }
-    val accountKey = currentAccount?.accountKey() ?: "explore"
-    val prefetchMemoEntities = remember(items, accountKey) {
-        items.map { item -> item.memo.toExploreMemoEntity(accountKey) }
-    }
-    val collaboratorIdsToPrefetch = remember(items) {
-        items
-            .asSequence()
-            .flatMap { item -> extractCollaboratorIds(item.memo.tags).asSequence() }
-            .distinct()
-            .toList()
-    }
-    val currentUserId = when (val account = currentAccount) {
-        is Account.KeerV2 -> account.info.id.toString()
-        is Account.Local -> "local"
-        null -> ""
+    val items = remember { mutableStateListOf<ExploreCardUiModel>() }
+
+    LaunchedEffect(cardListState.cards) {
+        items.patchByKey(cardListState.cards) { item -> "${item.source.groupId.orEmpty()}|${item.source.memo.remoteId}" }
     }
 
-    LaunchedEffect(collaboratorIdsToPrefetch) {
-        if (collaboratorIdsToPrefetch.isNotEmpty()) {
-            userStateViewModel.prefetchCollaboratorAvatars(collaboratorIdsToPrefetch)
+    LaunchedEffect(cardListState.collaboratorIdsToPrefetch) {
+        if (cardListState.collaboratorIdsToPrefetch.isNotEmpty()) {
+            userStateViewModel.prefetchCollaboratorAvatars(cardListState.collaboratorIdsToPrefetch)
         }
     }
 
@@ -147,7 +136,7 @@ fun ExploreList(
 
     MediaPreviewPrefetchEffect(
         listState = listState,
-        memos = prefetchMemoEntities,
+        memos = cardListState.prefetchMemos,
         prefetchPaused = prefetchPaused,
         currentAccountKey = currentAccount?.accountKey(),
         okHttpClient = userStateViewModel.okHttpClient,
@@ -162,7 +151,7 @@ fun ExploreList(
         },
     )
     MemoPreviewWarmupEffect(
-        memos = prefetchMemoEntities,
+        memos = cardListState.prefetchMemos,
         enabled = warmupEnabled,
     )
 
@@ -175,9 +164,7 @@ fun ExploreList(
         avatarImageLoader = avatarImageLoader,
         mediaImageLoader = mediaImageLoader,
         uiFrozen = effectiveExploreFrozen,
-        accountKey = accountKey,
-        resolvedQuoteMap = resolvedQuoteMap,
-        currentUserId = currentUserId,
+        hydrationState = hydrationState,
         onRefresh = {
             if (memosViewModel.syncStatus.value.syncing) {
                 return@ExploreMemoFeed
@@ -210,8 +197,7 @@ fun ExploreList(
         onRequestDelete = { item ->
             deletingMemo = item
         },
-        onRequestQuote = { item ->
-            val sourceMemo = item.memo.toExploreMemoEntity(accountKey)
+        onRequestQuote = { sourceMemo ->
             memosViewModel.cacheMemoForDetail(sourceMemo)
             rootNavController.navigateToMemoInputPage(quoteMemoIdentifier = sourceMemo.identifier)
         },
@@ -303,7 +289,7 @@ fun ExploreList(
 
 @Composable
 private fun ExploreMemoFeed(
-    memos: List<ExploreMemoItem>,
+    memos: List<ExploreCardUiModel>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState,
     contentPadding: PaddingValues,
@@ -311,15 +297,13 @@ private fun ExploreMemoFeed(
     avatarImageLoader: coil3.ImageLoader,
     mediaImageLoader: coil3.ImageLoader,
     uiFrozen: Boolean,
-    accountKey: String,
-    resolvedQuoteMap: Map<String, site.lcyk.keer.util.ResolvedMemoQuote>,
-    currentUserId: String,
+    hydrationState: site.lcyk.keer.viewmodel.UiHydrationState,
     onRefresh: () -> Unit,
     onOpenMemoDetail: (MemoEntity) -> Unit,
     onTagClick: (String) -> Unit,
     onRequestEdit: (ExploreMemoItem) -> Unit,
     onRequestDelete: (ExploreMemoItem) -> Unit,
-    onRequestQuote: (ExploreMemoItem) -> Unit,
+    onRequestQuote: (MemoEntity) -> Unit,
 ) {
     RefreshableListContainer(
         isRefreshing = false,
@@ -328,6 +312,10 @@ private fun ExploreMemoFeed(
         state = refreshState,
         indicator = {
             ExplorePullSyncIndicator(refreshState = refreshState)
+            SurfaceHydrationLineOverlay(
+                hydrationState = hydrationState,
+                topPadding = 18.dp,
+            )
         },
         modifier = Modifier.fillMaxSize(),
     ) {
@@ -337,32 +325,26 @@ private fun ExploreMemoFeed(
         ) {
             items(
                 items = memos,
-                key = { item -> "${item.groupId.orEmpty()}|${item.memo.remoteId}" },
+                key = { item -> "${item.source.groupId.orEmpty()}|${item.source.memo.remoteId}" },
                 contentType = { "memo" },
-            ) { memoItem ->
-                val adaptedMemo = remember(memoItem.memo, accountKey) {
-                    memoItem.memo.toExploreMemoEntity(accountKey)
-                }
-                val canManageMemo = remember(memoItem.memo, currentUserId) {
-                    canManageExploreMemo(memoItem.memo, currentUserId)
-                }
+            ) { card ->
                 MemosCard(
-                    memo = adaptedMemo,
+                    memo = card.memo,
                     onClick = onOpenMemoDetail,
                     editGesture = MemoEditGesture.NONE,
                     previewMode = true,
                     autoPreviewPrefetch = false,
                     showSyncStatus = false,
-                    authorAvatarUrl = memoItem.memo.creator?.avatarUrl,
-                    authorName = memoItem.memo.creator?.name,
-                    onRequestEdit = { onRequestEdit(memoItem) },
+                    authorAvatarUrl = card.authorAvatarUrl,
+                    authorName = card.authorName,
+                    onRequestEdit = { onRequestEdit(card.source) },
                     actionButton = { memoEntity ->
                         ExploreMemoCardActionButton(
                             memo = memoEntity,
-                            canManage = canManageMemo,
-                            onQuote = { onRequestQuote(memoItem) },
-                            onEdit = { onRequestEdit(memoItem) },
-                            onDelete = { onRequestDelete(memoItem) },
+                            canManage = card.canManage,
+                            onQuote = { onRequestQuote(card.memo) },
+                            onEdit = { onRequestEdit(card.source) },
+                            onDelete = { onRequestDelete(card.source) },
                         )
                     },
                     onTagClick = onTagClick,
@@ -371,7 +353,9 @@ private fun ExploreMemoFeed(
                     mediaImageLoader = mediaImageLoader,
                     uiFrozen = uiFrozen,
                     prefetchCollaborators = false,
-                    resolvedQuote = resolvedQuoteMap[adaptedMemo.identifier],
+                    resolvedQuote = card.resolvedQuote,
+                    displayTags = card.displayTags,
+                    collaboratorIds = card.collaboratorIds,
                 )
             }
         }
@@ -392,13 +376,6 @@ private fun androidx.compose.foundation.layout.BoxScope.ExplorePullSyncIndicator
     PullSyncLineIndicator(
         refreshState = refreshState,
         syncing = syncing,
-    )
-}
-
-private fun Memo.toExploreMemoEntity(accountKey: String): MemoEntity {
-    return toMemoEntityForCard(
-        identifier = "explore:$remoteId",
-        accountKey = accountKey,
     )
 }
 
@@ -457,18 +434,4 @@ private fun ExploreMemoCardActionButton(
         }
     }
     MemoActionMenuButton(actions = actions)
-}
-
-private fun canManageExploreMemo(memo: Memo, currentUserId: String): Boolean {
-    val normalizedCurrentUserID = normalizeCollaboratorId(currentUserId)
-    if (normalizedCurrentUserID.isEmpty()) {
-        return false
-    }
-    val creatorID = normalizeCollaboratorId(memo.creator?.identifier.orEmpty())
-    if (creatorID == normalizedCurrentUserID) {
-        return true
-    }
-    return extractCollaboratorIds(memo.tags).any { collaboratorID ->
-        normalizeCollaboratorId(collaboratorID) == normalizedCurrentUserID
-    }
 }

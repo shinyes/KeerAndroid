@@ -17,8 +17,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -26,12 +26,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.MemoEditGesture
@@ -41,6 +40,7 @@ import site.lcyk.keer.ui.component.MemoMenuAction
 import site.lcyk.keer.ui.component.MediaPreviewPrefetchEffect
 import site.lcyk.keer.ui.component.MemoPreviewWarmupEffect
 import site.lcyk.keer.ui.component.RefreshableListContainer
+import site.lcyk.keer.ui.component.SurfaceHydrationLineOverlay
 import site.lcyk.keer.ui.component.SyncAlertDialog
 import site.lcyk.keer.ui.component.SyncAlertState
 import site.lcyk.keer.ui.component.PullSyncLineIndicator
@@ -48,20 +48,20 @@ import site.lcyk.keer.ui.component.processManualSyncResult
 import site.lcyk.keer.ui.component.MemosCard
 import site.lcyk.keer.ui.component.MemosCardActionButton
 import site.lcyk.keer.ui.component.rememberAuthorizedImageLoader
-import site.lcyk.keer.ui.component.rememberMemoExtremeListState
 import site.lcyk.keer.ui.component.rememberListRenderSchedulerState
-import site.lcyk.keer.ui.component.rememberMemoMediaImageLoader
+import site.lcyk.keer.ui.component.rememberMemoExtremeListState
+import site.lcyk.keer.ui.component.rememberThumbnailListImageLoader
 import site.lcyk.keer.ui.page.common.LocalRootNavController
 import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
-import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.MemoCardUiModel
 import site.lcyk.keer.viewmodel.MemoUiScope
 import site.lcyk.keer.viewmodel.UiInteractionType
+import site.lcyk.keer.viewmodel.patchByKey
 import timber.log.Timber
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,9 +69,9 @@ import timber.log.Timber
 fun MemosList(
     contentPadding: PaddingValues,
     lazyListState: LazyListState = rememberMemoExtremeListState(),
-    memos: List<site.lcyk.keer.data.local.entity.MemoEntity>? = null,
-    tag: String? = null,
-    searchString: String? = null,
+    memoCards: List<MemoCardUiModel>,
+    prefetchMemoEntities: List<site.lcyk.keer.data.local.entity.MemoEntity>? = null,
+    collaboratorIdsToPrefetch: List<String>? = null,
     onRefresh: (suspend () -> Unit)? = null,
     onTagClick: ((String) -> Unit)? = null,
     onRequestEdit: ((site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)? = null,
@@ -86,13 +86,12 @@ fun MemosList(
     val collaboratorProfiles by userStateViewModel.collaboratorProfiles.collectAsStateWithLifecycle()
     val feedFrozen by viewModel.observeScopeFrozen(MemoUiScope.FEED)
         .collectAsStateWithLifecycle(initialValue = false)
-    val visibleMemos by viewModel.visibleMemos.collectAsStateWithLifecycle()
-    val visibleResolvedQuotes by viewModel.visibleResolvedQuotes.collectAsStateWithLifecycle()
+    val hydrationState by viewModel.feedHydrationState.collectAsStateWithLifecycle()
     val editGesture = generalSettings.memoEditGesture
     val refreshState = rememberPullToRefreshState()
     val scope = rememberCoroutineScope()
     val avatarImageLoader = rememberAuthorizedImageLoader()
-    val mediaImageLoader = rememberMemoMediaImageLoader()
+    val mediaImageLoader = rememberThumbnailListImageLoader()
     val renderSchedulerState = rememberListRenderSchedulerState(
         scopeFrozen = feedFrozen,
         isScrollInProgressProvider = { lazyListState.isScrollInProgress },
@@ -101,75 +100,26 @@ fun MemosList(
     val warmupEnabled = renderSchedulerState.warmupEnabled
     val effectiveFeedFrozen = renderSchedulerState.uiFrozen
     var syncAlert by remember { mutableStateOf<SyncAlertState?>(null) }
-    val sourceMemos = memos ?: visibleMemos
-    val sourceMemoSnapshot = remember(sourceMemos) { sourceMemos.toList() }
-    val resolvedQuoteMap = visibleResolvedQuotes
-    val filteredMemos by produceState(
-        initialValue = sourceMemoSnapshot,
-        sourceMemoSnapshot,
-        tag,
-        searchString,
-    ) {
-        value = withContext(Dispatchers.Default) {
-            val normalizedTag = tag?.takeIf { it.isNotBlank() }
-            val normalizedQuery = searchString?.takeIf { it.isNotBlank() }
-            val pinned = mutableListOf<site.lcyk.keer.data.local.entity.MemoEntity>()
-            val normal = mutableListOf<site.lcyk.keer.data.local.entity.MemoEntity>()
-
-            for (memo in sourceMemoSnapshot) {
-                if (normalizedTag != null) {
-                    val matchedTag = memo.tags.any { memoTag ->
-                        memoTag == normalizedTag || memoTag.startsWith("$normalizedTag/")
-                    }
-                    if (!matchedTag) {
-                        continue
-                    }
-                }
-                if (normalizedQuery != null && !memo.content.contains(normalizedQuery, ignoreCase = true)) {
-                    continue
-                }
-                if (memo.pinned) {
-                    pinned += memo
-                } else {
-                    normal += memo
-                }
-            }
-
-            buildList(pinned.size + normal.size) {
-                addAll(pinned)
-                addAll(normal)
-            }
-        }
+    val memoCardUiModelsTarget = remember(memoCards) { memoCards.toList() }
+    val memoCardUiModels = remember { mutableStateListOf<MemoCardUiModel>() }
+    LaunchedEffect(memoCardUiModelsTarget) {
+        memoCardUiModels.patchByKey(memoCardUiModelsTarget) { model -> model.memo.identifier }
     }
-    val memoCardUiModels by produceState(
-        initialValue = emptyList<MemoCardUiModel>(),
-        filteredMemos,
-        resolvedQuoteMap,
-    ) {
-        value = withContext(Dispatchers.Default) {
-            filteredMemos.map { memo ->
-                MemoCardUiModel(
-                    memo = memo,
-                    resolvedQuote = resolvedQuoteMap[memo.identifier],
-                )
-            }
-        }
-    }
-    val prefetchMemos = remember(memoCardUiModels) {
-        memoCardUiModels.map { it.memo }
+    val prefetchMemos = remember(prefetchMemoEntities, memoCardUiModelsTarget) {
+        prefetchMemoEntities ?: memoCardUiModelsTarget.map { it.memo }
     }
 
-    val collaboratorIdsToPrefetch = remember(filteredMemos) {
-        filteredMemos
+    val effectiveCollaboratorIdsToPrefetch = remember(collaboratorIdsToPrefetch, memoCardUiModelsTarget) {
+        collaboratorIdsToPrefetch ?: memoCardUiModelsTarget
             .asSequence()
-            .flatMap { memo -> extractCollaboratorIds(memo.tags).asSequence() }
+            .flatMap { card -> card.collaboratorIds.asSequence() }
             .distinct()
             .toList()
     }
 
-    LaunchedEffect(collaboratorIdsToPrefetch) {
-        if (collaboratorIdsToPrefetch.isNotEmpty()) {
-            userStateViewModel.prefetchCollaboratorAvatars(collaboratorIdsToPrefetch)
+    LaunchedEffect(effectiveCollaboratorIdsToPrefetch) {
+        if (effectiveCollaboratorIdsToPrefetch.isNotEmpty()) {
+            userStateViewModel.prefetchCollaboratorAvatars(effectiveCollaboratorIdsToPrefetch)
         }
     }
 
@@ -226,6 +176,7 @@ fun MemosList(
         avatarImageLoader = avatarImageLoader,
         mediaImageLoader = mediaImageLoader,
         uiFrozen = effectiveFeedFrozen,
+        hydrationState = hydrationState,
         onRefresh = {
             if (viewModel.syncStatus.value.syncing) {
                 return@MemoFeedList
@@ -274,6 +225,7 @@ private fun MemoFeedList(
     avatarImageLoader: coil3.ImageLoader,
     mediaImageLoader: coil3.ImageLoader,
     uiFrozen: Boolean,
+    hydrationState: site.lcyk.keer.viewmodel.UiHydrationState,
     onRefresh: () -> Unit,
     onOpenMemoDetail: (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit,
     onTagClick: ((String) -> Unit)?,
@@ -288,6 +240,10 @@ private fun MemoFeedList(
         state = refreshState,
         indicator = {
             FeedPullSyncIndicator(refreshState = refreshState)
+            SurfaceHydrationLineOverlay(
+                hydrationState = hydrationState,
+                topPadding = 18.dp,
+            )
         },
         modifier = Modifier.fillMaxSize()
     ) {
@@ -310,6 +266,8 @@ private fun MemoFeedList(
                     autoPreviewPrefetch = false,
                     showSyncStatus = showSyncStatus,
                     onTagClick = onTagClick,
+                    authorAvatarUrl = card.authorAvatarUrl,
+                    authorName = card.authorName,
                     actionButton = actionButton,
                     onRequestEdit = onRequestEdit,
                     collaboratorProfiles = collaboratorProfiles,
@@ -318,6 +276,8 @@ private fun MemoFeedList(
                     uiFrozen = uiFrozen,
                     prefetchCollaborators = false,
                     resolvedQuote = card.resolvedQuote,
+                    displayTags = card.displayTags,
+                    collaboratorIds = card.collaboratorIds,
                 )
             }
         }

@@ -86,20 +86,22 @@ fun MemosCard(
     uiFrozen: Boolean = false,
     prefetchCollaborators: Boolean = true,
     resolvedQuote: ResolvedMemoQuote? = null,
+    displayTags: List<String>? = null,
+    collaboratorIds: List<String>? = null,
 ) {
     val memosViewModel = LocalMemos.current
     val rootNavController = LocalRootNavController.current
     val userStateViewModel = LocalUserState.current
     val imageLoader = avatarImageLoader ?: rememberAuthorizedImageLoader()
     val scope = rememberCoroutineScope()
-    val displayTags = remember(memo.tags) {
+    val resolvedDisplayTags = displayTags ?: remember(memo.tags) {
         normalizeTagList(
             memo.tags
                 .filterNot(::isCollaboratorTag)
                 .filterNot(::isQuoteTag)
         )
     }
-    val collaboratorIds = remember(memo.tags) { extractCollaboratorIds(memo.tags) }
+    val resolvedCollaboratorIds = collaboratorIds ?: remember(memo.tags) { extractCollaboratorIds(memo.tags) }
     val quotedMemo = resolvedQuote?.sourceMemo
     val quotePreview = remember(
         resolvedQuote,
@@ -155,12 +157,12 @@ fun MemosCard(
     }
     var showCollaboratorDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(collaboratorIds, collaboratorProfiles, prefetchCollaborators) {
+    LaunchedEffect(resolvedCollaboratorIds, collaboratorProfiles, prefetchCollaborators) {
         if (!prefetchCollaborators) {
             return@LaunchedEffect
         }
-        if (collaboratorIds.any { collaboratorId -> !collaboratorProfiles.containsKey(collaboratorId) }) {
-            userStateViewModel.prefetchCollaboratorAvatars(collaboratorIds)
+        if (resolvedCollaboratorIds.any { collaboratorId -> !collaboratorProfiles.containsKey(collaboratorId) }) {
+            userStateViewModel.prefetchCollaboratorAvatars(resolvedCollaboratorIds)
         }
     }
 
@@ -245,18 +247,18 @@ fun MemosCard(
                         }
                     }
                 }
-                if (collaboratorIds.isNotEmpty()) {
+                if (resolvedCollaboratorIds.isNotEmpty()) {
                     CollaboratorAvatarStack(
-                        collaboratorIds = collaboratorIds,
+                        collaboratorIds = resolvedCollaboratorIds,
                         collaboratorProfiles = collaboratorProfiles,
                         avatarImageLoader = imageLoader,
                         onClick = { showCollaboratorDialog = true }
                     )
                 }
-                if (displayTags.isNotEmpty()) {
+                if (resolvedDisplayTags.isNotEmpty()) {
                     if (uiFrozen) {
                         FrozenTagSummaryRow(
-                            tags = displayTags,
+                            tags = resolvedDisplayTags,
                             onTagClick = onTagClick,
                             modifier = Modifier
                                 .weight(1f)
@@ -270,7 +272,7 @@ fun MemosCard(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            items(displayTags, key = { it }) { tag ->
+                            items(resolvedDisplayTags, key = { it }) { tag ->
                                 KeerTagChip(
                                     tag = tag,
                                     onClick = { onTagClick?.invoke(tag) }
@@ -331,7 +333,7 @@ fun MemosCard(
 
     if (showCollaboratorDialog) {
         CollaboratorListDialog(
-            collaboratorIds = collaboratorIds,
+            collaboratorIds = resolvedCollaboratorIds,
             collaboratorProfiles = collaboratorProfiles,
             avatarImageLoader = imageLoader,
             onDismiss = { showCollaboratorDialog = false }

@@ -29,13 +29,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.Attachment
 import site.lcyk.keer.ui.component.MemoMedia
-import site.lcyk.keer.ui.component.isMediaResource
+import site.lcyk.keer.ui.component.SurfaceHydrationLine
+import site.lcyk.keer.ui.component.rememberThumbnailListImageLoader
 import site.lcyk.keer.ui.page.common.PageScaffold
 import site.lcyk.keer.viewmodel.ResourceListViewModel
 
@@ -54,8 +56,9 @@ fun ResourceListPage(
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     var selectedFilter by rememberSaveable { mutableStateOf(ResourceFilter.IMAGE) }
-    val imageResources = viewModel.resources.filter { it.isMediaResource() }
-    val otherResources = viewModel.resources.filterNot { it.isMediaResource() }
+    val hydrationState by viewModel.hydrationState.collectAsStateWithLifecycle()
+    val listState by viewModel.visibleListState.collectAsStateWithLifecycle()
+    val mediaImageLoader = rememberThumbnailListImageLoader()
 
     PageScaffold(
         title = R.string.resources.string,
@@ -87,6 +90,11 @@ fun ResourceListPage(
                 )
             }
 
+            SurfaceHydrationLine(
+                hydrationState = hydrationState,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
+
             if (selectedFilter == ResourceFilter.IMAGE) {
                 LazyVerticalStaggeredGrid(
                     columns = StaggeredGridCells.Fixed(2),
@@ -97,9 +105,11 @@ fun ResourceListPage(
                     verticalItemSpacing = 10.dp,
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
-                    staggeredGridItems(imageResources, key = { it.identifier }) { resource ->
+                    staggeredGridItems(listState.imageResources, key = { it.identifier }) { resource ->
                         MemoMedia(
                             resource = resource,
+                            autoPreviewPrefetch = false,
+                            mediaImageLoader = mediaImageLoader,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
@@ -114,7 +124,7 @@ fun ResourceListPage(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
-                    lazyItems(otherResources, key = { it.identifier }) { resource ->
+                    lazyItems(listState.otherResources, key = { it.identifier }) { resource ->
                         Attachment(resource = resource)
                     }
                 }
