@@ -51,6 +51,7 @@ import site.lcyk.keer.ui.page.memoinput.MemoCollaboratorDialog
 import site.lcyk.keer.ui.page.memoinput.MemoInputBottomBar
 import site.lcyk.keer.ui.page.memoinput.MemoInputEditor
 import site.lcyk.keer.ui.page.memoinput.MemoInputTopBar
+import site.lcyk.keer.ui.page.memoinput.MemoUploadFeedbackSnackbarEffect
 import site.lcyk.keer.ui.page.memoinput.MemoTagSelectorDialog
 import site.lcyk.keer.ui.page.memoinput.SaveChangesDialog
 import site.lcyk.keer.ui.page.memoinput.applyMarkdownFormatToText
@@ -66,11 +67,15 @@ import site.lcyk.keer.viewmodel.GroupChatViewModel
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.buildActiveMemoQuoteDescriptor
+import site.lcyk.keer.viewmodel.buildMemoEditorCanSubmit
+import site.lcyk.keer.viewmodel.buildMemoEditorCompletionWorkflowState
+import site.lcyk.keer.viewmodel.buildMemoEditorDismissWorkflowState
 import site.lcyk.keer.viewmodel.buildMemoEditorDirtyState
-import site.lcyk.keer.viewmodel.buildMemoEditorFieldsState
 import site.lcyk.keer.viewmodel.buildMemoEditorResourceIdentifiers
 import site.lcyk.keer.viewmodel.buildMemoEditorResolvedScreenState
 import site.lcyk.keer.viewmodel.buildMemoEditorRestoreState
+import site.lcyk.keer.viewmodel.buildMemoEditorRestoreWorkflowState
+import site.lcyk.keer.viewmodel.buildMemoEditorUploadWorkflowState
 import site.lcyk.keer.viewmodel.buildRequestedLocalQuoteDescriptor
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 
@@ -154,7 +159,28 @@ fun GroupMemoInputPage(
     val editorScreenState = editorResolvedScreenState.screen
     val quotePreview = editorScreenState.quotePreview
     val quoteDescriptorForSubmit = editorScreenState.quoteDescriptorForSubmit
-    val initialFields = editorScreenState.initialFields
+    val editorSession = editorScreenState.session
+    val initialFields = editorSession.initialFields
+    val uploadResources = inputViewModel.uploadResources.toList()
+    val uploadTasks = inputViewModel.uploadTasks.toList()
+    val recentlyUploadedResourceIdentifiers = inputViewModel.recentlyUploadedResourceIdentifiers.toList()
+    val uploadWorkflowState = remember(
+        uploadResources,
+        uploadTasks,
+        recentlyUploadedResourceIdentifiers,
+    ) {
+        buildMemoEditorUploadWorkflowState(
+            memoIdentifier = null,
+            uploadResources = uploadResources,
+            uploadTasks = uploadTasks,
+            highlightedResourceIdentifiers = recentlyUploadedResourceIdentifiers,
+            focusDelayMillis = 300L,
+        )
+    }
+    MemoUploadFeedbackSnackbarEffect(
+        hostState = snackbarState,
+        feedbackState = uploadWorkflowState.uploads.feedback,
+    )
     var editorBaseline by remember {
         mutableStateOf(initialFields.baseline)
     }
@@ -193,31 +219,49 @@ fun GroupMemoInputPage(
     }
     var editorSeed by rememberSaveable(groupId, memoId, quoteSourceMemoIdentifier) { mutableStateOf<String?>(null) }
     val hydrationState = editorScreenState.hydrationState
+    val applyFieldsState: (site.lcyk.keer.viewmodel.MemoEditorFieldsState) -> Unit = { fieldsState ->
+        text = TextFieldValue(fieldsState.content, TextRange(fieldsState.content.length))
+        selectedTags = fieldsState.selectedTags
+        selectedCollaborators = fieldsState.selectedCollaborators
+        editorBaseline = fieldsState.baseline
+    }
+    val applyWorkflowCleanup: (site.lcyk.keer.viewmodel.MemoEditorWorkflowCleanupState) -> Unit = { cleanup ->
+        if (cleanup.clearUploads) {
+            inputViewModel.clearUploadResources()
+        }
+        if (cleanup.clearUploadTasks) {
+            inputViewModel.clearUploadTasks()
+        }
+    }
 
     fun handleExit() {
-        if (inputViewModel.hasActiveUpload()) {
+        if (uploadWorkflowState.uploads.hasActiveUpload) {
             coroutineScope.launch {
                 snackbarState.showSnackbar(R.string.upload_in_progress_wait.string)
             }
             return
         }
-        val currentResourceIdentifiers = buildMemoEditorResourceIdentifiers(inputViewModel.uploadResources.toList())
-        if (buildMemoEditorDirtyState(
+        val workflowState = buildMemoEditorDismissWorkflowState(
+            isDirty = buildMemoEditorDirtyState(
                 baseline = editorBaseline,
                 content = text.text,
                 selectedTags = normalizedSelectedTags,
                 selectedCollaborators = normalizedSelectedCollaborators,
-                resourceIdentifiers = currentResourceIdentifiers,
-            )
-        ) {
+                resourceIdentifiers = uploadWorkflowState.uploads.resourceIdentifiers,
+            ),
+            persistDraft = false,
+            currentContent = text.text,
+        )
+        if (workflowState.dismiss.shouldShowDiscardConfirmation) {
             showExitConfirmation = true
-        } else {
+        } else if (workflowState.dismiss.shouldDismiss) {
+            applyWorkflowCleanup(workflowState.cleanup)
             navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
         }
     }
 
     fun submit() = coroutineScope.launch {
-        if (inputViewModel.hasActiveUpload()) {
+        if (uploadWorkflowState.uploads.hasActiveUpload) {
             snackbarState.showSnackbar(R.string.upload_in_progress_wait.string)
             return@launch
         }
@@ -235,7 +279,7 @@ fun GroupMemoInputPage(
         }
 
         val payload = text.text.trim()
-        val currentResourceIdentifiers = buildMemoEditorResourceIdentifiers(inputViewModel.uploadResources.toList())
+        val currentResourceIdentifiers = uploadWorkflowState.uploads.resourceIdentifiers
         if (payload.isBlank() && currentResourceIdentifiers.isEmpty()) {
             return@launch
         }
@@ -261,28 +305,26 @@ fun GroupMemoInputPage(
             return@launch
         }
 
-        text = TextFieldValue("", TextRange(0))
-        selectedTags = emptyList()
-        selectedCollaborators = emptyList()
-        inputViewModel.uploadResources.clear()
-        inputViewModel.uploadTasks.clear()
+        val workflowState = buildMemoEditorCompletionWorkflowState(
+            sessionState = editorSession,
+            persistDraft = false,
+            currentContent = text.text,
+            clearDraft = true,
+            clearUploads = true,
+            clearUploadTasks = true,
+        )
+        applyFieldsState(workflowState.completion.fields)
+        applyWorkflowCleanup(workflowState.cleanup)
         navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
     }
 
     fun uploadResource(uri: Uri) = coroutineScope.launch {
-        inputViewModel.upload(uri, memoIdentifier = null).suspendOnSuccess {
-            delay(300)
+        inputViewModel.upload(uri, memoIdentifier = uploadWorkflowState.entry.targetMemoIdentifier).suspendOnSuccess {
+            delay(uploadWorkflowState.entry.focusDelayMillis)
             focusRequester.requestFocus()
         }.suspendOnErrorMessage { message ->
             snackbarState.showSnackbar(message)
         }
-    }
-
-    fun applyFieldsState(fieldsState: site.lcyk.keer.viewmodel.MemoEditorFieldsState) {
-        text = TextFieldValue(fieldsState.content, TextRange(fieldsState.content.length))
-        selectedTags = fieldsState.selectedTags
-        selectedCollaborators = fieldsState.selectedCollaborators
-        editorBaseline = fieldsState.baseline
     }
 
     val pickImage = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
@@ -340,7 +382,10 @@ fun GroupMemoInputPage(
         topBar = {
             MemoInputTopBar(
                 isEditMode = isEditMode,
-                canSubmit = (text.text.isNotEmpty() || inputViewModel.uploadResources.isNotEmpty()) && !inputViewModel.hasActiveUpload(),
+                canSubmit = buildMemoEditorCanSubmit(
+                    content = text.text,
+                    uploadsState = uploadWorkflowState.uploads,
+                ),
                 onClose = { handleExit() },
                 onSubmit = { submit() }
             )
@@ -415,9 +460,15 @@ fun GroupMemoInputPage(
                 onDroppedText = { droppedText ->
                     text = text.copy(text = text.text + droppedText)
                 },
-                uploadResources = inputViewModel.uploadResources.toList(),
-                inputViewModel = inputViewModel,
-                uploadTasks = inputViewModel.uploadTasks.toList(),
+                uploadsState = uploadWorkflowState.uploads,
+                onRemoveUploadResource = { resource -> inputViewModel.removeResourceFromDraft(resource) },
+                onClearImageUploadResources = { inputViewModel.clearImageUploadResources() },
+                onClearAttachmentUploadResources = { inputViewModel.clearAttachmentUploadResources() },
+                onCancelUploadTask = { taskId -> inputViewModel.cancelUploadTask(taskId) },
+                onCancelActiveUploadTasks = { inputViewModel.cancelActiveUploadTasks() },
+                onRetryFailedUploadTasks = { inputViewModel.retryFailedUploadTasks() },
+                onClearFailedUploadTasks = { inputViewModel.clearFailedUploadTasks() },
+                onRetryUploadTask = { taskId -> inputViewModel.retryUploadTask(taskId) },
                 onDismissUploadTask = { taskId ->
                     inputViewModel.dismissUploadTask(taskId)
                 }
@@ -457,8 +508,16 @@ fun GroupMemoInputPage(
             },
             onDiscard = {
                 showExitConfirmation = false
-                inputViewModel.uploadResources.clear()
-                inputViewModel.uploadTasks.clear()
+                val workflowState = buildMemoEditorCompletionWorkflowState(
+                    sessionState = editorSession,
+                    persistDraft = false,
+                    currentContent = text.text,
+                    clearDraft = true,
+                    clearUploads = true,
+                    clearUploadTasks = true,
+                )
+                applyFieldsState(workflowState.completion.fields)
+                applyWorkflowCleanup(workflowState.cleanup)
                 navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
             },
             onDismiss = {
@@ -493,9 +552,7 @@ fun GroupMemoInputPage(
                 val targetGroupMemo = groupMemos.firstOrNull { memo ->
                     memo.remoteId == targetMemoRemoteId
                 }
-                inputViewModel.uploadResources.clear()
-                inputViewModel.uploadTasks.clear()
-                inputViewModel.uploadResources.addAll(
+                val restoredUploadResources =
                     targetGroupMemo?.resources?.map { resource ->
                         ResourceEntity(
                             identifier = resource.remoteId,
@@ -526,24 +583,29 @@ fun GroupMemoInputPage(
                             thumbnailLocalUri = resource.thumbnailLocalUri,
                         )
                     }
+                val restoreWorkflowState = buildMemoEditorRestoreWorkflowState(
+                    restoreState = buildMemoEditorRestoreState(
+                        memo = targetMemo,
+                        resourceIdentifiers = buildMemoEditorResourceIdentifiers(restoredUploadResources),
+                    ),
+                    uploadResources = restoredUploadResources,
                 )
-                val restoreState = buildMemoEditorRestoreState(
-                    memo = targetMemo,
-                    resourceIdentifiers = buildMemoEditorResourceIdentifiers(inputViewModel.uploadResources.toList()),
-                )
-                applyFieldsState(buildMemoEditorFieldsState(restoreState))
+                applyWorkflowCleanup(restoreWorkflowState.cleanup)
+                inputViewModel.uploadResources.addAll(restoreWorkflowState.uploadResources)
+                applyFieldsState(restoreWorkflowState.fields)
                 editorSeed = nextSeed
             }
 
             editorSeed != NEW_GROUP_MEMO_EDITOR_SEED -> {
-                inputViewModel.uploadResources.clear()
-                inputViewModel.uploadTasks.clear()
-                val restoreState = buildMemoEditorRestoreState(
-                    content = "",
-                    tags = emptyList(),
-                    collaboratorIds = emptyList(),
+                val restoreWorkflowState = buildMemoEditorRestoreWorkflowState(
+                    restoreState = buildMemoEditorRestoreState(
+                        content = "",
+                        tags = emptyList(),
+                        collaboratorIds = emptyList(),
+                    ),
                 )
-                applyFieldsState(buildMemoEditorFieldsState(restoreState))
+                applyWorkflowCleanup(restoreWorkflowState.cleanup)
+                applyFieldsState(restoreWorkflowState.fields)
                 editorSeed = NEW_GROUP_MEMO_EDITOR_SEED
             }
         }
@@ -553,7 +615,7 @@ fun GroupMemoInputPage(
 
     DisposableEffect(Unit) {
         onDispose {
-            inputViewModel.uploadTasks.clear()
+            inputViewModel.clearUploadTasks()
         }
     }
 }

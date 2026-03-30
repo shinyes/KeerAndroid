@@ -20,7 +20,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
@@ -29,12 +28,11 @@ import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.viewmodel.MemoInputViewModel
 
 @Composable
 fun InputImage(
     resource: ResourceEntity,
-    inputViewModel: MemoInputViewModel
+    onRemove: (ResourceEntity) -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -63,7 +61,7 @@ fun InputImage(
                 text = { Text(R.string.remove.string) },
                 onClick = {
                     scope.launch {
-                        inputViewModel.removeResourceFromDraft(resource)
+                        onRemove(resource)
                         menuExpanded = false
                     }
                 },

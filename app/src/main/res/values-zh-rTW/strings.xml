@@ -80,6 +80,7 @@
     <string name="access_token" translatable="false">Access Token</string>
     <string name="edit">編輯</string>
     <string name="close">關閉</string>
+    <string name="retry">重試</string>
     <string name="add_task">新增任務</string>
     <string name="add_image">新增圖片</string>
     <string name="add_media">新增媒體</string>
@@ -118,6 +119,7 @@
     <string name="save_changes_title">儲存變更？</string>
     <string name="save_changes_message">退出前是否要儲存本次變更？</string>
     <string name="save">儲存</string>
+    <string name="clear_all">全部清理</string>
     <string name="discard">放棄</string>
     <string name="delete_this_memo">確認刪除這條 MEMO 嗎？</string>
     <string name="delete">刪除</string>
@@ -228,6 +230,23 @@
     <string name="upload_preparing">正在準備附件…</string>
     <string name="uploading">正在儲存附件…</string>
     <string name="upload_failed">附件處理失敗</string>
+    <string name="retry_failed_uploads">重試失敗任務</string>
+    <string name="cancel_active_uploads">取消進行中的上傳</string>
+    <string name="clear_failed_uploads">清理失敗任務</string>
+    <string name="upload_summary_ready">已就緒：%1$d</string>
+    <string name="upload_summary_active">處理中：%1$d · 已就緒：%2$d</string>
+    <string name="upload_summary_failed">失敗：%1$d · 已就緒：%2$d</string>
+    <string name="upload_summary_mixed">處理中：%1$d · 失敗：%2$d · 已就緒：%3$d</string>
+    <string name="upload_summary_recent">剛加入：%1$d</string>
+    <string name="upload_recently_added_one">已加入 1 個資源</string>
+    <string name="upload_recently_added_many">已加入 %1$d 個資源</string>
+    <string name="upload_section_tasks">上傳任務 · %1$d</string>
+    <string name="upload_section_tasks_active">處理中：%1$d</string>
+    <string name="upload_section_tasks_failed">失敗：%1$d</string>
+    <string name="upload_section_tasks_mixed">處理中：%1$d · 失敗：%2$d</string>
+    <string name="upload_section_images">圖片 · %1$d</string>
+    <string name="upload_section_attachments">附件 · %1$d</string>
+    <string name="upload_section_recent">本組新加入：%1$d</string>
     <string name="upload_in_progress_wait">請等待附件處理完成。</string>
     <string name="export_local_account">匯出本地資料</string>
     <string name="export_local_only">只有本地帳戶支援匯出。</string>

@@ -395,6 +395,10 @@ class MemoPresentationStateTest {
         assertEquals("Memo body", state.initialFields.content)
         assertEquals(listOf("focus"), state.initialFields.selectedTags)
         assertEquals(listOf("alice"), state.initialFields.selectedCollaborators)
+        assertEquals(state.initialFields, state.session.initialFields)
+        assertEquals("", state.session.resetFields.content)
+        assertEquals(emptyList<String>(), state.session.resetFields.selectedTags)
+        assertEquals(emptyList<String>(), state.session.resetFields.selectedCollaborators)
     }
 
     @Test
@@ -549,6 +553,10 @@ class MemoPresentationStateTest {
         assertEquals(emptyList<String>(), state.initialRestoreState.selectedCollaborators)
         assertEquals("Draft body", state.initialFields.content)
         assertEquals(listOf("focus"), state.initialFields.selectedTags)
+        assertEquals(state.initialFields, state.session.initialFields)
+        assertEquals("", state.session.resetFields.content)
+        assertEquals(listOf("focus"), state.session.resetFields.selectedTags)
+        assertEquals(emptyList<String>(), state.session.resetFields.selectedCollaborators)
     }
 
     @Test
@@ -566,6 +574,542 @@ class MemoPresentationStateTest {
         assertEquals(listOf("focus"), fieldsState.selectedTags)
         assertEquals(listOf("alice"), fieldsState.selectedCollaborators)
         assertEquals(restoreState.baseline, fieldsState.baseline)
+    }
+
+    @Test
+    fun buildMemoEditorSessionState_exposesInitialAndResetFields() {
+        val restoreState = buildMemoEditorRestoreState(
+            content = "Draft",
+            tags = listOf("focus"),
+            collaboratorIds = listOf("alice"),
+            resourceIdentifiers = listOf("remote-1"),
+        )
+
+        val sessionState = buildMemoEditorSessionState(
+            restoreState = restoreState,
+            resetTags = listOf("forced"),
+        )
+
+        assertEquals("Draft", sessionState.initialFields.content)
+        assertEquals(listOf("focus"), sessionState.initialFields.selectedTags)
+        assertEquals(listOf("alice"), sessionState.initialFields.selectedCollaborators)
+        assertEquals("", sessionState.resetFields.content)
+        assertEquals(listOf("forced"), sessionState.resetFields.selectedTags)
+        assertEquals(emptyList<String>(), sessionState.resetFields.selectedCollaborators)
+        assertEquals(emptyList<String>(), sessionState.resetFields.baseline.resourceIdentifiers)
+    }
+
+    @Test
+    fun buildMemoEditorDraftPersistenceValue_respectsPersistAndClearFlags() {
+        assertEquals(
+            "Draft body",
+            buildMemoEditorDraftPersistenceValue(
+                persistDraft = true,
+                currentContent = "Draft body",
+            ),
+        )
+        assertEquals(
+            "",
+            buildMemoEditorDraftPersistenceValue(
+                persistDraft = true,
+                currentContent = "Draft body",
+                clearDraft = true,
+            ),
+        )
+        assertEquals(
+            null,
+            buildMemoEditorDraftPersistenceValue(
+                persistDraft = false,
+                currentContent = "Draft body",
+            ),
+        )
+    }
+
+    @Test
+    fun buildMemoEditorDismissState_returnsConfirmationOnlyForDirtyEditors() {
+        val dirtyState = buildMemoEditorDismissState(
+            isDirty = true,
+            persistDraft = true,
+            currentContent = "Draft body",
+        )
+        val cleanState = buildMemoEditorDismissState(
+            isDirty = false,
+            persistDraft = true,
+            currentContent = "Draft body",
+        )
+
+        assertTrue(dirtyState.shouldShowDiscardConfirmation)
+        assertFalse(dirtyState.shouldDismiss)
+        assertEquals(null, dirtyState.draftPersistenceValue)
+
+        assertFalse(cleanState.shouldShowDiscardConfirmation)
+        assertTrue(cleanState.shouldDismiss)
+        assertEquals("Draft body", cleanState.draftPersistenceValue)
+    }
+
+    @Test
+    fun buildMemoEditorCompletionState_combinesResetFieldsAndDraftPersistence() {
+        val sessionState = buildMemoEditorSessionState(
+            restoreState = buildMemoEditorRestoreState(
+                content = "Draft",
+                tags = listOf("focus"),
+                collaboratorIds = listOf("alice"),
+            ),
+            resetTags = listOf("forced"),
+        )
+
+        val completionState = buildMemoEditorCompletionState(
+            sessionState = sessionState,
+            persistDraft = true,
+            currentContent = "Draft",
+            clearDraft = true,
+        )
+
+        assertEquals(sessionState.resetFields, completionState.fields)
+        assertEquals("", completionState.draftPersistenceValue)
+    }
+
+    @Test
+    fun buildMemoEditorDismissWorkflowState_onlyEnablesCleanupWhenDismissing() {
+        val dirtyWorkflow = buildMemoEditorDismissWorkflowState(
+            isDirty = true,
+            persistDraft = true,
+            currentContent = "Draft body",
+            hideKeyboardOnDismiss = true,
+        )
+        val cleanWorkflow = buildMemoEditorDismissWorkflowState(
+            isDirty = false,
+            persistDraft = true,
+            currentContent = "Draft body",
+            clearUploadsOnDismiss = true,
+            clearUploadTasksOnDismiss = true,
+            hideKeyboardOnDismiss = true,
+        )
+
+        assertTrue(dirtyWorkflow.dismiss.shouldShowDiscardConfirmation)
+        assertFalse(dirtyWorkflow.cleanup.hideKeyboard)
+
+        assertTrue(cleanWorkflow.dismiss.shouldDismiss)
+        assertEquals("Draft body", cleanWorkflow.dismiss.draftPersistenceValue)
+        assertTrue(cleanWorkflow.cleanup.clearUploads)
+        assertTrue(cleanWorkflow.cleanup.clearUploadTasks)
+        assertTrue(cleanWorkflow.cleanup.hideKeyboard)
+    }
+
+    @Test
+    fun buildMemoEditorCompletionWorkflowState_carriesCompletionAndCleanupState() {
+        val sessionState = buildMemoEditorSessionState(
+            restoreState = buildMemoEditorRestoreState(
+                content = "Draft",
+                tags = listOf("focus"),
+                collaboratorIds = listOf("alice"),
+            ),
+            resetTags = listOf("forced"),
+        )
+
+        val workflowState = buildMemoEditorCompletionWorkflowState(
+            sessionState = sessionState,
+            persistDraft = true,
+            currentContent = "Draft",
+            clearDraft = true,
+            clearUploads = true,
+            clearUploadTasks = true,
+            stopLocationTracking = true,
+            clearPrefetchedLocation = true,
+            resetPendingLocationPermission = true,
+            refreshLocalSnapshot = true,
+            hideKeyboard = true,
+        )
+
+        assertEquals(sessionState.resetFields, workflowState.completion.fields)
+        assertEquals("", workflowState.completion.draftPersistenceValue)
+        assertTrue(workflowState.cleanup.clearUploads)
+        assertTrue(workflowState.cleanup.clearUploadTasks)
+        assertTrue(workflowState.cleanup.stopLocationTracking)
+        assertTrue(workflowState.cleanup.clearPrefetchedLocation)
+        assertTrue(workflowState.cleanup.resetPendingLocationPermission)
+        assertTrue(workflowState.cleanup.refreshLocalSnapshot)
+        assertTrue(workflowState.cleanup.hideKeyboard)
+    }
+
+    @Test
+    fun buildMemoEditorRestoreWorkflowState_carriesFieldsUploadsAndCleanup() {
+        val restoreState = buildMemoEditorRestoreState(
+            content = "Draft",
+            tags = listOf("focus"),
+            collaboratorIds = listOf("alice"),
+        )
+        val resource = resourceEntity(
+            identifier = "local-a",
+            remoteId = "remote-a",
+        )
+
+        val workflowState = buildMemoEditorRestoreWorkflowState(
+            restoreState = restoreState,
+            uploadResources = listOf(resource),
+            clearUploads = true,
+            clearUploadTasks = true,
+        )
+
+        assertEquals("Draft", workflowState.fields.content)
+        assertEquals(listOf("focus"), workflowState.fields.selectedTags)
+        assertEquals(listOf("alice"), workflowState.fields.selectedCollaborators)
+        assertEquals(listOf(resource), workflowState.uploadResources)
+        assertTrue(workflowState.cleanup.clearUploads)
+        assertTrue(workflowState.cleanup.clearUploadTasks)
+    }
+
+    @Test
+    fun buildMemoEditorUploadTargetIdentifier_prefersExplicitIdentifier_thenDisplayMemo() {
+        val displayMemo = memoEntity(
+            identifier = "memo-restore",
+            content = "Memo",
+            tags = emptyList(),
+        )
+
+        assertEquals(
+            "explicit-id",
+            buildMemoEditorUploadTargetIdentifier(
+                memoIdentifier = " explicit-id ",
+                displayMemo = displayMemo,
+            ),
+        )
+        assertEquals(
+            displayMemo.identifier,
+            buildMemoEditorUploadTargetIdentifier(
+                memoIdentifier = " ",
+                displayMemo = displayMemo,
+            ),
+        )
+        assertEquals(
+            null,
+            buildMemoEditorUploadTargetIdentifier(
+                memoIdentifier = " ",
+                displayMemo = null,
+            ),
+        )
+    }
+
+    @Test
+    fun buildMemoEditorUploadWorkflowState_combinesEntryAndVisibleUploads() {
+        val displayMemo = memoEntity(
+            identifier = "memo-upload",
+            content = "Memo",
+            tags = emptyList(),
+        )
+        val resource = resourceEntity(
+            identifier = "local-a",
+            remoteId = "remote-a",
+        )
+        val task = UploadTaskState(
+            id = "task-1",
+            sequence = 1L,
+            filename = "photo.jpg",
+            uploadedBytes = 32L,
+            totalBytes = 64L,
+            status = UploadTaskStatus.UPLOADING,
+        )
+
+        val workflowState = buildMemoEditorUploadWorkflowState(
+            memoIdentifier = null,
+            displayMemo = displayMemo,
+            uploadResources = listOf(resource),
+            uploadTasks = listOf(task),
+            highlightedResourceIdentifiers = listOf("local-a"),
+            focusDelayMillis = 120L,
+            showKeyboardAfterUpload = true,
+        )
+
+        assertEquals(displayMemo.identifier, workflowState.entry.targetMemoIdentifier)
+        assertEquals(120L, workflowState.entry.focusDelayMillis)
+        assertTrue(workflowState.entry.showKeyboardAfterUpload)
+        assertEquals(listOf(resource), workflowState.uploads.resources)
+        assertEquals(listOf(task), workflowState.uploads.tasks)
+        assertEquals(listOf("remote-a"), workflowState.uploads.resourceIdentifiers)
+        assertTrue(workflowState.uploads.hasActiveUpload)
+        assertEquals(1, workflowState.uploads.activeTaskCount)
+        assertEquals(0, workflowState.uploads.failedTaskCount)
+        assertFalse(workflowState.uploads.canRetryFailedTasks)
+        assertFalse(workflowState.uploads.canClearFailedTasks)
+        assertEquals(listOf(resource), workflowState.uploads.imageResources)
+        assertEquals(emptyList<ResourceEntity>(), workflowState.uploads.attachmentResources)
+        assertEquals(1, workflowState.uploads.imageItems.size)
+        assertTrue(workflowState.uploads.imageItems.first().isHighlighted)
+        assertEquals(1, workflowState.uploads.taskItems.size)
+        assertFalse(workflowState.uploads.taskItems.first().canDismiss)
+        assertFalse(workflowState.uploads.taskItems.first().canRetry)
+        assertTrue(workflowState.uploads.taskItems.first().canCancel)
+        assertEquals(1, workflowState.uploads.taskSection.totalCount)
+        assertEquals(1, workflowState.uploads.taskSection.activeCount)
+        assertEquals(0, workflowState.uploads.taskSection.failedCount)
+        assertTrue(workflowState.uploads.taskSection.defaultExpanded)
+        assertFalse(workflowState.uploads.taskSection.canCollapse)
+        assertTrue(workflowState.uploads.summary.hasVisibleContent)
+        assertEquals(1, workflowState.uploads.summary.totalResourceCount)
+        assertEquals(1, workflowState.uploads.summary.imageResourceCount)
+        assertEquals(0, workflowState.uploads.summary.attachmentResourceCount)
+        assertEquals(MemoEditorUploadsSummaryKind.ACTIVE, workflowState.uploads.summary.kind)
+        assertEquals(1, workflowState.uploads.summary.activeTaskCount)
+        assertEquals(0, workflowState.uploads.summary.failedTaskCount)
+        assertEquals(1, workflowState.uploads.summary.recentlyCompletedResourceCount)
+        assertTrue(workflowState.uploads.actions.canCancelActiveTasks)
+        assertFalse(workflowState.uploads.actions.canRetryFailedTasks)
+        assertFalse(workflowState.uploads.actions.canClearFailedTasks)
+        assertTrue(workflowState.uploads.feedback.showRecentCompletionHint)
+        assertEquals(1, workflowState.uploads.feedback.recentlyCompletedResourceCount)
+        assertEquals("local-a", workflowState.uploads.feedback.recentCompletionTriggerId)
+        assertTrue(workflowState.uploads.feedback.shouldShowRecentCompletionSnackbar)
+        assertEquals(1, workflowState.uploads.imageSection.totalCount)
+        assertEquals(1, workflowState.uploads.imageSection.highlightedCount)
+        assertTrue(workflowState.uploads.imageSection.canClearAll)
+        assertEquals(0, workflowState.uploads.attachmentSection.totalCount)
+    }
+
+    @Test
+    fun buildMemoEditorUploadsState_marksFailedTasksClearable_and_splitsAttachmentItems() {
+        val image = resourceEntity(
+            identifier = "image-a",
+            remoteId = null,
+        )
+        val attachment = resourceEntity(
+            identifier = "file-b",
+            remoteId = "remote-b",
+        ).copy(
+            filename = "file-b.pdf",
+            mimeType = "application/pdf",
+            uri = "content://file-b",
+        )
+        val failedTask = UploadTaskState(
+            id = "task-failed",
+            sequence = 2L,
+            filename = "failed.pdf",
+            uploadedBytes = 0L,
+            totalBytes = 100L,
+            status = UploadTaskStatus.FAILED,
+            sourceUri = "content://failed",
+        )
+
+        val uploadsState = buildMemoEditorUploadsState(
+            uploadResources = listOf(image, attachment),
+            uploadTasks = listOf(failedTask),
+            highlightedResourceIdentifiers = listOf("file-b"),
+        )
+
+        assertEquals(listOf(image), uploadsState.imageResources)
+        assertEquals(listOf(attachment), uploadsState.attachmentResources)
+        assertFalse(uploadsState.imageItems.first().isHighlighted)
+        assertTrue(uploadsState.attachmentItems.first().isHighlighted)
+        assertFalse(uploadsState.hasActiveUpload)
+        assertEquals(1, uploadsState.failedTaskCount)
+        assertTrue(uploadsState.canRetryFailedTasks)
+        assertTrue(uploadsState.canClearFailedTasks)
+        assertEquals(MemoEditorUploadsSummaryKind.FAILED, uploadsState.summary.kind)
+        assertEquals(2, uploadsState.summary.totalResourceCount)
+        assertEquals(1, uploadsState.summary.failedTaskCount)
+        assertEquals(1, uploadsState.summary.recentlyCompletedResourceCount)
+        assertTrue(uploadsState.summary.canClearFailedTasks)
+        assertFalse(uploadsState.actions.canCancelActiveTasks)
+        assertTrue(uploadsState.actions.canRetryFailedTasks)
+        assertTrue(uploadsState.actions.canClearFailedTasks)
+        assertEquals(1, uploadsState.taskSection.totalCount)
+        assertEquals(0, uploadsState.taskSection.activeCount)
+        assertEquals(1, uploadsState.taskSection.failedCount)
+        assertTrue(uploadsState.taskSection.defaultExpanded)
+        assertFalse(uploadsState.taskSection.canCollapse)
+        assertEquals(1, uploadsState.imageSection.totalCount)
+        assertEquals(0, uploadsState.imageSection.highlightedCount)
+        assertTrue(uploadsState.imageSection.canClearAll)
+        assertEquals(1, uploadsState.attachmentSection.totalCount)
+        assertEquals(1, uploadsState.attachmentSection.highlightedCount)
+        assertTrue(uploadsState.attachmentSection.canClearAll)
+        assertTrue(uploadsState.feedback.showRecentCompletionHint)
+        assertEquals(1, uploadsState.feedback.recentlyCompletedResourceCount)
+        assertEquals("file-b", uploadsState.feedback.recentCompletionTriggerId)
+        assertTrue(uploadsState.feedback.shouldShowRecentCompletionSnackbar)
+    }
+
+    @Test
+    fun buildMemoEditorUploadSectionState_andFeedbackState_trackHighlightCounts() {
+        val items = listOf(
+            MemoEditorUploadResourceItemState(
+                resource = resourceEntity(identifier = "image-a", remoteId = null),
+                isHighlighted = true,
+            ),
+            MemoEditorUploadResourceItemState(
+                resource = resourceEntity(identifier = "image-b", remoteId = null),
+                isHighlighted = false,
+            ),
+        )
+
+        val sectionState = buildMemoEditorUploadSectionState(
+            kind = MemoEditorUploadSectionKind.IMAGES,
+            items = items,
+        )
+        val feedbackState = buildMemoEditorUploadFeedbackState(
+            highlightedResourceIdentifiers = listOf("image-a"),
+        )
+
+        assertEquals(MemoEditorUploadSectionKind.IMAGES, sectionState.kind)
+        assertEquals(2, sectionState.totalCount)
+        assertEquals(1, sectionState.highlightedCount)
+        assertTrue(sectionState.canClearAll)
+        assertTrue(feedbackState.showRecentCompletionHint)
+        assertEquals(1, feedbackState.recentlyCompletedResourceCount)
+        assertEquals("image-a", feedbackState.recentCompletionTriggerId)
+        assertTrue(feedbackState.shouldShowRecentCompletionSnackbar)
+    }
+
+    @Test
+    fun buildMemoEditorUploadTaskSectionState_tracks_counts_and_collapse_defaults() {
+        val activeTask = UploadTaskState(
+            id = "uploading",
+            sequence = 1L,
+            filename = "photo.jpg",
+            uploadedBytes = 50L,
+            totalBytes = 100L,
+            status = UploadTaskStatus.UPLOADING,
+        )
+        val failedTask = UploadTaskState(
+            id = "failed",
+            sequence = 2L,
+            filename = "doc.pdf",
+            uploadedBytes = 0L,
+            totalBytes = 100L,
+            status = UploadTaskStatus.FAILED,
+            sourceUri = "content://failed",
+        )
+        val actions = buildMemoEditorUploadsActionsState(
+            activeTaskCount = 1,
+            canRetryFailedTasks = true,
+            canClearFailedTasks = true,
+        )
+
+        val sectionState = buildMemoEditorUploadTaskSectionState(
+            items = buildMemoEditorUploadTaskItems(listOf(activeTask, failedTask)),
+            activeTaskCount = 1,
+            failedTaskCount = 1,
+            actions = actions,
+        )
+
+        assertEquals(2, sectionState.totalCount)
+        assertEquals(1, sectionState.activeCount)
+        assertEquals(1, sectionState.failedCount)
+        assertTrue(sectionState.canCancelActiveTasks)
+        assertTrue(sectionState.canRetryFailedTasks)
+        assertTrue(sectionState.canClearFailedTasks)
+        assertTrue(sectionState.canCollapse)
+        assertTrue(sectionState.defaultExpanded)
+    }
+
+    @Test
+    fun buildMemoEditorUploadsSummaryKind_and_actions_track_mixed_state() {
+        val kind = buildMemoEditorUploadsSummaryKind(
+            activeTaskCount = 2,
+            failedTaskCount = 1,
+        )
+        val actions = buildMemoEditorUploadsActionsState(
+            activeTaskCount = 2,
+            canRetryFailedTasks = true,
+            canClearFailedTasks = true,
+        )
+
+        assertEquals(MemoEditorUploadsSummaryKind.MIXED, kind)
+        assertTrue(actions.canCancelActiveTasks)
+        assertTrue(actions.canRetryFailedTasks)
+        assertTrue(actions.canClearFailedTasks)
+    }
+
+    @Test
+    fun buildMemoEditorCanSubmit_requiresContentOrResources_and_no_active_upload() {
+        val idleUploads = buildMemoEditorUploadsState(
+            uploadResources = listOf(resourceEntity(identifier = "local-a", remoteId = null)),
+            uploadTasks = emptyList(),
+        )
+        val busyUploads = buildMemoEditorUploadsState(
+            uploadResources = emptyList(),
+            uploadTasks = listOf(
+                UploadTaskState(
+                    id = "task-1",
+                    sequence = 1L,
+                    filename = "video.mp4",
+                    uploadedBytes = 0L,
+                    totalBytes = 100L,
+                    status = UploadTaskStatus.PREPARING,
+                )
+            ),
+        )
+
+        assertTrue(buildMemoEditorCanSubmit(content = "", uploadsState = idleUploads))
+        assertTrue(buildMemoEditorCanSubmit(content = "Memo body", uploadsState = busyUploads.copy(hasActiveUpload = false)))
+        assertFalse(buildMemoEditorCanSubmit(content = "", uploadsState = busyUploads))
+        assertFalse(buildMemoEditorCanSubmit(content = "Memo body", uploadsState = busyUploads))
+    }
+
+    @Test
+    fun buildMemoEditorUploadTaskItemState_enablesRetryAndDismiss_forFailedTasksWithSource() {
+        val failedTask = UploadTaskState(
+            id = "task-failed",
+            sequence = 2L,
+            filename = "photo.jpg",
+            uploadedBytes = 0L,
+            totalBytes = 100L,
+            status = UploadTaskStatus.FAILED,
+            errorMessage = "boom",
+            sourceUri = "content://photo",
+        )
+        val preparingTask = UploadTaskState(
+            id = "task-preparing",
+            sequence = 1L,
+            filename = "video.mp4",
+            uploadedBytes = 0L,
+            totalBytes = 100L,
+            status = UploadTaskStatus.PREPARING,
+        )
+
+        val failedItem = buildMemoEditorUploadTaskItemState(failedTask)
+        val preparingItem = buildMemoEditorUploadTaskItemState(preparingTask)
+
+        assertTrue(failedItem.canRetry)
+        assertTrue(failedItem.canDismiss)
+        assertFalse(failedItem.canCancel)
+        assertFalse(preparingItem.canRetry)
+        assertFalse(preparingItem.canDismiss)
+        assertTrue(preparingItem.canCancel)
+    }
+
+    @Test
+    fun buildMemoEditorUploadTaskItems_sortsUploadingPreparingThenFailed() {
+        val failedTask = UploadTaskState(
+            id = "failed",
+            sequence = 3L,
+            filename = "failed.jpg",
+            uploadedBytes = 0L,
+            totalBytes = 100L,
+            status = UploadTaskStatus.FAILED,
+            sourceUri = "content://failed",
+        )
+        val preparingTask = UploadTaskState(
+            id = "preparing",
+            sequence = 2L,
+            filename = "preparing.jpg",
+            uploadedBytes = 0L,
+            totalBytes = 100L,
+            status = UploadTaskStatus.PREPARING,
+        )
+        val uploadingTask = UploadTaskState(
+            id = "uploading",
+            sequence = 4L,
+            filename = "uploading.jpg",
+            uploadedBytes = 50L,
+            totalBytes = 100L,
+            status = UploadTaskStatus.UPLOADING,
+        )
+
+        val items = buildMemoEditorUploadTaskItems(
+            listOf(failedTask, preparingTask, uploadingTask),
+        )
+
+        assertEquals(listOf("uploading", "preparing", "failed"), items.map { it.task.id })
     }
 
     @Test

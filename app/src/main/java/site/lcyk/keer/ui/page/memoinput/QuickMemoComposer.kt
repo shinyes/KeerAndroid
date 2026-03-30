@@ -93,10 +93,15 @@ import site.lcyk.keer.util.normalizeTagName
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.MemoInputViewModel
+import site.lcyk.keer.viewmodel.buildMemoEditorCanSubmit
 import site.lcyk.keer.viewmodel.buildDraftEditorScreenState
+import site.lcyk.keer.viewmodel.MemoEditorWorkflowCleanupState
+import site.lcyk.keer.viewmodel.buildMemoEditorCompletionWorkflowState
 import site.lcyk.keer.viewmodel.buildMemoEditorBaseline
+import site.lcyk.keer.viewmodel.buildMemoEditorDismissWorkflowState
 import site.lcyk.keer.viewmodel.buildMemoEditorDirtyState
-import site.lcyk.keer.viewmodel.buildMemoEditorResourceIdentifiers
+import site.lcyk.keer.viewmodel.buildMemoEditorRestoreWorkflowState
+import site.lcyk.keer.viewmodel.buildMemoEditorUploadWorkflowState
 import kotlin.coroutines.resume
 
 private val quickComposerEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
@@ -192,8 +197,61 @@ fun QuickMemoComposer(
             currentContent = text.text,
         )
     }
-    val initialFields = draftScreenState.initialFields
+    val sessionState = draftScreenState.session
+    val uploadResources = inputViewModel.uploadResources.toList()
+    val uploadTasks = inputViewModel.uploadTasks.toList()
+    val recentlyUploadedResourceIdentifiers = inputViewModel.recentlyUploadedResourceIdentifiers.toList()
+    val uploadWorkflowState = remember(
+        uploadResources,
+        uploadTasks,
+        recentlyUploadedResourceIdentifiers,
+    ) {
+        buildMemoEditorUploadWorkflowState(
+            memoIdentifier = null,
+            uploadResources = uploadResources,
+            uploadTasks = uploadTasks,
+            highlightedResourceIdentifiers = recentlyUploadedResourceIdentifiers,
+            focusDelayMillis = 120L,
+            showKeyboardAfterUpload = true,
+        )
+    }
+    MemoUploadFeedbackSnackbarEffect(
+        hostState = snackbarState,
+        feedbackState = uploadWorkflowState.uploads.feedback,
+    )
     val validMimeTypePrefixes = remember { setOf("text/") }
+    val applyFieldsState: (site.lcyk.keer.viewmodel.MemoEditorFieldsState) -> Unit = { fieldsState ->
+        text = TextFieldValue(fieldsState.content, TextRange(fieldsState.content.length))
+        selectedTags = fieldsState.selectedTags
+        selectedCollaborators = fieldsState.selectedCollaborators
+        editorBaseline = fieldsState.baseline
+    }
+    val applyWorkflowCleanup: (MemoEditorWorkflowCleanupState) -> Unit = { cleanup ->
+        if (cleanup.clearUploads) {
+            inputViewModel.clearUploadResources()
+        }
+        if (cleanup.clearUploadTasks) {
+            inputViewModel.clearUploadTasks()
+        }
+        if (cleanup.stopLocationTracking) {
+            stopLocationTracking?.invoke()
+            stopLocationTracking = null
+        }
+        if (cleanup.clearPrefetchedLocation) {
+            prefetchedLocation = null
+        }
+        if (cleanup.resetPendingLocationPermission) {
+            pendingSubmitAfterLocationPermission = false
+        }
+        if (cleanup.refreshLocalSnapshot) {
+            coroutineScope.launch {
+                memosViewModel.refreshLocalSnapshot()
+            }
+        }
+        if (cleanup.hideKeyboard) {
+            keyboardController?.hide()
+        }
+    }
 
     fun startLocationPrefetch(force: Boolean = false) {
         if (!enableLocation) {
@@ -253,57 +311,61 @@ fun QuickMemoComposer(
 
     fun dismissComposer(forceDiscard: Boolean = false) {
         if (forceDiscard) {
-            text = TextFieldValue("", TextRange(0))
-            selectedTags = emptyList()
-            selectedCollaborators = emptyList()
-            inputViewModel.uploadResources.clear()
-            inputViewModel.uploadTasks.clear()
-            if (persistDraft) {
-                inputViewModel.updateDraft("")
-            }
-            stopLocationTracking?.invoke()
-            stopLocationTracking = null
-            prefetchedLocation = null
-            pendingSubmitAfterLocationPermission = false
-            keyboardController?.hide()
+            val workflowState = buildMemoEditorCompletionWorkflowState(
+                sessionState = sessionState,
+                persistDraft = persistDraft,
+                currentContent = text.text,
+                clearDraft = true,
+                clearUploads = true,
+                clearUploadTasks = true,
+                stopLocationTracking = true,
+                clearPrefetchedLocation = true,
+                resetPendingLocationPermission = true,
+                hideKeyboard = true,
+            )
+            applyFieldsState(workflowState.completion.fields)
+            workflowState.completion.draftPersistenceValue?.let(inputViewModel::updateDraft)
+            applyWorkflowCleanup(workflowState.cleanup)
             onDismissRequest()
             return
         }
 
-        if (inputViewModel.hasActiveUpload()) {
+        if (uploadWorkflowState.uploads.hasActiveUpload) {
             coroutineScope.launch {
                 snackbarState.showSnackbar(R.string.upload_in_progress_wait.string)
             }
             return
         }
 
-        val currentResourceIdentifiers = buildMemoEditorResourceIdentifiers(inputViewModel.uploadResources.toList())
-        if (buildMemoEditorDirtyState(
+        val workflowState = buildMemoEditorDismissWorkflowState(
+            isDirty = buildMemoEditorDirtyState(
                 baseline = editorBaseline,
                 content = text.text,
                 selectedTags = normalizeTagList(normalizedForcedTags + normalizedSelectedTags),
                 selectedCollaborators = normalizedSelectedCollaborators,
-                resourceIdentifiers = currentResourceIdentifiers,
-            )
-        ) {
+                resourceIdentifiers = uploadWorkflowState.uploads.resourceIdentifiers,
+            ),
+            persistDraft = persistDraft,
+            currentContent = text.text,
+            hideKeyboardOnDismiss = true,
+        )
+        if (workflowState.dismiss.shouldShowDiscardConfirmation) {
             showExitConfirmation = true
-        } else {
-            if (persistDraft) {
-                inputViewModel.updateDraft(text.text)
-            }
-            keyboardController?.hide()
+        } else if (workflowState.dismiss.shouldDismiss) {
+            workflowState.dismiss.draftPersistenceValue?.let(inputViewModel::updateDraft)
+            applyWorkflowCleanup(workflowState.cleanup)
             onDismissRequest()
         }
     }
 
     fun submit(collectCoordinates: Boolean = true) = coroutineScope.launch {
-        if (inputViewModel.hasActiveUpload()) {
+        if (uploadWorkflowState.uploads.hasActiveUpload) {
             snackbarState.showSnackbar(R.string.upload_in_progress_wait.string)
             return@launch
         }
 
         val payload = text.text.trim()
-        if (payload.isBlank() && inputViewModel.uploadResources.isEmpty()) {
+        if (payload.isBlank() && uploadWorkflowState.uploads.resources.isEmpty()) {
             return@launch
         }
 
@@ -330,26 +392,28 @@ fun QuickMemoComposer(
         val request = QuickMemoSubmitRequest(
             content = payload,
             tags = mergedTags,
-            resourceIdentifiers = buildMemoEditorResourceIdentifiers(inputViewModel.uploadResources.toList()),
+            resourceIdentifiers = uploadWorkflowState.uploads.resourceIdentifiers,
             latitude = location?.latitude,
             longitude = location?.longitude,
         )
 
         suspend fun clearComposerStateAfterSuccess() {
-            text = TextFieldValue("", TextRange(0))
-            selectedTags = emptyList()
-            selectedCollaborators = emptyList()
-            inputViewModel.uploadResources.clear()
-            inputViewModel.uploadTasks.clear()
-            if (persistDraft) {
-                inputViewModel.updateDraft("")
-            }
-            stopLocationTracking?.invoke()
-            stopLocationTracking = null
-            prefetchedLocation = null
-            pendingSubmitAfterLocationPermission = false
-            memosViewModel.refreshLocalSnapshot()
-            keyboardController?.hide()
+            val workflowState = buildMemoEditorCompletionWorkflowState(
+                sessionState = sessionState,
+                persistDraft = persistDraft,
+                currentContent = text.text,
+                clearDraft = true,
+                clearUploads = true,
+                clearUploadTasks = true,
+                stopLocationTracking = true,
+                clearPrefetchedLocation = true,
+                resetPendingLocationPermission = true,
+                refreshLocalSnapshot = true,
+                hideKeyboard = true,
+            )
+            applyFieldsState(workflowState.completion.fields)
+            workflowState.completion.draftPersistenceValue?.let(inputViewModel::updateDraft)
+            applyWorkflowCleanup(workflowState.cleanup)
             onDismissRequest()
         }
 
@@ -401,20 +465,15 @@ fun QuickMemoComposer(
     }
 
     fun uploadResource(uri: Uri) = coroutineScope.launch {
-        inputViewModel.upload(uri, memoIdentifier = null).suspendOnSuccess {
-            delay(120)
+        inputViewModel.upload(uri, memoIdentifier = uploadWorkflowState.entry.targetMemoIdentifier).suspendOnSuccess {
+            delay(uploadWorkflowState.entry.focusDelayMillis)
             focusRequester.requestFocus()
-            keyboardController?.show()
+            if (uploadWorkflowState.entry.showKeyboardAfterUpload) {
+                keyboardController?.show()
+            }
         }.suspendOnErrorMessage { message ->
             snackbarState.showSnackbar(message)
         }
-    }
-
-    fun applyFieldsState(fieldsState: site.lcyk.keer.viewmodel.MemoEditorFieldsState) {
-        text = TextFieldValue(fieldsState.content, TextRange(fieldsState.content.length))
-        selectedTags = fieldsState.selectedTags
-        selectedCollaborators = fieldsState.selectedCollaborators
-        editorBaseline = fieldsState.baseline
     }
 
     val pickImage = rememberLauncherForActivityResult(OpenDocument()) { uri ->
@@ -586,9 +645,15 @@ fun QuickMemoComposer(
                         onDroppedText = { droppedText ->
                             text = text.copy(text = text.text + droppedText)
                         },
-                        uploadResources = inputViewModel.uploadResources.toList(),
-                        inputViewModel = inputViewModel,
-                        uploadTasks = inputViewModel.uploadTasks.toList(),
+                        uploadsState = uploadWorkflowState.uploads,
+                        onRemoveUploadResource = { resource -> inputViewModel.removeResourceFromDraft(resource) },
+                        onClearImageUploadResources = inputViewModel::clearImageUploadResources,
+                        onClearAttachmentUploadResources = inputViewModel::clearAttachmentUploadResources,
+                        onCancelUploadTask = inputViewModel::cancelUploadTask,
+                        onCancelActiveUploadTasks = inputViewModel::cancelActiveUploadTasks,
+                        onRetryFailedUploadTasks = inputViewModel::retryFailedUploadTasks,
+                        onClearFailedUploadTasks = inputViewModel::clearFailedUploadTasks,
+                        onRetryUploadTask = inputViewModel::retryUploadTask,
                         onDismissUploadTask = inputViewModel::dismissUploadTask
                     )
                     MemoInputBottomBar(
@@ -632,8 +697,10 @@ fun QuickMemoComposer(
                         compact = true,
                         trailingAction = {
                             IconButton(
-                                enabled = (text.text.isNotEmpty() || inputViewModel.uploadResources.isNotEmpty()) &&
-                                    !inputViewModel.hasActiveUpload(),
+                                enabled = buildMemoEditorCanSubmit(
+                                    content = text.text,
+                                    uploadsState = uploadWorkflowState.uploads,
+                                ),
                                 onClick = { attemptSubmit() },
                                 modifier = Modifier.size(40.dp)
                             ) {
@@ -699,22 +766,25 @@ fun QuickMemoComposer(
             showTagSelector = false
             showCollaboratorSelector = false
             showExitConfirmation = false
-            pendingSubmitAfterLocationPermission = false
-            stopLocationTracking?.invoke()
-            stopLocationTracking = null
-            prefetchedLocation = null
-            keyboardController?.hide()
+            applyWorkflowCleanup(
+                MemoEditorWorkflowCleanupState(
+                    stopLocationTracking = true,
+                    clearPrefetchedLocation = true,
+                    resetPendingLocationPermission = true,
+                    hideKeyboard = true,
+                )
+            )
             return@LaunchedEffect
         }
 
-        inputViewModel.uploadResources.clear()
-        inputViewModel.uploadTasks.clear()
-        selectedTags = normalizedForcedTags
-        selectedCollaborators = emptyList()
+        val restoreWorkflowState = buildMemoEditorRestoreWorkflowState(
+            restoreState = draftScreenState.initialRestoreState,
+        )
+        applyWorkflowCleanup(restoreWorkflowState.cleanup)
         memosViewModel.loadTags()
         userStateViewModel.refreshFriends()
         startLocationPrefetch(force = true)
-        applyFieldsState(initialFields)
+        applyFieldsState(restoreWorkflowState.fields)
         withFrameNanos { }
         withFrameNanos { }
         focusRequester.requestFocus()

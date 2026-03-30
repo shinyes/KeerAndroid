@@ -3,6 +3,7 @@ package site.lcyk.keer.ui.page.memoinput
 import android.content.ClipData
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.horizontalScroll
@@ -26,12 +27,16 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.outlined.Attachment
 import androidx.compose.material.icons.outlined.CheckBox
@@ -58,19 +63,23 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.mimeTypes
@@ -87,16 +96,22 @@ import androidx.compose.ui.unit.sp
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.User
+import site.lcyk.keer.ext.formatString
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.Attachment
 import site.lcyk.keer.ui.component.InputImage
 import site.lcyk.keer.ui.component.KeerRemovableTagChip
 import site.lcyk.keer.util.isValidTagName
+import site.lcyk.keer.viewmodel.MemoEditorUploadFeedbackState
+import site.lcyk.keer.viewmodel.MemoEditorUploadSectionKind
+import site.lcyk.keer.viewmodel.MemoEditorUploadSectionState
+import site.lcyk.keer.viewmodel.MemoEditorUploadTaskSectionState
+import site.lcyk.keer.viewmodel.MemoEditorUploadsSummaryKind
+import site.lcyk.keer.viewmodel.MemoEditorUploadsState
+import site.lcyk.keer.viewmodel.MemoEditorUploadTaskItemState
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.normalizeTagName
-import site.lcyk.keer.viewmodel.MemoInputViewModel
-import site.lcyk.keer.viewmodel.UploadTaskState
 import site.lcyk.keer.viewmodel.UploadTaskStatus
 import kotlin.math.roundToInt
 
@@ -130,6 +145,37 @@ internal fun MemoInputTopBar(
             }
         }
     )
+}
+
+@Composable
+internal fun MemoUploadFeedbackSnackbarEffect(
+    hostState: SnackbarHostState,
+    feedbackState: MemoEditorUploadFeedbackState,
+) {
+    var lastShownTriggerId by remember { mutableStateOf<String?>(null) }
+    val snackbarMessage = when (feedbackState.recentlyCompletedResourceCount) {
+        1 -> R.string.upload_recently_added_one.string
+        0 -> null
+        else -> R.string.upload_recently_added_many.formatString(
+            feedbackState.recentlyCompletedResourceCount,
+        )
+    }
+
+    LaunchedEffect(
+        feedbackState.recentCompletionTriggerId,
+        feedbackState.shouldShowRecentCompletionSnackbar,
+        snackbarMessage,
+    ) {
+        val triggerId = feedbackState.recentCompletionTriggerId ?: return@LaunchedEffect
+        if (!feedbackState.shouldShowRecentCompletionSnackbar) {
+            return@LaunchedEffect
+        }
+        if (triggerId == lastShownTriggerId || snackbarMessage.isNullOrEmpty()) {
+            return@LaunchedEffect
+        }
+        lastShownTriggerId = triggerId
+        hostState.showSnackbar(snackbarMessage)
+    }
 }
 
 @Composable
@@ -815,16 +861,54 @@ internal fun MemoInputEditor(
     maxLines: Int = Int.MAX_VALUE,
     validMimeTypePrefixes: Set<String>,
     onDroppedText: (String) -> Unit,
-    uploadResources: List<ResourceEntity>,
-    inputViewModel: MemoInputViewModel,
-    uploadTasks: List<UploadTaskState>,
+    uploadsState: MemoEditorUploadsState,
+    onRemoveUploadResource: (ResourceEntity) -> Unit,
+    onClearImageUploadResources: () -> Unit,
+    onClearAttachmentUploadResources: () -> Unit,
+    onCancelUploadTask: (String) -> Unit,
+    onCancelActiveUploadTasks: () -> Unit,
+    onRetryFailedUploadTasks: () -> Unit,
+    onClearFailedUploadTasks: () -> Unit,
+    onRetryUploadTask: (String) -> Unit,
     onDismissUploadTask: (String) -> Unit
 ) {
-    val imageResources = remember(uploadResources) {
-        uploadResources.filter { it.mimeType?.startsWith("image/") == true }
+    var taskSectionExpanded by rememberSaveable { mutableStateOf(uploadsState.taskSection.defaultExpanded) }
+    var imageSectionExpanded by rememberSaveable { mutableStateOf(uploadsState.imageSection.defaultExpanded) }
+    var attachmentSectionExpanded by rememberSaveable { mutableStateOf(uploadsState.attachmentSection.defaultExpanded) }
+
+    LaunchedEffect(
+        uploadsState.taskSection.defaultExpanded,
+        uploadsState.taskSection.totalCount,
+        uploadsState.taskSection.activeCount,
+        uploadsState.taskSection.failedCount,
+    ) {
+        if (uploadsState.taskSection.totalCount == 0) {
+            taskSectionExpanded = uploadsState.taskSection.defaultExpanded
+        } else if (uploadsState.taskSection.defaultExpanded) {
+            taskSectionExpanded = true
+        }
     }
-    val attachmentResources = remember(uploadResources) {
-        uploadResources.filterNot { it.mimeType?.startsWith("image/") == true }
+    LaunchedEffect(
+        uploadsState.imageSection.defaultExpanded,
+        uploadsState.imageSection.totalCount,
+        uploadsState.imageSection.highlightedCount,
+    ) {
+        if (uploadsState.imageSection.totalCount == 0) {
+            imageSectionExpanded = uploadsState.imageSection.defaultExpanded
+        } else if (uploadsState.imageSection.defaultExpanded && uploadsState.imageSection.highlightedCount > 0) {
+            imageSectionExpanded = true
+        }
+    }
+    LaunchedEffect(
+        uploadsState.attachmentSection.defaultExpanded,
+        uploadsState.attachmentSection.totalCount,
+        uploadsState.attachmentSection.highlightedCount,
+    ) {
+        if (uploadsState.attachmentSection.totalCount == 0) {
+            attachmentSectionExpanded = uploadsState.attachmentSection.defaultExpanded
+        } else if (uploadsState.attachmentSection.defaultExpanded && uploadsState.attachmentSection.highlightedCount > 0) {
+            attachmentSectionExpanded = true
+        }
     }
 
     Column(
@@ -892,46 +976,90 @@ internal fun MemoInputEditor(
             maxLines = maxLines
         )
 
-        if (uploadTasks.isNotEmpty()) {
-            LazyRow(
-                modifier = Modifier
-                    .padding(start = 15.dp, end = 15.dp, bottom = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(uploadTasks, key = { it.id }) { task ->
-                    UploadTaskItem(task = task, onDismiss = { onDismissUploadTask(task.id) })
+        if (uploadsState.summary.hasVisibleContent) {
+            UploadSummaryBar(
+                uploadsState = uploadsState,
+                onCancelActiveUploadTasks = onCancelActiveUploadTasks,
+                onRetryFailedUploadTasks = onRetryFailedUploadTasks,
+                onClearFailedUploadTasks = onClearFailedUploadTasks,
+            )
+        }
+
+        if (uploadsState.taskSection.totalCount > 0) {
+            UploadTaskSectionHeader(
+                section = uploadsState.taskSection,
+                expanded = taskSectionExpanded,
+                onToggleExpanded = { taskSectionExpanded = !taskSectionExpanded },
+            )
+            if (taskSectionExpanded) {
+                LazyRow(
+                    modifier = Modifier
+                        .padding(start = 15.dp, end = 15.dp, bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(uploadsState.taskSection.items, key = { it.task.id }) { taskItem ->
+                        UploadTaskItem(
+                            taskItem = taskItem,
+                            onCancel = { onCancelUploadTask(taskItem.task.id) },
+                            onRetry = { onRetryUploadTask(taskItem.task.id) },
+                            onDismiss = { onDismissUploadTask(taskItem.task.id) },
+                        )
+                    }
                 }
             }
         }
 
-        if (imageResources.isNotEmpty()) {
-            LazyRow(
-                modifier = Modifier
-                    .height(80.dp)
-                    .padding(
-                        start = 15.dp,
-                        end = 15.dp,
-                        bottom = if (attachmentResources.isEmpty()) 15.dp else 8.dp
-                    ),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(imageResources, key = { it.identifier }) { resource ->
-                    InputImage(resource = resource, inputViewModel = inputViewModel)
+        if (uploadsState.imageSection.totalCount > 0) {
+            UploadResourceSectionHeader(
+                section = uploadsState.imageSection,
+                expanded = imageSectionExpanded,
+                onToggleExpanded = { imageSectionExpanded = !imageSectionExpanded },
+                onClearAll = onClearImageUploadResources,
+            )
+            if (imageSectionExpanded) {
+                LazyRow(
+                    modifier = Modifier
+                        .height(80.dp)
+                        .padding(
+                            start = 15.dp,
+                            end = 15.dp,
+                            bottom = if (uploadsState.attachmentSection.totalCount == 0) 15.dp else 8.dp
+                        ),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(uploadsState.imageSection.items, key = { it.resource.identifier }) { item ->
+                        UploadResourceHighlightFrame(highlighted = item.isHighlighted) {
+                            InputImage(
+                                resource = item.resource,
+                                onRemove = onRemoveUploadResource,
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        if (attachmentResources.isNotEmpty()) {
-            LazyRow(
-                modifier = Modifier
-                    .padding(start = 15.dp, end = 15.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(attachmentResources, key = { it.identifier }) { resource ->
-                    Attachment(
-                        resource = resource,
-                        onRemove = { inputViewModel.removeResourceFromDraft(resource) }
-                    )
+        if (uploadsState.attachmentSection.totalCount > 0) {
+            UploadResourceSectionHeader(
+                section = uploadsState.attachmentSection,
+                expanded = attachmentSectionExpanded,
+                onToggleExpanded = { attachmentSectionExpanded = !attachmentSectionExpanded },
+                onClearAll = onClearAttachmentUploadResources,
+            )
+            if (attachmentSectionExpanded) {
+                LazyRow(
+                    modifier = Modifier
+                        .padding(start = 15.dp, end = 15.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(uploadsState.attachmentSection.items, key = { it.resource.identifier }) { item ->
+                        UploadResourceHighlightFrame(highlighted = item.isHighlighted) {
+                            Attachment(
+                                resource = item.resource,
+                                onRemove = { onRemoveUploadResource(item.resource) }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -939,10 +1067,283 @@ internal fun MemoInputEditor(
 }
 
 @Composable
+private fun UploadSummaryBar(
+    uploadsState: MemoEditorUploadsState,
+    onCancelActiveUploadTasks: () -> Unit,
+    onRetryFailedUploadTasks: () -> Unit,
+    onClearFailedUploadTasks: () -> Unit,
+) {
+    val summary = uploadsState.summary
+    val actions = uploadsState.actions
+    val summaryText = when (summary.kind) {
+        MemoEditorUploadsSummaryKind.MIXED -> stringResource(
+            R.string.upload_summary_mixed,
+            summary.activeTaskCount,
+            summary.failedTaskCount,
+            summary.totalResourceCount,
+        )
+        MemoEditorUploadsSummaryKind.ACTIVE -> stringResource(
+            R.string.upload_summary_active,
+            summary.activeTaskCount,
+            summary.totalResourceCount,
+        )
+        MemoEditorUploadsSummaryKind.FAILED -> stringResource(
+            R.string.upload_summary_failed,
+            summary.failedTaskCount,
+            summary.totalResourceCount,
+        )
+        MemoEditorUploadsSummaryKind.READY -> stringResource(
+            R.string.upload_summary_ready,
+            summary.totalResourceCount,
+        )
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 15.dp, end = 15.dp, bottom = 8.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = summaryText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            if (uploadsState.feedback.showRecentCompletionHint) {
+                Text(
+                    text = stringResource(
+                        R.string.upload_summary_recent,
+                        uploadsState.feedback.recentlyCompletedResourceCount,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            if (
+                actions.canCancelActiveTasks ||
+                actions.canRetryFailedTasks ||
+                actions.canClearFailedTasks
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    if (actions.canCancelActiveTasks) {
+                        TextButton(onClick = onCancelActiveUploadTasks) {
+                            Text(stringResource(R.string.cancel_active_uploads))
+                        }
+                    }
+                    if (actions.canRetryFailedTasks) {
+                        TextButton(onClick = onRetryFailedUploadTasks) {
+                            Text(stringResource(R.string.retry_failed_uploads))
+                        }
+                    }
+                    if (actions.canClearFailedTasks) {
+                        TextButton(onClick = onClearFailedUploadTasks) {
+                            Text(stringResource(R.string.clear_failed_uploads))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UploadResourceSectionHeader(
+    section: MemoEditorUploadSectionState,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    onClearAll: () -> Unit,
+) {
+    val title = when (section.kind) {
+        MemoEditorUploadSectionKind.IMAGES -> stringResource(
+            R.string.upload_section_images,
+            section.totalCount,
+        )
+        MemoEditorUploadSectionKind.ATTACHMENTS -> stringResource(
+            R.string.upload_section_attachments,
+            section.totalCount,
+        )
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 15.dp, end = 15.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (section.canCollapse) {
+                    IconButton(
+                        onClick = onToggleExpanded,
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (expanded) {
+                                Icons.Filled.ExpandMore
+                            } else {
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight
+                            },
+                            contentDescription = stringResource(
+                                if (expanded) R.string.collapse else R.string.expand,
+                            ),
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(2.dp))
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (section.highlightedCount > 0) {
+                Text(
+                    text = stringResource(
+                        R.string.upload_section_recent,
+                        section.highlightedCount,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        if (section.canClearAll) {
+            TextButton(onClick = onClearAll) {
+                Text(stringResource(R.string.clear_all))
+            }
+        }
+    }
+}
+
+@Composable
+private fun UploadTaskSectionHeader(
+    section: MemoEditorUploadTaskSectionState,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+) {
+    val title = stringResource(R.string.upload_section_tasks, section.totalCount)
+    val subtitle = when {
+        section.activeCount > 0 && section.failedCount > 0 -> stringResource(
+            R.string.upload_section_tasks_mixed,
+            section.activeCount,
+            section.failedCount,
+        )
+        section.activeCount > 0 -> stringResource(
+            R.string.upload_section_tasks_active,
+            section.activeCount,
+        )
+        section.failedCount > 0 -> stringResource(
+            R.string.upload_section_tasks_failed,
+            section.failedCount,
+        )
+        else -> null
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 15.dp, end = 15.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (section.canCollapse) {
+                    IconButton(
+                        onClick = onToggleExpanded,
+                        modifier = Modifier.size(28.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (expanded) {
+                                Icons.Filled.ExpandMore
+                            } else {
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight
+                            },
+                            contentDescription = stringResource(
+                                if (expanded) R.string.collapse else R.string.expand,
+                            ),
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(2.dp))
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (!subtitle.isNullOrEmpty()) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UploadResourceHighlightFrame(
+    highlighted: Boolean,
+    content: @Composable () -> Unit,
+) {
+    val highlightBorderColor by animateColorAsState(
+        targetValue = if (highlighted) {
+            MaterialTheme.colorScheme.tertiary
+        } else {
+            Color.Transparent
+        },
+        animationSpec = tween(durationMillis = 280),
+        label = "uploadHighlightBorder",
+    )
+    val highlightBackgroundColor by animateColorAsState(
+        targetValue = if (highlighted) {
+            MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f)
+        } else {
+            Color.Transparent
+        },
+        animationSpec = tween(durationMillis = 320),
+        label = "uploadHighlightBackground",
+    )
+    val highlightScale by animateFloatAsState(
+        targetValue = if (highlighted) 1.03f else 1f,
+        animationSpec = tween(durationMillis = 260),
+        label = "uploadHighlightScale",
+    )
+    Box(
+        modifier = Modifier
+            .graphicsLayer(
+                scaleX = highlightScale,
+                scaleY = highlightScale,
+            )
+            .clip(RoundedCornerShape(12.dp))
+            .background(highlightBackgroundColor)
+            .border(
+                width = 1.dp,
+                color = highlightBorderColor,
+                shape = RoundedCornerShape(12.dp),
+            )
+            .padding(3.dp),
+    ) {
+        content()
+    }
+}
+
+@Composable
 private fun UploadTaskItem(
-    task: UploadTaskState,
+    taskItem: MemoEditorUploadTaskItemState,
+    onCancel: () -> Unit,
+    onRetry: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val task = taskItem.task
     val hasProgress = task.totalBytes > 0
     val progress = if (hasProgress) {
         (task.uploadedBytes.toFloat() / task.totalBytes.toFloat()).coerceIn(0f, 1f)
@@ -985,12 +1386,30 @@ private fun UploadTaskItem(
                         maxLines = 1
                     )
                 }
-                if (task.status == UploadTaskStatus.FAILED) {
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = stringResource(R.string.close)
-                        )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (taskItem.canCancel) {
+                        IconButton(onClick = onCancel, modifier = Modifier.size(24.dp)) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.cancel)
+                            )
+                        }
+                    }
+                    if (taskItem.canRetry) {
+                        IconButton(onClick = onRetry, modifier = Modifier.size(24.dp)) {
+                            Icon(
+                                imageVector = Icons.Filled.Refresh,
+                                contentDescription = stringResource(R.string.retry)
+                            )
+                        }
+                    }
+                    if (taskItem.canDismiss) {
+                        IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.close)
+                            )
+                        }
                     }
                 }
             }

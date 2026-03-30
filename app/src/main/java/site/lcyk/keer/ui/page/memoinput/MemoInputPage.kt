@@ -67,11 +67,15 @@ import site.lcyk.keer.util.resolveMemoByIdentifier
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.buildActiveMemoQuoteDescriptor
+import site.lcyk.keer.viewmodel.buildMemoEditorCanSubmit
+import site.lcyk.keer.viewmodel.buildMemoEditorCompletionWorkflowState
+import site.lcyk.keer.viewmodel.buildMemoEditorDismissWorkflowState
 import site.lcyk.keer.viewmodel.buildMemoEditorDirtyState
-import site.lcyk.keer.viewmodel.buildMemoEditorFieldsState
 import site.lcyk.keer.viewmodel.buildMemoEditorResourceIdentifiers
 import site.lcyk.keer.viewmodel.buildMemoEditorResolvedScreenState
 import site.lcyk.keer.viewmodel.buildMemoEditorRestoreState
+import site.lcyk.keer.viewmodel.buildMemoEditorRestoreWorkflowState
+import site.lcyk.keer.viewmodel.buildMemoEditorUploadWorkflowState
 import site.lcyk.keer.viewmodel.buildRequestedLocalQuoteDescriptor
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 import kotlin.coroutines.resume
@@ -137,7 +141,31 @@ fun MemoInputPage(
     val editorScreenState = editorResolvedScreenState.screen
     val quotePreview = editorScreenState.quotePreview
     val quoteDescriptorForSubmit = editorScreenState.quoteDescriptorForSubmit
-    val initialFields = editorScreenState.initialFields
+    val editorSession = editorScreenState.session
+    val initialFields = editorSession.initialFields
+    val uploadResources = viewModel.uploadResources.toList()
+    val uploadTasks = viewModel.uploadTasks.toList()
+    val recentlyUploadedResourceIdentifiers = viewModel.recentlyUploadedResourceIdentifiers.toList()
+    val uploadWorkflowState = remember(
+        memoIdentifier,
+        displayMemo?.identifier,
+        uploadResources,
+        uploadTasks,
+        recentlyUploadedResourceIdentifiers,
+    ) {
+        buildMemoEditorUploadWorkflowState(
+            memoIdentifier = memoIdentifier,
+            displayMemo = displayMemo,
+            uploadResources = uploadResources,
+            uploadTasks = uploadTasks,
+            highlightedResourceIdentifiers = recentlyUploadedResourceIdentifiers,
+            focusDelayMillis = 300L,
+        )
+    }
+    MemoUploadFeedbackSnackbarEffect(
+        hostState = snackbarState,
+        feedbackState = uploadWorkflowState.uploads.feedback,
+    )
     var editorBaseline by remember {
         mutableStateOf(initialFields.baseline)
     }
@@ -174,6 +202,25 @@ fun MemoInputPage(
     var pendingSubmitAfterLocationPermission by remember { mutableStateOf(false) }
     var editorSeed by rememberSaveable(memoIdentifier, quoteSourceMemoIdentifier) { mutableStateOf<String?>(null) }
     val hydrationState = editorScreenState.hydrationState
+    val applyFieldsState: (site.lcyk.keer.viewmodel.MemoEditorFieldsState) -> Unit = { fieldsState ->
+        text = TextFieldValue(fieldsState.content, TextRange(fieldsState.content.length))
+        selectedTags = fieldsState.selectedTags
+        selectedCollaborators = fieldsState.selectedCollaborators
+        editorBaseline = fieldsState.baseline
+    }
+    val applyWorkflowCleanup: (site.lcyk.keer.viewmodel.MemoEditorWorkflowCleanupState) -> Unit = { cleanup ->
+        if (cleanup.clearUploads) {
+            viewModel.clearUploadResources()
+        }
+        if (cleanup.clearUploadTasks) {
+            viewModel.clearUploadTasks()
+        }
+        if (cleanup.refreshLocalSnapshot) {
+            coroutineScope.launch {
+                memosViewModel.refreshLocalSnapshot()
+            }
+        }
+    }
     val quotePreviewContent: (@Composable () -> Unit)? = if (quoteDescriptorForSubmit == null) {
         null
     } else {
@@ -250,7 +297,7 @@ fun MemoInputPage(
     }
 
     fun submit(collectCoordinates: Boolean = true) = coroutineScope.launch {
-        if (viewModel.hasActiveUpload()) {
+        if (uploadWorkflowState.uploads.hasActiveUpload) {
             snackbarState.showSnackbar(R.string.upload_in_progress_wait.string)
             return@launch
         }
@@ -300,11 +347,18 @@ fun MemoInputPage(
             latitude = location?.latitude,
             longitude = location?.longitude
         ).suspendOnSuccess {
-            text = TextFieldValue("")
-            selectedTags = emptyList()
-            selectedCollaborators = emptyList()
-            viewModel.updateDraft("")
-            memosViewModel.refreshLocalSnapshot()
+            val workflowState = buildMemoEditorCompletionWorkflowState(
+                sessionState = editorSession,
+                persistDraft = true,
+                currentContent = text.text,
+                clearDraft = true,
+                clearUploads = true,
+                clearUploadTasks = true,
+                refreshLocalSnapshot = true,
+            )
+            applyFieldsState(workflowState.completion.fields)
+            applyWorkflowCleanup(workflowState.cleanup)
+            workflowState.completion.draftPersistenceValue?.let(viewModel::updateDraft)
             navController.popBackStack()
         }.suspendOnErrorMessage { message ->
             snackbarState.showSnackbar(message)
@@ -312,41 +366,39 @@ fun MemoInputPage(
     }
 
     fun handleExit() {
-        if (viewModel.hasActiveUpload()) {
+        if (uploadWorkflowState.uploads.hasActiveUpload) {
             coroutineScope.launch {
                 snackbarState.showSnackbar(R.string.upload_in_progress_wait.string)
             }
             return
         }
-        val currentResourceIdentifiers = buildMemoEditorResourceIdentifiers(viewModel.uploadResources.toList())
-        if (buildMemoEditorDirtyState(
+        val workflowState = buildMemoEditorDismissWorkflowState(
+            isDirty = buildMemoEditorDirtyState(
                 baseline = editorBaseline,
                 content = text.text,
                 selectedTags = normalizedSelectedTags,
                 selectedCollaborators = normalizedSelectedCollaborators,
-                resourceIdentifiers = currentResourceIdentifiers,
-            )
-        ) {
+                resourceIdentifiers = uploadWorkflowState.uploads.resourceIdentifiers,
+            ),
+            persistDraft = memoIdentifier.isNullOrBlank(),
+            currentContent = text.text,
+        )
+        if (workflowState.dismiss.shouldShowDiscardConfirmation) {
             showExitConfirmation = true
-        } else {
+        } else if (workflowState.dismiss.shouldDismiss) {
+            workflowState.dismiss.draftPersistenceValue?.let(viewModel::updateDraft)
+            applyWorkflowCleanup(workflowState.cleanup)
             navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
         }
     }
 
     fun uploadResource(uri: Uri) = coroutineScope.launch {
-        viewModel.upload(uri, memoIdentifier ?: displayMemo?.identifier).suspendOnSuccess {
-            delay(300)
+        viewModel.upload(uri, uploadWorkflowState.entry.targetMemoIdentifier).suspendOnSuccess {
+            delay(uploadWorkflowState.entry.focusDelayMillis)
             focusRequester.requestFocus()
         }.suspendOnErrorMessage { message ->
             snackbarState.showSnackbar(message)
         }
-    }
-
-    fun applyFieldsState(fieldsState: site.lcyk.keer.viewmodel.MemoEditorFieldsState) {
-        text = TextFieldValue(fieldsState.content, TextRange(fieldsState.content.length))
-        selectedTags = fieldsState.selectedTags
-        selectedCollaborators = fieldsState.selectedCollaborators
-        editorBaseline = fieldsState.baseline
     }
 
     val pickImage = rememberLauncherForActivityResult(OpenDocument()) { uri ->
@@ -400,13 +452,7 @@ fun MemoInputPage(
     }
 
     val pickAttachment = rememberLauncherForActivityResult(OpenDocument()) { uri ->
-        uri?.let {
-            coroutineScope.launch {
-                viewModel.upload(it, memoIdentifier ?: displayMemo?.identifier).suspendOnErrorMessage { message ->
-                    snackbarState.showSnackbar(message)
-                }
-            }
-        }
+        uri?.let(::uploadResource)
     }
 
     fun attemptSubmit() {
@@ -427,7 +473,10 @@ fun MemoInputPage(
         topBar = {
             MemoInputTopBar(
                 isEditMode = !memoIdentifier.isNullOrBlank(),
-                canSubmit = (text.text.isNotEmpty() || viewModel.uploadResources.isNotEmpty()) && !viewModel.hasActiveUpload(),
+                canSubmit = buildMemoEditorCanSubmit(
+                    content = text.text,
+                    uploadsState = uploadWorkflowState.uploads,
+                ),
                 onClose = { handleExit() },
                 onSubmit = { attemptSubmit() }
             )
@@ -506,9 +555,15 @@ fun MemoInputPage(
                 onDroppedText = { droppedText ->
                     text = text.copy(text = text.text + droppedText)
                 },
-                uploadResources = viewModel.uploadResources.toList(),
-                inputViewModel = viewModel,
-                uploadTasks = viewModel.uploadTasks.toList(),
+                uploadsState = uploadWorkflowState.uploads,
+                onRemoveUploadResource = { resource -> viewModel.removeResourceFromDraft(resource) },
+                onClearImageUploadResources = { viewModel.clearImageUploadResources() },
+                onClearAttachmentUploadResources = { viewModel.clearAttachmentUploadResources() },
+                onCancelUploadTask = { taskId -> viewModel.cancelUploadTask(taskId) },
+                onCancelActiveUploadTasks = { viewModel.cancelActiveUploadTasks() },
+                onRetryFailedUploadTasks = { viewModel.retryFailedUploadTasks() },
+                onClearFailedUploadTasks = { viewModel.clearFailedUploadTasks() },
+                onRetryUploadTask = { taskId -> viewModel.retryUploadTask(taskId) },
                 onDismissUploadTask = { taskId -> viewModel.dismissUploadTask(taskId) }
             )
             SurfaceHydrationLine(
@@ -548,7 +603,17 @@ fun MemoInputPage(
             },
             onDiscard = {
                 showExitConfirmation = false
-                text = TextFieldValue("")
+                val workflowState = buildMemoEditorCompletionWorkflowState(
+                    sessionState = editorSession,
+                    persistDraft = memoIdentifier.isNullOrBlank(),
+                    currentContent = text.text,
+                    clearDraft = true,
+                    clearUploads = true,
+                    clearUploadTasks = true,
+                )
+                applyFieldsState(workflowState.completion.fields)
+                applyWorkflowCleanup(workflowState.cleanup)
+                workflowState.completion.draftPersistenceValue?.let(viewModel::updateDraft)
                 navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
             },
             onDismiss = {
@@ -573,27 +638,32 @@ fun MemoInputPage(
                 if (editorSeed == nextSeed) {
                     return@LaunchedEffect
                 }
-                viewModel.uploadResources.clear()
-                viewModel.uploadTasks.clear()
-                viewModel.uploadResources.addAll(targetMemo.resources)
                 val restoreState = buildMemoEditorRestoreState(
                     memo = targetMemo,
-                    resourceIdentifiers = buildMemoEditorResourceIdentifiers(viewModel.uploadResources.toList()),
+                    resourceIdentifiers = buildMemoEditorResourceIdentifiers(targetMemo.resources),
                 )
-                applyFieldsState(buildMemoEditorFieldsState(restoreState))
+                val restoreWorkflowState = buildMemoEditorRestoreWorkflowState(
+                    restoreState = restoreState,
+                    uploadResources = targetMemo.resources,
+                )
+                applyWorkflowCleanup(restoreWorkflowState.cleanup)
+                viewModel.uploadResources.addAll(restoreWorkflowState.uploadResources)
+                applyFieldsState(restoreWorkflowState.fields)
                 editorSeed = nextSeed
             }
 
             editorSeed != NEW_MEMO_EDITOR_SEED -> {
-                viewModel.uploadResources.clear()
-                viewModel.uploadTasks.clear()
                 val restoredDraft = viewModel.draft.first().orEmpty()
                 val restoreState = buildMemoEditorRestoreState(
                     content = restoredDraft,
                     tags = emptyList(),
                     collaboratorIds = emptyList(),
                 )
-                applyFieldsState(buildMemoEditorFieldsState(restoreState))
+                val restoreWorkflowState = buildMemoEditorRestoreWorkflowState(
+                    restoreState = restoreState,
+                )
+                applyWorkflowCleanup(restoreWorkflowState.cleanup)
+                applyFieldsState(restoreWorkflowState.fields)
                 editorSeed = NEW_MEMO_EDITOR_SEED
             }
         }
@@ -606,7 +676,11 @@ fun MemoInputPage(
         onDispose {
             stopLocationTracking?.invoke()
             if (memoIdentifier.isNullOrBlank()) {
-                viewModel.updateDraft(text.text)
+                buildMemoEditorDismissWorkflowState(
+                    isDirty = false,
+                    persistDraft = true,
+                    currentContent = text.text,
+                ).dismiss.draftPersistenceValue?.let(viewModel::updateDraft)
             }
         }
     }
