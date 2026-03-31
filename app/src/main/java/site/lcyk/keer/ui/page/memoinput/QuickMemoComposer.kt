@@ -2,7 +2,6 @@ package site.lcyk.keer.ui.page.memoinput
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
@@ -13,10 +12,7 @@ import android.os.Build
 import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
-import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
-import androidx.activity.result.contract.ActivityResultContracts.TakePicture
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.CubicBezierEasing
@@ -79,7 +75,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
-import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.suspendOnErrorMessage
@@ -511,51 +506,19 @@ fun QuickMemoComposer(
         }
     }
 
-    val pickImage = rememberLauncherForActivityResult(OpenDocument()) { uri ->
-        uri?.let(::uploadResource)
+    fun uploadResources(uris: List<Uri>) {
+        uris.forEach(::uploadResource)
     }
 
-    var photoImageUri by remember { mutableStateOf<Uri?>(null) }
-    val takePhoto = rememberLauncherForActivityResult(TakePicture()) { success ->
-        if (success) {
-            photoImageUri?.let(::uploadResource)
-        }
-    }
-
-    fun launchTakePhoto() {
-        try {
-            val uri = KeerFileProvider.getImageUri(context)
-            photoImageUri = uri
-            takePhoto.launch(uri)
-        } catch (e: ActivityNotFoundException) {
+    val importWorkflow = rememberMemoEditorImportWorkflowState(
+        context = context,
+        onUploadUris = ::uploadResources,
+        onErrorMessage = { message ->
             coroutineScope.launch {
-                snackbarState.showSnackbar(e.localizedMessage ?: R.string.unable_to_take_picture.string)
+                snackbarState.showSnackbar(message)
             }
-        }
-    }
-
-    var videoUri by remember { mutableStateOf<Uri?>(null) }
-    val captureVideo = rememberLauncherForActivityResult(CaptureVideo()) { success ->
-        if (success) {
-            videoUri?.let(::uploadResource)
-        }
-    }
-
-    fun launchCaptureVideo() {
-        try {
-            val uri = KeerFileProvider.getVideoUri(context)
-            videoUri = uri
-            captureVideo.launch(uri)
-        } catch (e: ActivityNotFoundException) {
-            coroutineScope.launch {
-                snackbarState.showSnackbar(e.localizedMessage ?: R.string.unable_to_record_video.string)
-            }
-        }
-    }
-
-    val pickAttachment = rememberLauncherForActivityResult(OpenDocument()) { uri ->
-        uri?.let(::uploadResource)
-    }
+        },
+    )
 
     BackHandler(enabled = visible) {
         dismissComposer()
@@ -721,14 +684,10 @@ fun QuickMemoComposer(
                         onToggleTodoItem = {
                             text = toggleTodoItemInText(text)
                         },
-                        onPickImage = {
-                            pickImage.launch(arrayOf("image/*", "video/*"))
-                        },
-                        onPickAttachment = {
-                            pickAttachment.launch(arrayOf("*/*"))
-                        },
-                        onTakePhoto = ::launchTakePhoto,
-                        onTakeVideo = ::launchCaptureVideo,
+                        onPickImage = importWorkflow.pickVisualMedia,
+                        onPickAttachment = importWorkflow.pickAttachments,
+                        onTakePhoto = importWorkflow.takePhoto,
+                        onTakeVideo = importWorkflow.captureVideo,
                         onFormat = { format ->
                             text = applyMarkdownFormatToText(text, format)
                         },

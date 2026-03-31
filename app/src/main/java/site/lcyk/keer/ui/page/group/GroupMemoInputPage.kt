@@ -1,14 +1,7 @@
 package site.lcyk.keer.ui.page.group
 
-import android.content.ActivityNotFoundException
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
-import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
-import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
-import androidx.activity.result.contract.ActivityResultContracts.TakePicture
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -37,7 +30,6 @@ import androidx.navigation.NavHostController
 import com.skydoves.sandwich.suspendOnSuccess
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.Memo
@@ -50,6 +42,7 @@ import site.lcyk.keer.ui.page.memoinput.MarkdownFormat
 import site.lcyk.keer.ui.page.memoinput.MemoCollaboratorDialog
 import site.lcyk.keer.ui.page.memoinput.MemoInputBottomBar
 import site.lcyk.keer.ui.page.memoinput.MemoInputEditor
+import site.lcyk.keer.ui.page.memoinput.rememberMemoEditorImportWorkflowState
 import site.lcyk.keer.ui.page.memoinput.MemoInputTopBar
 import site.lcyk.keer.ui.page.memoinput.MemoUploadFeedbackSnackbarEffect
 import site.lcyk.keer.ui.page.memoinput.MemoTagSelectorDialog
@@ -365,51 +358,19 @@ fun GroupMemoInputPage(
         }
     }
 
-    val pickImage = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
-        uri?.let { uploadResource(it) }
+    fun uploadResources(uris: List<Uri>) {
+        uris.forEach(::uploadResource)
     }
 
-    var photoImageUri by remember { mutableStateOf<Uri?>(null) }
-    val takePhoto = rememberLauncherForActivityResult(TakePicture()) { success ->
-        if (success) {
-            photoImageUri?.let { uploadResource(it) }
-        }
-    }
-
-    fun launchTakePhoto() {
-        try {
-            val uri = KeerFileProvider.getImageUri(navController.context)
-            photoImageUri = uri
-            takePhoto.launch(uri)
-        } catch (e: ActivityNotFoundException) {
+    val importWorkflow = rememberMemoEditorImportWorkflowState(
+        context = navController.context,
+        onUploadUris = ::uploadResources,
+        onErrorMessage = { message ->
             coroutineScope.launch {
-                snackbarState.showSnackbar(e.localizedMessage ?: R.string.unable_to_take_picture.string)
+                snackbarState.showSnackbar(message)
             }
-        }
-    }
-
-    var videoUri by remember { mutableStateOf<Uri?>(null) }
-    val captureVideo = rememberLauncherForActivityResult(CaptureVideo()) { success ->
-        if (success) {
-            videoUri?.let { uploadResource(it) }
-        }
-    }
-
-    fun launchCaptureVideo() {
-        try {
-            val uri = KeerFileProvider.getVideoUri(navController.context)
-            videoUri = uri
-            captureVideo.launch(uri)
-        } catch (e: ActivityNotFoundException) {
-            coroutineScope.launch {
-                snackbarState.showSnackbar(e.localizedMessage ?: R.string.unable_to_record_video.string)
-            }
-        }
-    }
-
-    val pickAttachment = rememberLauncherForActivityResult(OpenDocument()) { uri ->
-        uri?.let { uploadResource(it) }
-    }
+        },
+    )
 
     BackHandler {
         handleExit()
@@ -448,18 +409,10 @@ fun GroupMemoInputPage(
                 onToggleTodoItem = {
                     text = toggleTodoItemInText(text)
                 },
-                onPickImage = {
-                    pickImage.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
-                },
-                onPickAttachment = {
-                    pickAttachment.launch(arrayOf("*/*"))
-                },
-                onTakePhoto = {
-                    launchTakePhoto()
-                },
-                onTakeVideo = {
-                    launchCaptureVideo()
-                },
+                onPickImage = importWorkflow.pickVisualMedia,
+                onPickAttachment = importWorkflow.pickAttachments,
+                onTakePhoto = importWorkflow.takePhoto,
+                onTakeVideo = importWorkflow.captureVideo,
                 onFormat = { format: MarkdownFormat ->
                     text = applyMarkdownFormatToText(text, format)
                 }

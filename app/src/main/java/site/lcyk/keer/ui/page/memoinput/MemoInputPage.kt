@@ -2,7 +2,6 @@ package site.lcyk.keer.ui.page.memoinput
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
@@ -13,10 +12,7 @@ import android.os.Build
 import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
-import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
-import androidx.activity.result.contract.ActivityResultContracts.TakePicture
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -48,7 +44,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
-import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.suspendOnErrorMessage
@@ -208,8 +203,6 @@ fun MemoInputPage(
     }
     var showTagSelector by remember { mutableStateOf(false) }
     var showCollaboratorSelector by remember { mutableStateOf(false) }
-    var photoImageUri by remember { mutableStateOf<Uri?>(null) }
-    var videoUri by remember { mutableStateOf<Uri?>(null) }
     var showExitConfirmation by remember { mutableStateOf(false) }
     var prefetchedLocation by remember { mutableStateOf<Location?>(null) }
     var isLocationPrefetching by remember { mutableStateOf(false) }
@@ -441,21 +434,19 @@ fun MemoInputPage(
         }
     }
 
-    val pickImage = rememberLauncherForActivityResult(OpenDocument()) { uri ->
-        uri?.let { uploadResource(it) }
+    fun uploadResources(uris: List<Uri>) {
+        uris.forEach(::uploadResource)
     }
 
-    val takePhoto = rememberLauncherForActivityResult(TakePicture()) { success ->
-        if (success) {
-            photoImageUri?.let { uploadResource(it) }
-        }
-    }
-
-    val captureVideo = rememberLauncherForActivityResult(CaptureVideo()) { success ->
-        if (success) {
-            videoUri?.let { uploadResource(it) }
-        }
-    }
+    val importWorkflow = rememberMemoEditorImportWorkflowState(
+        context = navController.context,
+        onUploadUris = ::uploadResources,
+        onErrorMessage = { message ->
+            coroutineScope.launch {
+                snackbarState.showSnackbar(message)
+            }
+        },
+    )
 
     val requestLocationPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) { _ ->
         if (hasLocationPermission(navController.context)) {
@@ -465,34 +456,6 @@ fun MemoInputPage(
             pendingSubmitAfterLocationPermission = false
             submit()
         }
-    }
-
-    fun launchTakePhoto() {
-        try {
-            val uri = KeerFileProvider.getImageUri(navController.context)
-            photoImageUri = uri
-            takePhoto.launch(uri)
-        } catch (e: ActivityNotFoundException) {
-            coroutineScope.launch {
-                snackbarState.showSnackbar(e.localizedMessage ?: R.string.unable_to_take_picture.string)
-            }
-        }
-    }
-
-    fun launchCaptureVideo() {
-        try {
-            val uri = KeerFileProvider.getVideoUri(navController.context)
-            videoUri = uri
-            captureVideo.launch(uri)
-        } catch (e: ActivityNotFoundException) {
-            coroutineScope.launch {
-                snackbarState.showSnackbar(e.localizedMessage ?: R.string.unable_to_record_video.string)
-            }
-        }
-    }
-
-    val pickAttachment = rememberLauncherForActivityResult(OpenDocument()) { uri ->
-        uri?.let(::uploadResource)
     }
 
     fun attemptSubmit() {
@@ -546,18 +509,10 @@ fun MemoInputPage(
                 onToggleTodoItem = {
                     text = toggleTodoItemInText(text)
                 },
-                onPickImage = {
-                    pickImage.launch(arrayOf("image/*", "video/*"))
-                },
-                onPickAttachment = {
-                    pickAttachment.launch(arrayOf("*/*"))
-                },
-                onTakePhoto = {
-                    launchTakePhoto()
-                },
-                onTakeVideo = {
-                    launchCaptureVideo()
-                },
+                onPickImage = importWorkflow.pickVisualMedia,
+                onPickAttachment = importWorkflow.pickAttachments,
+                onTakePhoto = importWorkflow.takePhoto,
+                onTakeVideo = importWorkflow.captureVideo,
                 onFormat = { format ->
                     text = applyMarkdownFormatToText(text, format)
                 }
