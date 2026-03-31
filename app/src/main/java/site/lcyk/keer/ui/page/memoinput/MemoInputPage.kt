@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.withFrameNanos
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
@@ -643,7 +644,9 @@ fun MemoInputPage(
 
     LaunchedEffect(memoIdentifier, quoteSourceMemoIdentifier, displayMemo?.identifier, displayMemo?.lastModified) {
         memosViewModel.loadTags()
-        userStateViewModel.refreshFriends()
+        coroutineScope.launch {
+            userStateViewModel.refreshFriends()
+        }
         when {
             !memoIdentifier.isNullOrBlank() -> {
                 val targetMemo = displayMemo ?: return@LaunchedEffect
@@ -701,9 +704,13 @@ fun MemoInputPage(
                 editorSeed = NEW_MEMO_EDITOR_SEED
             }
         }
-        startLocationPrefetch(force = true)
-        delay(300)
+        withFrameNanos { }
+        withFrameNanos { }
         focusRequester.requestFocus()
+        coroutineScope.launch {
+            delay(120)
+            startLocationPrefetch(force = true)
+        }
     }
 
     LaunchedEffect(

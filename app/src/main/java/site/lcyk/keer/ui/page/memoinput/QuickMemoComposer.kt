@@ -3,7 +3,6 @@ package site.lcyk.keer.ui.page.memoinput
 import android.location.Location
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -18,12 +17,14 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -55,6 +56,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -101,6 +103,7 @@ private val quickComposerCompactEditorHeight = 96.dp
 private val quickComposerDefaultMinEditorHeight = 132.dp
 private val quickComposerBottomBarHeight = 60.dp
 private val quickComposerFallbackLineHeight = 20.dp
+private const val quickComposerKeyboardHideDelayMillis = 120L
 private const val quickComposerMinEditorLines = 4
 private val quickComposerShape = RoundedCornerShape(16.dp)
 
@@ -232,6 +235,7 @@ fun QuickMemoComposer(
         )
     }
     val validMimeTypePrefixes = remember { setOf("text/") }
+    var shouldHideKeyboardAfterDismiss by remember { mutableStateOf(false) }
     val applyFieldsState: (site.lcyk.keer.viewmodel.MemoEditorFieldsState) -> Unit = { fieldsState ->
         text = TextFieldValue(fieldsState.content, TextRange(fieldsState.content.length))
         selectedTags = fieldsState.selectedTags
@@ -262,7 +266,12 @@ fun QuickMemoComposer(
             }
         }
         if (cleanup.hideKeyboard) {
-            keyboardController?.hide()
+            if (visible) {
+                shouldHideKeyboardAfterDismiss = true
+            } else {
+                keyboardController?.hide()
+                shouldHideKeyboardAfterDismiss = false
+            }
         }
     }
 
@@ -500,12 +509,11 @@ fun QuickMemoComposer(
         modifier = Modifier.fillMaxSize()
     ) {
         BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .imePadding(),
+            modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.BottomCenter
         ) {
             val density = LocalDensity.current
+            val imeBottomInsetPx = WindowInsets.ime.getBottom(density)
             val availableContainerHeight = maxHeight - quickComposerSurfaceVerticalPadding
             val composerMaxHeight = availableContainerHeight
                 .coerceAtLeast(quickComposerCompactContainerHeight)
@@ -532,6 +540,7 @@ fun QuickMemoComposer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 10.dp)
+                    .offset { IntOffset(x = 0, y = -imeBottomInsetPx) }
                     .navigationBarsPadding(),
                 shape = quickComposerShape,
                 tonalElevation = 6.dp,
@@ -540,9 +549,6 @@ fun QuickMemoComposer(
             ) {
                 Column(
                     modifier = Modifier
-                        .animateContentSize(
-                            animationSpec = tween(durationMillis = 150, easing = quickComposerEasing)
-                        )
                         .fillMaxWidth()
                         .heightIn(min = composerMinHeight, max = composerMaxHeight)
                         .clip(quickComposerShape)
@@ -707,9 +713,15 @@ fun QuickMemoComposer(
                     stopLocationTracking = true,
                     clearPrefetchedLocation = true,
                     resetPendingLocationPermission = true,
-                    hideKeyboard = true,
                 )
             )
+            if (shouldHideKeyboardAfterDismiss) {
+                delay(quickComposerKeyboardHideDelayMillis)
+                keyboardController?.hide()
+                shouldHideKeyboardAfterDismiss = false
+            } else {
+                keyboardController?.hide()
+            }
             return@LaunchedEffect
         }
 
@@ -728,13 +740,16 @@ fun QuickMemoComposer(
         )
         applyWorkflowCleanup(restoreWorkflowState.cleanup)
         memosViewModel.loadTags()
-        userStateViewModel.refreshFriends()
-        startLocationPrefetch(force = true)
+        coroutineScope.launch {
+            userStateViewModel.refreshFriends()
+        }
         applyFieldsState(restoreWorkflowState.fields)
         withFrameNanos { }
         withFrameNanos { }
         focusRequester.requestFocus()
         keyboardController?.show()
+        delay(quickComposerKeyboardHideDelayMillis)
+        startLocationPrefetch(force = true)
     }
 
     LaunchedEffect(

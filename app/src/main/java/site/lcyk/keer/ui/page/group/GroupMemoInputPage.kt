@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.TextRange
@@ -26,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
@@ -513,7 +513,9 @@ fun GroupMemoInputPage(
     }
 
     LaunchedEffect(groupId) {
-        userStateViewModel.refreshFriends()
+        coroutineScope.launch {
+            userStateViewModel.refreshFriends()
+        }
         groupViewModel.loadGroupTags(groupId)
         if (isEditMode) {
             groupViewModel.loadGroupMemos(groupId, forceSync = false)
@@ -604,7 +606,8 @@ fun GroupMemoInputPage(
                 editorSeed = NEW_GROUP_MEMO_EDITOR_SEED
             }
         }
-        delay(300)
+        withFrameNanos { }
+        withFrameNanos { }
         focusRequester.requestFocus()
     }
 
