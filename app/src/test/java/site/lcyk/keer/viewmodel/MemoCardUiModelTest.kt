@@ -110,6 +110,61 @@ class MemoCardUiModelTest {
     }
 
     @Test
+    fun buildHomeMemoItemsFromCards_restoresMemoAuthorAndGroupMetadata() {
+        val memo = memoEntity(identifier = "memo-1", content = "First")
+        val cards = listOf(
+            HomeMemoCardUiModel(
+                card = MemoCardUiModel(
+                    memo = memo,
+                    resolvedQuote = null,
+                    displayTags = listOf("focus"),
+                    collaboratorIds = listOf("alice"),
+                    authorName = "Alice",
+                    authorAvatarUrl = "https://example.com/alice.png",
+                ),
+                groupId = "group-1",
+            )
+        )
+
+        val items = buildHomeMemoItemsFromCards(cards)
+
+        assertEquals(1, items.size)
+        assertEquals(memo, items.single().memo)
+        assertEquals("group-1", items.single().groupId)
+        assertEquals("Alice", items.single().authorName)
+        assertEquals("https://example.com/alice.png", items.single().authorAvatarUrl)
+    }
+
+    @Test
+    fun buildResolvedQuoteMapFromMemoCards_prefersMemoIdentifiers() {
+        val firstMemo = memoEntity(identifier = "memo-1", content = "First")
+        val secondMemo = memoEntity(identifier = "memo-2", content = "Second")
+        val quote = ResolvedMemoQuote(
+            sourceMemo = secondMemo,
+            preview = null,
+        )
+
+        val quotes = buildResolvedQuoteMapFromMemoCards(
+            listOf(
+                MemoCardUiModel(
+                    memo = firstMemo,
+                    resolvedQuote = quote,
+                    displayTags = emptyList(),
+                    collaboratorIds = emptyList(),
+                ),
+                MemoCardUiModel(
+                    memo = secondMemo,
+                    resolvedQuote = null,
+                    displayTags = emptyList(),
+                    collaboratorIds = emptyList(),
+                ),
+            )
+        )
+
+        assertEquals(mapOf(firstMemo.identifier to quote), quotes)
+    }
+
+    @Test
     fun filterMemoCards_helpersRespectTagQueryAndPinnedColumnState() {
         val firstMemo = memoEntity(
             identifier = "memo-1",

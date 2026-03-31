@@ -4,6 +4,7 @@ import java.time.Instant
 import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import site.lcyk.keer.data.local.dao.UiSurfaceSnapshotDao
@@ -25,6 +26,7 @@ import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.isQuoteTag
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.ResolvedMemoQuote
+import timber.log.Timber
 
 data class UiWarmSnapshot<T>(
     val state: T,
@@ -147,8 +149,36 @@ class UiProjectionEngine @Inject constructor(
         if (accountKey.isBlank()) {
             return null
         }
-        val stored = snapshotDao.getSnapshot(accountKey, surfaceKey) ?: return null
-        val decoded = runCatching { decoder(stored.payloadJson) }.getOrNull() ?: return null
+        val stored = try {
+            snapshotDao.getSnapshot(accountKey, surfaceKey)
+        } catch (error: Exception) {
+            if (error is CancellationException) {
+                throw error
+            }
+            Timber.tag(SNAPSHOT_LOG_TAG).w(
+                error,
+                "Failed to read snapshot account=%s surface=%s; deleting corrupt snapshot",
+                accountKey,
+                surfaceKey,
+            )
+            deleteSnapshotQuietly(accountKey, surfaceKey)
+            return null
+        } ?: return null
+        val decoded = try {
+            decoder(stored.payloadJson)
+        } catch (error: Exception) {
+            if (error is CancellationException) {
+                throw error
+            }
+            Timber.tag(SNAPSHOT_LOG_TAG).w(
+                error,
+                "Failed to decode snapshot account=%s surface=%s; deleting corrupt snapshot",
+                accountKey,
+                surfaceKey,
+            )
+            deleteSnapshotQuietly(accountKey, surfaceKey)
+            return null
+        }
         return UiWarmSnapshot(
             state = decoded,
             updatedAtEpochMillis = stored.updatedAtEpochMillis,
@@ -163,6 +193,17 @@ class UiProjectionEngine @Inject constructor(
         if (accountKey.isBlank()) {
             return
         }
+        val payloadSizeBytes = payloadJson.toByteArray(Charsets.UTF_8).size
+        if (payloadSizeBytes > MAX_SNAPSHOT_PAYLOAD_BYTES) {
+            Timber.tag(SNAPSHOT_LOG_TAG).w(
+                "Skipping oversized snapshot account=%s surface=%s sizeBytes=%d",
+                accountKey,
+                surfaceKey,
+                payloadSizeBytes,
+            )
+            deleteSnapshotQuietly(accountKey, surfaceKey)
+            return
+        }
         snapshotDao.upsertSnapshot(
             UiSurfaceSnapshotEntity(
                 accountKey = accountKey,
@@ -173,11 +214,32 @@ class UiProjectionEngine @Inject constructor(
         )
     }
 
+    private suspend fun deleteSnapshotQuietly(
+        accountKey: String,
+        surfaceKey: String,
+    ) {
+        runCatching {
+            snapshotDao.deleteSnapshot(accountKey, surfaceKey)
+        }.onFailure { error ->
+            if (error is CancellationException) {
+                throw error
+            }
+            Timber.tag(SNAPSHOT_LOG_TAG).w(
+                error,
+                "Failed to delete snapshot account=%s surface=%s",
+                accountKey,
+                surfaceKey,
+            )
+        }
+    }
+
     companion object {
         private const val DRAWER_SURFACE_KEY = "drawer"
         private const val FEED_SURFACE_KEY = "feed"
         private const val EXPLORE_SURFACE_KEY = "explore"
         private const val RESOURCE_LIST_SURFACE_KEY = "resource_list"
+        private const val MAX_SNAPSHOT_PAYLOAD_BYTES = 512 * 1024
+        private const val SNAPSHOT_LOG_TAG = "UiWarmSnapshot"
 
         fun groupSurfaceKey(groupId: String): String = "group:$groupId"
     }
@@ -786,48 +848,62 @@ private data class FeedUiStateSnapshot(
     val memoCards: List<MemoCardUiModelSnapshot> = emptyList(),
 ) {
     fun toUiState(): FeedUiState {
-        val resolvedQuotes = resolvedQuotePreviews.mapValues { (_, preview) ->
+        val legacyResolvedQuotes = resolvedQuotePreviews.mapValues { (_, preview) ->
             ResolvedMemoQuote(
                 sourceMemo = null,
                 preview = preview.toModel(),
             )
         }
+        val resolvedMemoCards = if (memoCards.isNotEmpty()) {
+            memoCards.map(MemoCardUiModelSnapshot::toModel)
+        } else {
+            buildMemoCardUiModels(
+                memos = memos.map(MemoEntitySnapshot::toEntity),
+                resolvedQuoteByMemoId = legacyResolvedQuotes,
+            )
+        }
+        val resolvedHomeMemoCards = if (homeMemoCards.isNotEmpty()) {
+            homeMemoCards.map(HomeMemoCardUiModelSnapshot::toModel)
+        } else {
+            buildHomeMemoCardUiModels(
+                items = homeMemos.map(HomeMemoItemSnapshot::toModel),
+                resolvedQuoteByMemoId = legacyResolvedQuotes,
+            )
+        }
+        val resolvedQuotes = if (legacyResolvedQuotes.isNotEmpty()) {
+            legacyResolvedQuotes
+        } else {
+            buildResolvedQuoteMapFromMemoCards(resolvedMemoCards) +
+                buildResolvedQuoteMapFromHomeMemoCards(resolvedHomeMemoCards)
+        }
         return FeedUiState(
-            memos = memos.map(MemoEntitySnapshot::toEntity),
+            memos = if (memos.isNotEmpty()) {
+                memos.map(MemoEntitySnapshot::toEntity)
+            } else {
+                resolvedMemoCards.map(MemoCardUiModel::memo)
+            },
             tags = tags,
             matrix = matrix.map(DailyUsageStatSnapshot::toModel),
-            homeMemos = homeMemos.map(HomeMemoItemSnapshot::toModel),
-            homeMemoCards = if (homeMemoCards.isNotEmpty()) {
-                homeMemoCards.map(HomeMemoCardUiModelSnapshot::toModel)
+            homeMemos = if (homeMemos.isNotEmpty()) {
+                homeMemos.map(HomeMemoItemSnapshot::toModel)
             } else {
-                buildHomeMemoCardUiModels(
-                    items = homeMemos.map(HomeMemoItemSnapshot::toModel),
-                    resolvedQuoteByMemoId = resolvedQuotes,
-                )
+                buildHomeMemoItemsFromCards(resolvedHomeMemoCards)
             },
+            homeMemoCards = resolvedHomeMemoCards,
             resolvedQuoteByMemoId = resolvedQuotes,
-            memoCards = if (memoCards.isNotEmpty()) {
-                memoCards.map(MemoCardUiModelSnapshot::toModel)
-            } else {
-                buildMemoCardUiModels(
-                    memos = memos.map(MemoEntitySnapshot::toEntity),
-                    resolvedQuoteByMemoId = resolvedQuotes,
-                )
-            },
+            memoCards = resolvedMemoCards,
         )
     }
 
     companion object {
         fun from(state: FeedUiState): FeedUiStateSnapshot {
             return FeedUiStateSnapshot(
-                memos = state.memos.map(MemoEntitySnapshot::from),
+                memos = emptyList(),
                 tags = state.tags,
                 matrix = state.matrix.map(DailyUsageStatSnapshot::from),
-                homeMemos = state.homeMemos.map(HomeMemoItemSnapshot::from),
+                homeMemos = emptyList(),
                 homeMemoCards = state.homeMemoCards.map(HomeMemoCardUiModelSnapshot::from),
-                resolvedQuotePreviews = state.resolvedQuoteByMemoId.mapNotNull { (identifier, quote) ->
-                    quote.preview?.let { identifier to MemoQuotePreviewSnapshot.from(it) }
-                }.toMap(),
+                resolvedQuotePreviews = emptyMap(),
                 memoCards = state.memoCards.map(MemoCardUiModelSnapshot::from),
             )
         }
@@ -863,22 +939,31 @@ private data class ExploreUiStateSnapshot(
     val cardItems: List<ExploreCardUiModelSnapshot> = emptyList(),
 ) {
     fun toUiState(): ExploreUiState {
+        val resolvedCardItems = cardItems.map(ExploreCardUiModelSnapshot::toModel)
         return ExploreUiState(
-            items = items.map(ExploreMemoItemSnapshot::toModel),
-            resolvedQuoteByMemoId = resolvedQuotePreviews.mapValues { (_, preview) ->
-                ResolvedMemoQuote(sourceMemo = null, preview = preview.toModel())
+            items = if (resolvedCardItems.isNotEmpty()) {
+                resolvedCardItems.map(ExploreCardUiModel::source)
+            } else {
+                items.map(ExploreMemoItemSnapshot::toModel)
             },
-            cardItems = cardItems.map(ExploreCardUiModelSnapshot::toModel),
+            resolvedQuoteByMemoId = if (resolvedQuotePreviews.isNotEmpty()) {
+                resolvedQuotePreviews.mapValues { (_, preview) ->
+                    ResolvedMemoQuote(sourceMemo = null, preview = preview.toModel())
+                }
+            } else {
+                resolvedCardItems.mapNotNull { card ->
+                    card.resolvedQuote?.let { quote -> card.memo.identifier to quote }
+                }.toMap()
+            },
+            cardItems = resolvedCardItems,
         )
     }
 
     companion object {
         fun from(state: ExploreUiState): ExploreUiStateSnapshot {
             return ExploreUiStateSnapshot(
-                items = state.items.map(ExploreMemoItemSnapshot::from),
-                resolvedQuotePreviews = state.resolvedQuoteByMemoId.mapNotNull { (identifier, quote) ->
-                    quote.preview?.let { identifier to MemoQuotePreviewSnapshot.from(it) }
-                }.toMap(),
+                items = emptyList(),
+                resolvedQuotePreviews = emptyMap(),
                 cardItems = state.cardItems.map(ExploreCardUiModelSnapshot::from),
             )
         }
@@ -892,22 +977,31 @@ private data class GroupChatUiStateSnapshot(
     val cardItems: List<GroupChatCardUiModelSnapshot> = emptyList(),
 ) {
     fun toUiState(): GroupChatUiState {
+        val resolvedCardItems = cardItems.map(GroupChatCardUiModelSnapshot::toModel)
         return GroupChatUiState(
-            memos = memos.map(CachedMemoItem::toMemo),
-            resolvedQuoteByMemoId = resolvedQuotePreviews.mapValues { (_, preview) ->
-                ResolvedMemoQuote(sourceMemo = null, preview = preview.toModel())
+            memos = if (resolvedCardItems.isNotEmpty()) {
+                resolvedCardItems.map(GroupChatCardUiModel::source)
+            } else {
+                memos.map(CachedMemoItem::toMemo)
             },
-            cardItems = cardItems.map(GroupChatCardUiModelSnapshot::toModel),
+            resolvedQuoteByMemoId = if (resolvedQuotePreviews.isNotEmpty()) {
+                resolvedQuotePreviews.mapValues { (_, preview) ->
+                    ResolvedMemoQuote(sourceMemo = null, preview = preview.toModel())
+                }
+            } else {
+                resolvedCardItems.mapNotNull { card ->
+                    card.resolvedQuote?.let { quote -> card.memo.identifier to quote }
+                }.toMap()
+            },
+            cardItems = resolvedCardItems,
         )
     }
 
     companion object {
         fun from(state: GroupChatUiState): GroupChatUiStateSnapshot {
             return GroupChatUiStateSnapshot(
-                memos = state.memos.map { memo -> memo.toCachedMemoItem() },
-                resolvedQuotePreviews = state.resolvedQuoteByMemoId.mapNotNull { (identifier, quote) ->
-                    quote.preview?.let { identifier to MemoQuotePreviewSnapshot.from(it) }
-                }.toMap(),
+                memos = emptyList(),
+                resolvedQuotePreviews = emptyMap(),
                 cardItems = state.cardItems.map(GroupChatCardUiModelSnapshot::from),
             )
         }
@@ -917,33 +1011,16 @@ private data class GroupChatUiStateSnapshot(
 @Serializable
 private data class ResourceListSnapshot(
     val resources: List<ResourceEntitySnapshot> = emptyList(),
-    val imageResources: List<ResourceEntitySnapshot> = emptyList(),
-    val otherResources: List<ResourceEntitySnapshot> = emptyList(),
 ) {
     fun toUiState(): ResourceListUiState {
         val resolvedResources = resources.map(ResourceEntitySnapshot::toEntity)
-        val fallbackState = buildResourceListUiState(resolvedResources)
-        return ResourceListUiState(
-            resources = resolvedResources,
-            imageResources = if (imageResources.isNotEmpty()) {
-                imageResources.map(ResourceEntitySnapshot::toEntity)
-            } else {
-                fallbackState.imageResources
-            },
-            otherResources = if (otherResources.isNotEmpty()) {
-                otherResources.map(ResourceEntitySnapshot::toEntity)
-            } else {
-                fallbackState.otherResources
-            },
-        )
+        return buildResourceListUiState(resolvedResources)
     }
 
     companion object {
         fun from(state: ResourceListUiState): ResourceListSnapshot {
             return ResourceListSnapshot(
                 resources = state.resources.map(ResourceEntitySnapshot::from),
-                imageResources = state.imageResources.map(ResourceEntitySnapshot::from),
-                otherResources = state.otherResources.map(ResourceEntitySnapshot::from),
             )
         }
     }

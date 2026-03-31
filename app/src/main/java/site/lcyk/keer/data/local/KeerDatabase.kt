@@ -41,7 +41,7 @@ import site.lcyk.keer.data.local.entity.UiSurfaceSnapshotEntity
         OfflinePinnedGroupMemoEntity::class,
         UiSurfaceSnapshotEntity::class,
     ],
-    version = 17
+    version = 18
 )
 @TypeConverters(Converters::class)
 abstract class KeerDatabase : RoomDatabase() {
@@ -76,6 +76,7 @@ abstract class KeerDatabase : RoomDatabase() {
                     .addMigrations(MIGRATION_14_15)
                     .addMigrations(MIGRATION_15_16)
                     .addMigrations(MIGRATION_16_17)
+                    .addMigrations(MIGRATION_17_18)
                     .build()
                 INSTANCE = instance
                 instance
@@ -464,6 +465,12 @@ abstract class KeerDatabase : RoomDatabase() {
                     ON ui_surface_snapshots(accountKey, updatedAtEpochMillis)
                     """.trimIndent()
                 )
+            }
+        }
+
+        private val MIGRATION_17_18: Migration = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("DELETE FROM ui_surface_snapshots")
             }
         }
 

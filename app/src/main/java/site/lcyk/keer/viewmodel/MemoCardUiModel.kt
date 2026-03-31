@@ -37,10 +37,39 @@ internal fun buildHomeFeedCards(
     return items.map(HomeMemoCardUiModel::card)
 }
 
+internal fun buildHomeMemoItemsFromCards(
+    items: List<HomeMemoCardUiModel>,
+): List<HomeMemoItem> {
+    return items.map { item ->
+        HomeMemoItem(
+            memo = item.card.memo,
+            groupId = item.groupId,
+            authorName = item.card.authorName,
+            authorAvatarUrl = item.card.authorAvatarUrl,
+        )
+    }
+}
+
 internal fun indexHomeMemoCardsByMemoIdentifier(
     items: List<HomeMemoCardUiModel>,
 ): Map<String, HomeMemoCardUiModel> {
     return items.associateBy { item -> item.card.memo.identifier }
+}
+
+internal fun buildResolvedQuoteMapFromMemoCards(
+    cards: List<MemoCardUiModel>,
+): Map<String, ResolvedMemoQuote> {
+    return cards.mapNotNull { card ->
+        card.resolvedQuote?.let { resolvedQuote ->
+            card.memo.identifier to resolvedQuote
+        }
+    }.toMap()
+}
+
+internal fun buildResolvedQuoteMapFromHomeMemoCards(
+    cards: List<HomeMemoCardUiModel>,
+): Map<String, ResolvedMemoQuote> {
+    return buildResolvedQuoteMapFromMemoCards(cards.map(HomeMemoCardUiModel::card))
 }
 
 internal fun buildMemoCardListUiState(

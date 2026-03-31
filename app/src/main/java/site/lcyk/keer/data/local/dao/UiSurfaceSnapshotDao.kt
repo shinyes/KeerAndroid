@@ -23,6 +23,17 @@ interface UiSurfaceSnapshotDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertSnapshot(snapshot: UiSurfaceSnapshotEntity)
 
+    @Query(
+        """
+        DELETE FROM ui_surface_snapshots
+        WHERE accountKey = :accountKey AND surfaceKey = :surfaceKey
+        """
+    )
+    suspend fun deleteSnapshot(
+        accountKey: String,
+        surfaceKey: String,
+    )
+
     @Query("DELETE FROM ui_surface_snapshots WHERE accountKey = :accountKey")
     suspend fun deleteSnapshotsForAccount(accountKey: String)
 }
