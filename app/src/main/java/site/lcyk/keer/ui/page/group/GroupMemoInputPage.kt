@@ -1,6 +1,5 @@
 package site.lcyk.keer.ui.page.group
 
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.imePadding
@@ -27,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
-import com.skydoves.sandwich.suspendOnSuccess
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
@@ -35,7 +33,6 @@ import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.ext.suspendOnErrorMessage
 import site.lcyk.keer.ui.component.MemoQuoteReferenceCard
 import site.lcyk.keer.ui.component.SurfaceHydrationLine
 import site.lcyk.keer.ui.page.memoinput.MarkdownFormat
@@ -43,6 +40,7 @@ import site.lcyk.keer.ui.page.memoinput.MemoCollaboratorDialog
 import site.lcyk.keer.ui.page.memoinput.MemoInputBottomBar
 import site.lcyk.keer.ui.page.memoinput.MemoInputEditor
 import site.lcyk.keer.ui.page.memoinput.rememberMemoEditorImportWorkflowState
+import site.lcyk.keer.ui.page.memoinput.rememberMemoEditorLocationPermissionWorkflowState
 import site.lcyk.keer.ui.page.memoinput.MemoInputTopBar
 import site.lcyk.keer.ui.page.memoinput.MemoUploadFeedbackSnackbarEffect
 import site.lcyk.keer.ui.page.memoinput.MemoTagSelectorDialog
@@ -63,6 +61,7 @@ import site.lcyk.keer.viewmodel.buildMemoEditorCompletionWorkflowState
 import site.lcyk.keer.viewmodel.buildMemoEditorDismissWorkflowState
 import site.lcyk.keer.viewmodel.buildMemoEditorDirtyState
 import site.lcyk.keer.viewmodel.buildMemoEditorEffectiveRestoreState
+import site.lcyk.keer.viewmodel.buildMemoEditorLocationState
 import site.lcyk.keer.viewmodel.buildMemoEditorPersistedContentState
 import site.lcyk.keer.viewmodel.buildMemoEditorResourceIdentifiers
 import site.lcyk.keer.viewmodel.buildMemoEditorResolvedScreenState
@@ -254,6 +253,12 @@ fun GroupMemoInputPage(
             uploadsState = uploadWorkflowState.uploads,
         )
     }
+    val locationState = remember {
+        buildMemoEditorLocationState(
+            enabled = false,
+            hasPermission = false,
+        )
+    }
     var editorSeed by rememberSaveable(groupId, memoId, quoteSourceMemoIdentifier) { mutableStateOf<String?>(null) }
     val hydrationState = editorScreenState.hydrationState
     val applyFieldsState: (site.lcyk.keer.viewmodel.MemoEditorFieldsState) -> Unit = { fieldsState ->
@@ -262,12 +267,16 @@ fun GroupMemoInputPage(
         selectedCollaborators = fieldsState.selectedCollaborators
         editorBaseline = fieldsState.baseline
     }
+    var resetPendingLocationPermissionRequest: () -> Unit = {}
     val applyWorkflowCleanup: (site.lcyk.keer.viewmodel.MemoEditorWorkflowCleanupState) -> Unit = { cleanup ->
         if (cleanup.clearUploads) {
             inputViewModel.clearUploadResources()
         }
         if (cleanup.clearUploadTasks) {
             inputViewModel.clearUploadTasks()
+        }
+        if (cleanup.resetPendingLocationPermission) {
+            resetPendingLocationPermissionRequest()
         }
     }
 
@@ -334,28 +343,22 @@ fun GroupMemoInputPage(
         }
     }
 
-    fun uploadResource(uri: Uri) = coroutineScope.launch {
-        inputViewModel.upload(uri, memoIdentifier = uploadWorkflowState.entry.targetMemoIdentifier).suspendOnSuccess {
-            delay(uploadWorkflowState.entry.focusDelayMillis)
-            focusRequester.requestFocus()
-        }.suspendOnErrorMessage { message ->
-            snackbarState.showSnackbar(message)
-        }
-    }
-
-    fun uploadResources(uris: List<Uri>) {
-        uris.forEach(::uploadResource)
-    }
-
     val importWorkflow = rememberMemoEditorImportWorkflowState(
         context = navController.context,
-        onUploadUris = ::uploadResources,
-        onErrorMessage = { message ->
-            coroutineScope.launch {
-                snackbarState.showSnackbar(message)
-            }
+        inputViewModel = inputViewModel,
+        uploadEntryState = uploadWorkflowState.entry,
+        snackbarHostState = snackbarState,
+        focusRequester = focusRequester,
+    )
+    val locationPermissionWorkflow = rememberMemoEditorLocationPermissionWorkflowState(
+        context = navController.context,
+        locationState = locationState,
+        onPermissionGranted = {},
+        onSubmit = { _ ->
+            submit()
         },
     )
+    resetPendingLocationPermissionRequest = locationPermissionWorkflow.resetPendingSubmitRequest
 
     BackHandler {
         handleExit()
@@ -368,7 +371,7 @@ fun GroupMemoInputPage(
                 isEditMode = isEditMode,
                 canSubmit = submitState.canSubmit,
                 onClose = { handleExit() },
-                onSubmit = { submit() }
+                onSubmit = { locationPermissionWorkflow.attemptSubmit() }
             )
         },
         bottomBar = {
@@ -480,7 +483,7 @@ fun GroupMemoInputPage(
         SaveChangesDialog(
             onSave = {
                 showExitConfirmation = false
-                submit()
+                locationPermissionWorkflow.attemptSubmit()
             },
             onDiscard = {
                 showExitConfirmation = false

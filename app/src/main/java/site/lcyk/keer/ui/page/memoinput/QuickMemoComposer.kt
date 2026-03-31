@@ -1,10 +1,7 @@
 package site.lcyk.keer.ui.page.memoinput
 
 import android.location.Location
-import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.CubicBezierEasing
@@ -61,12 +58,10 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import com.skydoves.sandwich.suspendOnSuccess
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.ext.suspendOnErrorMessage
 import site.lcyk.keer.ui.component.SurfaceHydrationLine
 import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.isQuoteTag
@@ -84,7 +79,6 @@ import site.lcyk.keer.viewmodel.buildMemoEditorDismissWorkflowState
 import site.lcyk.keer.viewmodel.buildMemoEditorDirtyState
 import site.lcyk.keer.viewmodel.buildMemoEditorEffectiveRestoreState
 import site.lcyk.keer.viewmodel.buildMemoEditorLocationState
-import site.lcyk.keer.viewmodel.buildMemoEditorLocationSubmitState
 import site.lcyk.keer.viewmodel.buildMemoEditorPersistedContentState
 import site.lcyk.keer.viewmodel.buildMemoEditorRestoreWorkflowState
 import site.lcyk.keer.viewmodel.buildMemoEditorSessionKey
@@ -149,8 +143,6 @@ fun QuickMemoComposer(
     var prefetchedLocation by remember { mutableStateOf<Location?>(null) }
     var isLocationPrefetching by remember { mutableStateOf(false) }
     var stopLocationTracking by remember { mutableStateOf<(() -> Unit)?>(null) }
-    val locationPermissions = remember { LOCATION_PERMISSIONS }
-    var pendingSubmitAfterLocationPermission by remember { mutableStateOf(false) }
     val locationConfig = remember { MemoEditorLocationConfig() }
     val locationState = remember(enableLocation, hasLocationPermission(context)) {
         buildMemoEditorLocationState(
@@ -246,6 +238,7 @@ fun QuickMemoComposer(
         selectedCollaborators = fieldsState.selectedCollaborators
         editorBaseline = fieldsState.baseline
     }
+    var resetPendingLocationPermissionRequest: () -> Unit = {}
     val applyWorkflowCleanup: (MemoEditorWorkflowCleanupState) -> Unit = { cleanup ->
         if (cleanup.clearUploads) {
             inputViewModel.clearUploadResources()
@@ -261,7 +254,7 @@ fun QuickMemoComposer(
             prefetchedLocation = null
         }
         if (cleanup.resetPendingLocationPermission) {
-            pendingSubmitAfterLocationPermission = false
+            resetPendingLocationPermissionRequest()
         }
         if (cleanup.refreshLocalSnapshot) {
             coroutineScope.launch {
@@ -444,54 +437,29 @@ fun QuickMemoComposer(
         }
     }
 
-    val requestLocationPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) { _ ->
-        if (hasLocationPermission(context)) {
+    val locationPermissionWorkflow = rememberMemoEditorLocationPermissionWorkflowState(
+        context = context,
+        locationState = locationState,
+        onPermissionGranted = {
             startLocationPrefetch(force = true)
-        }
-        if (pendingSubmitAfterLocationPermission) {
-            pendingSubmitAfterLocationPermission = false
-            submit()
-        }
-    }
-
-    fun attemptSubmit() {
-        val submitLocationState = buildMemoEditorLocationSubmitState(locationState)
-        if (!enableLocation) {
-            submit(collectCoordinates = false)
-            return
-        }
-        if (submitLocationState.shouldRequestPermission) {
-            pendingSubmitAfterLocationPermission = true
-            requestLocationPermissions.launch(locationPermissions)
-        } else {
-            submit(collectCoordinates = submitLocationState.shouldCollectCoordinates)
-        }
-    }
-
-    fun uploadResource(uri: Uri) = coroutineScope.launch {
-        inputViewModel.upload(uri, memoIdentifier = uploadWorkflowState.entry.targetMemoIdentifier).suspendOnSuccess {
-            delay(uploadWorkflowState.entry.focusDelayMillis)
-            focusRequester.requestFocus()
-            if (uploadWorkflowState.entry.showKeyboardAfterUpload) {
-                keyboardController?.show()
+        },
+        onSubmit = { collectCoordinates ->
+            if (!enableLocation) {
+                submit(collectCoordinates = false)
+            } else {
+                submit(collectCoordinates = collectCoordinates)
             }
-        }.suspendOnErrorMessage { message ->
-            snackbarState.showSnackbar(message)
-        }
-    }
-
-    fun uploadResources(uris: List<Uri>) {
-        uris.forEach(::uploadResource)
-    }
+        },
+    )
+    resetPendingLocationPermissionRequest = locationPermissionWorkflow.resetPendingSubmitRequest
 
     val importWorkflow = rememberMemoEditorImportWorkflowState(
         context = context,
-        onUploadUris = ::uploadResources,
-        onErrorMessage = { message ->
-            coroutineScope.launch {
-                snackbarState.showSnackbar(message)
-            }
-        },
+        inputViewModel = inputViewModel,
+        uploadEntryState = uploadWorkflowState.entry,
+        snackbarHostState = snackbarState,
+        focusRequester = focusRequester,
+        keyboardController = keyboardController,
     )
 
     BackHandler(enabled = visible) {
@@ -669,7 +637,7 @@ fun QuickMemoComposer(
                         trailingAction = {
                             IconButton(
                                 enabled = submitState.canSubmit,
-                                onClick = { attemptSubmit() },
+                                onClick = { locationPermissionWorkflow.attemptSubmit() },
                                 modifier = Modifier.size(40.dp)
                             ) {
                                 Icon(
@@ -717,7 +685,7 @@ fun QuickMemoComposer(
         SaveChangesDialog(
             onSave = {
                 showExitConfirmation = false
-                attemptSubmit()
+                locationPermissionWorkflow.attemptSubmit()
             },
             onDiscard = {
                 showExitConfirmation = false

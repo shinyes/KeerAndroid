@@ -10,14 +10,24 @@ import androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDoc
 import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.SoftwareKeyboardController
+import com.skydoves.sandwich.suspendOnSuccess
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
+import site.lcyk.keer.ext.suspendOnErrorMessage
+import site.lcyk.keer.viewmodel.MemoEditorUploadEntryState
+import site.lcyk.keer.viewmodel.MemoInputViewModel
 
 data class MemoEditorImportWorkflowState(
     val pickVisualMedia: () -> Unit,
@@ -50,20 +60,40 @@ private fun persistReadPermissionIfPossible(context: Context, uri: Uri) {
 @Composable
 fun rememberMemoEditorImportWorkflowState(
     context: Context,
-    onUploadUris: (List<Uri>) -> Unit,
-    onErrorMessage: (String) -> Unit,
+    inputViewModel: MemoInputViewModel,
+    uploadEntryState: MemoEditorUploadEntryState,
+    snackbarHostState: SnackbarHostState,
+    focusRequester: FocusRequester? = null,
+    keyboardController: SoftwareKeyboardController? = null,
 ): MemoEditorImportWorkflowState {
-    val latestUploadUris by rememberUpdatedState(onUploadUris)
-    val latestErrorMessage by rememberUpdatedState(onErrorMessage)
+    val scope = rememberCoroutineScope()
+    val latestUploadEntryState by rememberUpdatedState(uploadEntryState)
+    val latestSnackbarHostState by rememberUpdatedState(snackbarHostState)
+    val latestFocusRequester by rememberUpdatedState(focusRequester)
+    val latestKeyboardController by rememberUpdatedState(keyboardController)
 
-    val handlePickedUris: (List<Uri>) -> Unit = remember(context) {
-        { pickedUris ->
-            val normalizedUris = normalizePickedUris(pickedUris)
-            if (normalizedUris.isNotEmpty()) {
-                normalizedUris.forEach { uri ->
-                    persistReadPermissionIfPossible(context, uri)
+    val uploadResource: (Uri) -> Unit = { uri ->
+        scope.launch {
+            inputViewModel.upload(
+                uri = uri,
+                memoIdentifier = latestUploadEntryState.targetMemoIdentifier,
+            ).suspendOnSuccess {
+                delay(latestUploadEntryState.focusDelayMillis)
+                latestFocusRequester?.requestFocus()
+                if (latestUploadEntryState.showKeyboardAfterUpload) {
+                    latestKeyboardController?.show()
                 }
-                latestUploadUris(normalizedUris)
+            }.suspendOnErrorMessage { message ->
+                latestSnackbarHostState.showSnackbar(message)
+            }
+        }
+    }
+    val handlePickedUris: (List<Uri>) -> Unit = { pickedUris ->
+        val normalizedUris = normalizePickedUris(pickedUris)
+        if (normalizedUris.isNotEmpty()) {
+            normalizedUris.forEach { uri ->
+                persistReadPermissionIfPossible(context, uri)
+                uploadResource(uri)
             }
         }
     }
@@ -84,7 +114,7 @@ fun rememberMemoEditorImportWorkflowState(
     val takePhotoLauncher = rememberLauncherForActivityResult(TakePicture()) { success ->
         if (success) {
             photoImageUri?.let { uri ->
-                latestUploadUris(listOf(uri))
+                handlePickedUris(listOf(uri))
             }
         }
     }
@@ -93,7 +123,7 @@ fun rememberMemoEditorImportWorkflowState(
     val captureVideoLauncher = rememberLauncherForActivityResult(CaptureVideo()) { success ->
         if (success) {
             videoUri?.let { uri ->
-                latestUploadUris(listOf(uri))
+                handlePickedUris(listOf(uri))
             }
         }
     }
@@ -115,9 +145,11 @@ fun rememberMemoEditorImportWorkflowState(
                     photoImageUri = uri
                     takePhotoLauncher.launch(uri)
                 }.onFailure { error ->
-                    latestErrorMessage(
-                        error.localizedMessage ?: context.getString(R.string.unable_to_take_picture)
-                    )
+                    scope.launch {
+                        latestSnackbarHostState.showSnackbar(
+                            error.localizedMessage ?: context.getString(R.string.unable_to_take_picture)
+                        )
+                    }
                 }
             },
             captureVideo = {
@@ -127,9 +159,11 @@ fun rememberMemoEditorImportWorkflowState(
                     videoUri = uri
                     captureVideoLauncher.launch(uri)
                 }.onFailure { error ->
-                    latestErrorMessage(
-                        error.localizedMessage ?: context.getString(R.string.unable_to_record_video)
-                    )
+                    scope.launch {
+                        latestSnackbarHostState.showSnackbar(
+                            error.localizedMessage ?: context.getString(R.string.unable_to_record_video)
+                        )
+                    }
                 }
             },
         )

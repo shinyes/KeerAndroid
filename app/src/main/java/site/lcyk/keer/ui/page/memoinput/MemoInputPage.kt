@@ -1,10 +1,7 @@
 package site.lcyk.keer.ui.page.memoinput
 
 import android.location.Location
-import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -29,13 +26,11 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.skydoves.sandwich.suspendOnSuccess
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
-import site.lcyk.keer.ext.suspendOnErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.MemoQuoteReferenceCard
 import site.lcyk.keer.ui.component.SurfaceHydrationLine
@@ -55,7 +50,6 @@ import site.lcyk.keer.viewmodel.buildMemoEditorDismissWorkflowState
 import site.lcyk.keer.viewmodel.buildMemoEditorDirtyState
 import site.lcyk.keer.viewmodel.buildMemoEditorEffectiveRestoreState
 import site.lcyk.keer.viewmodel.buildMemoEditorLocationState
-import site.lcyk.keer.viewmodel.buildMemoEditorLocationSubmitState
 import site.lcyk.keer.viewmodel.buildMemoEditorPersistedContentState
 import site.lcyk.keer.viewmodel.buildMemoEditorResourceIdentifiers
 import site.lcyk.keer.viewmodel.buildMemoEditorResolvedScreenState
@@ -220,10 +214,6 @@ fun MemoInputPage(
             uploadsState = uploadWorkflowState.uploads,
         )
     }
-    val locationPermissions = remember {
-        LOCATION_PERMISSIONS
-    }
-    var pendingSubmitAfterLocationPermission by remember { mutableStateOf(false) }
     val locationConfig = remember { MemoEditorLocationConfig() }
     val locationState = remember(
         memoIdentifier,
@@ -243,6 +233,7 @@ fun MemoInputPage(
         selectedCollaborators = fieldsState.selectedCollaborators
         editorBaseline = fieldsState.baseline
     }
+    var resetPendingLocationPermissionRequest: () -> Unit = {}
     val applyWorkflowCleanup: (site.lcyk.keer.viewmodel.MemoEditorWorkflowCleanupState) -> Unit = { cleanup ->
         if (cleanup.clearUploads) {
             viewModel.clearUploadResources()
@@ -258,7 +249,7 @@ fun MemoInputPage(
             prefetchedLocation = null
         }
         if (cleanup.resetPendingLocationPermission) {
-            pendingSubmitAfterLocationPermission = false
+            resetPendingLocationPermissionRequest()
         }
         if (cleanup.refreshLocalSnapshot) {
             coroutineScope.launch {
@@ -473,48 +464,25 @@ fun MemoInputPage(
         }
     }
 
-    fun uploadResource(uri: Uri) = coroutineScope.launch {
-        viewModel.upload(uri, uploadWorkflowState.entry.targetMemoIdentifier).suspendOnSuccess {
-            delay(uploadWorkflowState.entry.focusDelayMillis)
-            focusRequester.requestFocus()
-        }.suspendOnErrorMessage { message ->
-            snackbarState.showSnackbar(message)
-        }
-    }
-
-    fun uploadResources(uris: List<Uri>) {
-        uris.forEach(::uploadResource)
-    }
-
     val importWorkflow = rememberMemoEditorImportWorkflowState(
         context = navController.context,
-        onUploadUris = ::uploadResources,
-        onErrorMessage = { message ->
-            coroutineScope.launch {
-                snackbarState.showSnackbar(message)
-            }
-        },
+        inputViewModel = viewModel,
+        uploadEntryState = uploadWorkflowState.entry,
+        snackbarHostState = snackbarState,
+        focusRequester = focusRequester,
     )
 
-    val requestLocationPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) { _ ->
-        if (hasLocationPermission(navController.context)) {
+    val locationPermissionWorkflow = rememberMemoEditorLocationPermissionWorkflowState(
+        context = navController.context,
+        locationState = locationState,
+        onPermissionGranted = {
             startLocationPrefetch(force = true)
-        }
-        if (pendingSubmitAfterLocationPermission) {
-            pendingSubmitAfterLocationPermission = false
-            submit()
-        }
-    }
-
-    fun attemptSubmit() {
-        val submitLocationState = buildMemoEditorLocationSubmitState(locationState)
-        if (submitLocationState.shouldRequestPermission) {
-            pendingSubmitAfterLocationPermission = true
-            requestLocationPermissions.launch(locationPermissions)
-        } else {
-            submit(collectCoordinates = submitLocationState.shouldCollectCoordinates)
-        }
-    }
+        },
+        onSubmit = { collectCoordinates ->
+            submit(collectCoordinates = collectCoordinates)
+        },
+    )
+    resetPendingLocationPermissionRequest = locationPermissionWorkflow.resetPendingSubmitRequest
 
     BackHandler {
         handleExit()
@@ -527,7 +495,7 @@ fun MemoInputPage(
                 isEditMode = !memoIdentifier.isNullOrBlank(),
                 canSubmit = submitState.canSubmit,
                 onClose = { handleExit() },
-                onSubmit = { attemptSubmit() }
+                onSubmit = { locationPermissionWorkflow.attemptSubmit() }
             )
         },
         bottomBar = {
@@ -643,7 +611,7 @@ fun MemoInputPage(
         SaveChangesDialog(
             onSave = {
                 showExitConfirmation = false
-                attemptSubmit()
+                locationPermissionWorkflow.attemptSubmit()
             },
             onDiscard = {
                 showExitConfirmation = false

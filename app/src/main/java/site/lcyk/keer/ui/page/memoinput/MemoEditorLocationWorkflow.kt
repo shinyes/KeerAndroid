@@ -9,6 +9,14 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Looper
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -27,6 +35,11 @@ data class MemoEditorLocationConfig(
     val gnssTrackingMinDistanceMeters: Float = 0f,
 )
 
+data class MemoEditorLocationPermissionWorkflowState(
+    val attemptSubmit: () -> Unit,
+    val resetPendingSubmitRequest: () -> Unit,
+)
+
 internal val LOCATION_PERMISSIONS = arrayOf(
     Manifest.permission.ACCESS_FINE_LOCATION,
     Manifest.permission.ACCESS_COARSE_LOCATION,
@@ -42,6 +55,47 @@ internal fun hasLocationPermission(context: Context): Boolean {
         Manifest.permission.ACCESS_COARSE_LOCATION,
     ) == PackageManager.PERMISSION_GRANTED
     return fineLocationGranted || coarseLocationGranted
+}
+
+@Composable
+fun rememberMemoEditorLocationPermissionWorkflowState(
+    context: Context,
+    locationState: site.lcyk.keer.viewmodel.MemoEditorLocationState,
+    onPermissionGranted: () -> Unit = {},
+    onSubmit: (collectCoordinates: Boolean) -> Unit,
+): MemoEditorLocationPermissionWorkflowState {
+    val latestLocationState = rememberUpdatedState(locationState)
+    val latestOnPermissionGranted = rememberUpdatedState(onPermissionGranted)
+    val latestOnSubmit = rememberUpdatedState(onSubmit)
+    var pendingSubmitAfterPermission by remember { mutableStateOf(false) }
+
+    val requestLocationPermissions = rememberLauncherForActivityResult(RequestMultiplePermissions()) { _ ->
+        if (hasLocationPermission(context)) {
+            latestOnPermissionGranted.value()
+        }
+        if (pendingSubmitAfterPermission) {
+            pendingSubmitAfterPermission = false
+            val submitState = site.lcyk.keer.viewmodel.buildMemoEditorLocationSubmitState(latestLocationState.value)
+            latestOnSubmit.value(submitState.shouldCollectCoordinates)
+        }
+    }
+
+    return remember {
+        MemoEditorLocationPermissionWorkflowState(
+            attemptSubmit = {
+                val submitState = site.lcyk.keer.viewmodel.buildMemoEditorLocationSubmitState(latestLocationState.value)
+                if (submitState.shouldRequestPermission) {
+                    pendingSubmitAfterPermission = true
+                    requestLocationPermissions.launch(LOCATION_PERMISSIONS)
+                } else {
+                    latestOnSubmit.value(submitState.shouldCollectCoordinates)
+                }
+            },
+            resetPendingSubmitRequest = {
+                pendingSubmitAfterPermission = false
+            },
+        )
+    }
 }
 
 private fun hasPreciseLocationPermission(context: Context): Boolean {
