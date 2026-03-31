@@ -108,3 +108,5 @@ lint/tmp/
 
 # Serena (Claude Code MCP server)
 .serena/
+.android/debug.keystore
+.android/debug.keystore.lock
