@@ -1,5 +1,6 @@
 ﻿package site.lcyk.keer.viewmodel
 
+import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.MemoEditorWorkflowPersistenceState
@@ -137,6 +138,32 @@ data class MemoEditorSubmitState(
     val hasPayload: Boolean = false,
     val hasBlockingUpload: Boolean = false,
     val canSubmit: Boolean = false,
+)
+
+data class MemoEditorSubmitRequest(
+    val content: String = "",
+    val trimmedContent: String = "",
+    val tags: List<String> = emptyList(),
+    val resourceIdentifiers: List<String> = emptyList(),
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+)
+
+data class GroupQuickMemoSubmitPlan(
+    val normalizedTags: List<String> = emptyList(),
+    val tagsToCreate: List<String> = emptyList(),
+)
+
+data class MemoEditorLocationState(
+    val enabled: Boolean = false,
+    val hasPermission: Boolean = false,
+    val canPrefetch: Boolean = false,
+    val shouldCollectCoordinatesOnSubmit: Boolean = false,
+)
+
+data class MemoEditorLocationSubmitState(
+    val shouldRequestPermission: Boolean = false,
+    val shouldCollectCoordinates: Boolean = false,
 )
 
 data class MemoEditorUploadEntryState(
@@ -282,6 +309,22 @@ data class MemoEditorWorkflowState(
     val completion: MemoEditorCompletionState = MemoEditorCompletionState(),
     val cleanup: MemoEditorWorkflowCleanupState = MemoEditorWorkflowCleanupState(),
 )
+
+sealed interface MemoEditorSubmitWorkflowResult {
+    data object Skipped : MemoEditorSubmitWorkflowResult
+
+    data class Blocked(
+        val messageResId: Int = R.string.upload_in_progress_wait,
+    ) : MemoEditorSubmitWorkflowResult
+
+    data class Failed(
+        val message: String,
+    ) : MemoEditorSubmitWorkflowResult
+
+    data class Succeeded(
+        val workflowState: MemoEditorWorkflowState,
+    ) : MemoEditorSubmitWorkflowResult
+}
 
 internal fun buildMemoDisplayMeta(
     memo: MemoEntity?,
@@ -1201,6 +1244,44 @@ internal fun buildMemoEditorCanSubmit(
     return (content.isNotEmpty() || uploadsState.resources.isNotEmpty()) && !uploadsState.hasActiveUpload
 }
 
+internal fun buildGroupQuickMemoSubmitPlan(
+    existingTags: List<String>,
+    requestedTags: List<String>,
+): GroupQuickMemoSubmitPlan {
+    val normalizedExistingTags = normalizeTagList(existingTags)
+    val normalizedRequestedTags = normalizeTagList(requestedTags)
+    val existingTagSet = normalizedExistingTags
+        .map { tag -> tag.trim().lowercase() }
+        .toSet()
+    return GroupQuickMemoSubmitPlan(
+        normalizedTags = normalizedRequestedTags,
+        tagsToCreate = normalizedRequestedTags.filter { tag ->
+            tag.lowercase() !in existingTagSet
+        },
+    )
+}
+
+internal fun buildMemoEditorLocationState(
+    enabled: Boolean,
+    hasPermission: Boolean,
+): MemoEditorLocationState {
+    return MemoEditorLocationState(
+        enabled = enabled,
+        hasPermission = hasPermission,
+        canPrefetch = enabled && hasPermission,
+        shouldCollectCoordinatesOnSubmit = enabled && hasPermission,
+    )
+}
+
+internal fun buildMemoEditorLocationSubmitState(
+    state: MemoEditorLocationState,
+): MemoEditorLocationSubmitState {
+    return MemoEditorLocationSubmitState(
+        shouldRequestPermission = state.enabled && !state.hasPermission,
+        shouldCollectCoordinates = state.shouldCollectCoordinatesOnSubmit,
+    )
+}
+
 internal fun buildMemoEditorSubmitState(
     content: String,
     selectedTags: List<String>,
@@ -1228,6 +1309,72 @@ internal fun buildMemoEditorSubmitState(
         canSubmit = buildMemoEditorCanSubmit(
             content = content,
             uploadsState = uploadsState,
+        ),
+    )
+}
+
+internal fun buildMemoEditorSubmitRequest(
+    submitState: MemoEditorSubmitState,
+    latitude: Double? = null,
+    longitude: Double? = null,
+): MemoEditorSubmitRequest {
+    return MemoEditorSubmitRequest(
+        content = submitState.content,
+        trimmedContent = submitState.trimmedContent,
+        tags = submitState.mergedTags,
+        resourceIdentifiers = submitState.resourceIdentifiers,
+        latitude = latitude,
+        longitude = longitude,
+    )
+}
+
+internal suspend fun executeMemoEditorSubmitWorkflow(
+    submitState: MemoEditorSubmitState,
+    sessionState: MemoEditorSessionState,
+    currentContent: String,
+    persistDraft: Boolean,
+    latitude: Double? = null,
+    longitude: Double? = null,
+    clearDraft: Boolean = false,
+    clearUploads: Boolean = false,
+    clearUploadTasks: Boolean = false,
+    stopLocationTracking: Boolean = false,
+    clearPrefetchedLocation: Boolean = false,
+    resetPendingLocationPermission: Boolean = false,
+    refreshLocalSnapshot: Boolean = false,
+    hideKeyboard: Boolean = false,
+    executor: suspend (MemoEditorSubmitRequest) -> String?,
+): MemoEditorSubmitWorkflowResult {
+    if (submitState.hasBlockingUpload) {
+        return MemoEditorSubmitWorkflowResult.Blocked()
+    }
+    if (!submitState.hasPayload) {
+        return MemoEditorSubmitWorkflowResult.Skipped
+    }
+
+    val request = buildMemoEditorSubmitRequest(
+        submitState = submitState,
+        latitude = latitude,
+        longitude = longitude,
+    )
+    val errorMessage = executor(request)
+    if (errorMessage != null) {
+        return MemoEditorSubmitWorkflowResult.Failed(errorMessage)
+    }
+
+    return MemoEditorSubmitWorkflowResult.Succeeded(
+        workflowState = buildMemoEditorCompletionWorkflowState(
+            sessionState = sessionState,
+            persistDraft = persistDraft,
+            currentContent = currentContent,
+            clearDraft = clearDraft,
+            clearUploads = clearUploads,
+            clearUploadTasks = clearUploadTasks,
+            stopLocationTracking = stopLocationTracking,
+            clearPrefetchedLocation = clearPrefetchedLocation,
+            resetPendingLocationPermission = resetPendingLocationPermission,
+            refreshLocalSnapshot = refreshLocalSnapshot,
+            hideKeyboard = hideKeyboard,
         ),
     )
 }

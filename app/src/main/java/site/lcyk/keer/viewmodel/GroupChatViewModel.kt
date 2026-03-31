@@ -304,6 +304,51 @@ class GroupChatViewModel @Inject constructor(
         true
     }
 
+    suspend fun submitEditorMemoRequest(
+        groupId: String,
+        memoRemoteId: String?,
+        request: MemoEditorSubmitRequest,
+        existingTags: List<String>,
+    ): String? = withContext(Dispatchers.IO) {
+        val submitPlan = buildGroupQuickMemoSubmitPlan(
+            existingTags = existingTags,
+            requestedTags = request.tags,
+        )
+        submitPlan.tagsToCreate.forEach { tag ->
+            addGroupTag(groupId, tag)
+        }
+        val saved = if (memoRemoteId.isNullOrBlank()) {
+            sendGroupMemo(
+                groupId = groupId,
+                content = request.trimmedContent,
+                tags = submitPlan.normalizedTags,
+                resourceIdentifiers = request.resourceIdentifiers,
+            )
+        } else {
+            updateGroupMemo(
+                groupId = groupId,
+                memoRemoteId = memoRemoteId,
+                content = request.trimmedContent,
+                tags = submitPlan.normalizedTags,
+                resourceIdentifiers = request.resourceIdentifiers,
+            )
+        }
+        if (saved) null else _errorMessage.value ?: R.string.sync_failed.string
+    }
+
+    suspend fun submitQuickComposerMemo(
+        groupId: String,
+        request: MemoEditorSubmitRequest,
+        existingTags: List<String>,
+    ): String? = withContext(Dispatchers.IO) {
+        submitEditorMemoRequest(
+            groupId = groupId,
+            memoRemoteId = null,
+            request = request,
+            existingTags = existingTags,
+        )
+    }
+
     suspend fun syncPendingGroupMemos(groupId: String): Boolean = withContext(viewModelScope.coroutineContext) {
         if (groupId.isBlank()) {
             return@withContext false

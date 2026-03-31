@@ -72,6 +72,7 @@ import site.lcyk.keer.viewmodel.buildMemoEditorSessionKey
 import site.lcyk.keer.viewmodel.buildMemoEditorSubmitState
 import site.lcyk.keer.viewmodel.buildMemoEditorUploadWorkflowState
 import site.lcyk.keer.viewmodel.buildRequestedLocalQuoteDescriptor
+import site.lcyk.keer.viewmodel.executeMemoEditorSubmitWorkflow
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 
 private const val NEW_GROUP_MEMO_EDITOR_SEED = "__new__"
@@ -298,55 +299,39 @@ fun GroupMemoInputPage(
     }
 
     fun submit() = coroutineScope.launch {
-        if (submitState.hasBlockingUpload) {
-            snackbarState.showSnackbar(R.string.upload_in_progress_wait.string)
-            return@launch
-        }
-
-        val plainTags = normalizeTagList(normalizedSelectedTags)
-        val existingSet = groupTags.map { it.trim().lowercase() }.toSet()
-        val missingGroupTags = plainTags.filterNot { it.lowercase() in existingSet }
-        for (tag in missingGroupTags) {
-            groupViewModel.addGroupTag(groupId, tag)
-        }
-
-        if (!submitState.hasPayload) {
-            return@launch
-        }
-
-        val saved = if (isEditMode) {
-            groupViewModel.updateGroupMemo(
-                groupId = groupId,
-                memoRemoteId = memoId.orEmpty(),
-                content = submitState.trimmedContent,
-                tags = submitState.mergedTags,
-                resourceIdentifiers = submitState.resourceIdentifiers
+        when (
+            val submitResult = executeMemoEditorSubmitWorkflow(
+                submitState = submitState,
+                sessionState = editorSession,
+                currentContent = text.text,
+                persistDraft = false,
+                clearDraft = true,
+                clearUploads = true,
+                clearUploadTasks = true,
+                executor = { request ->
+                    groupViewModel.submitEditorMemoRequest(
+                        groupId = groupId,
+                        memoRemoteId = memoId,
+                        request = request,
+                        existingTags = groupTags,
+                    )
+                },
             )
-        } else {
-            groupViewModel.sendGroupMemo(
-                groupId = groupId,
-                content = submitState.trimmedContent,
-                tags = submitState.mergedTags,
-                resourceIdentifiers = submitState.resourceIdentifiers
-            )
+        ) {
+            is site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Blocked -> {
+                snackbarState.showSnackbar(submitResult.messageResId.string)
+            }
+            is site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Failed -> {
+                snackbarState.showSnackbar(submitResult.message)
+            }
+            site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Skipped -> Unit
+            is site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Succeeded -> {
+                applyFieldsState(submitResult.workflowState.completion.fields)
+                applyWorkflowCleanup(submitResult.workflowState.cleanup)
+                inputViewModel.clearPersistedEditorContent(editorSessionKey)
+                navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
+            }
         }
-        if (!saved) {
-            snackbarState.showSnackbar(errorMessage ?: R.string.sync_failed.string)
-            return@launch
-        }
-
-        val workflowState = buildMemoEditorCompletionWorkflowState(
-            sessionState = editorSession,
-            persistDraft = false,
-            currentContent = text.text,
-            clearDraft = true,
-            clearUploads = true,
-            clearUploadTasks = true,
-        )
-        applyFieldsState(workflowState.completion.fields)
-        applyWorkflowCleanup(workflowState.cleanup)
-        inputViewModel.clearPersistedEditorContent(editorSessionKey)
-        navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
     }
 
     fun uploadResource(uri: Uri) = coroutineScope.launch {

@@ -80,7 +80,6 @@ import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToSearchPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
-import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.viewmodel.GroupChatCardUiModel
 import site.lcyk.keer.viewmodel.GroupChatViewModel
 import site.lcyk.keer.viewmodel.LocalMemos
@@ -379,25 +378,11 @@ fun GroupChatPage(
             enableLocation = false,
             persistDraft = false,
             onSubmitRequest = { request ->
-                val existingTags = groupTags
-                    .map { tag -> tag.trim().lowercase() }
-                    .toSet()
-                normalizeTagList(request.tags).forEach { tag ->
-                    if (tag.lowercase() !in existingTags) {
-                        viewModel.addGroupTag(group.id, tag)
-                    }
-                }
-                val sent = viewModel.sendGroupMemo(
+                viewModel.submitQuickComposerMemo(
                     groupId = group.id,
-                    content = request.content,
-                    tags = request.tags,
-                    resourceIdentifiers = request.resourceIdentifiers
+                    request = request,
+                    existingTags = groupTags,
                 )
-                if (sent) {
-                    null
-                } else {
-                    errorMessage ?: R.string.sync_failed.string
-                }
             },
         )
     }

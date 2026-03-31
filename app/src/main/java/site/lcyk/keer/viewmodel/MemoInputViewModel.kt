@@ -25,6 +25,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.MemoEditorUploadTaskPersistenceState
@@ -135,6 +136,33 @@ class MemoInputViewModel @Inject constructor(
             WidgetUpdater.updateWidgets(getApplication())
         }
         response
+    }
+
+    suspend fun submitEditorRequest(
+        memoIdentifier: String?,
+        visibility: MemoVisibility,
+        request: MemoEditorSubmitRequest,
+    ): String? = withContext(Dispatchers.IO) {
+        val response = if (memoIdentifier.isNullOrBlank()) {
+            createMemo(
+                content = request.content,
+                visibility = visibility,
+                tags = request.tags,
+                latitude = request.latitude,
+                longitude = request.longitude,
+            )
+        } else {
+            editMemo(
+                identifier = memoIdentifier,
+                content = request.content,
+                visibility = visibility,
+                tags = request.tags,
+            )
+        }
+        when (response) {
+            is ApiResponse.Success -> null
+            else -> response.getErrorMessage() ?: context.getString(R.string.sync_failed)
+        }
     }
 
     fun updateDraft(content: String) {

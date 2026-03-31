@@ -1,6 +1,7 @@
 package site.lcyk.keer.viewmodel
 
 import java.time.Instant
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -876,6 +877,138 @@ class MemoPresentationStateTest {
         assertTrue(submitState.mergedTags.contains("focus"))
         assertTrue(submitState.mergedTags.contains("collab/alice"))
         assertTrue(submitState.mergedTags.any { it.startsWith("quote/") })
+    }
+
+    @Test
+    fun buildMemoEditorSubmitRequest_preservesContentTagsResourcesAndCoordinates() {
+        val submitState = MemoEditorSubmitState(
+            content = "  Draft body  ",
+            trimmedContent = "Draft body",
+            mergedTags = listOf("focus", "collab/alice"),
+            resourceIdentifiers = listOf("remote-a"),
+            hasPayload = true,
+        )
+
+        val request = buildMemoEditorSubmitRequest(
+            submitState = submitState,
+            latitude = 12.34,
+            longitude = 56.78,
+        )
+
+        assertEquals("  Draft body  ", request.content)
+        assertEquals("Draft body", request.trimmedContent)
+        assertEquals(listOf("focus", "collab/alice"), request.tags)
+        assertEquals(listOf("remote-a"), request.resourceIdentifiers)
+        assertEquals(12.34, request.latitude)
+        assertEquals(56.78, request.longitude)
+    }
+
+    @Test
+    fun executeMemoEditorSubmitWorkflow_handles_blocked_skipped_failed_and_succeeded_states() = runBlocking {
+        val sessionState = MemoEditorSessionState(
+            resetFields = MemoEditorFieldsState(),
+        )
+
+        val blocked = executeMemoEditorSubmitWorkflow(
+            submitState = MemoEditorSubmitState(hasBlockingUpload = true),
+            sessionState = sessionState,
+            currentContent = "blocked",
+            persistDraft = true,
+            executor = { error("blocked should not execute") },
+        )
+        assertTrue(blocked is MemoEditorSubmitWorkflowResult.Blocked)
+
+        val skipped = executeMemoEditorSubmitWorkflow(
+            submitState = MemoEditorSubmitState(hasPayload = false),
+            sessionState = sessionState,
+            currentContent = "",
+            persistDraft = true,
+            executor = { error("skipped should not execute") },
+        )
+        assertEquals(MemoEditorSubmitWorkflowResult.Skipped, skipped)
+
+        val failed = executeMemoEditorSubmitWorkflow(
+            submitState = MemoEditorSubmitState(
+                content = "raw",
+                trimmedContent = "raw",
+                mergedTags = listOf("focus"),
+                resourceIdentifiers = listOf("remote-a"),
+                hasPayload = true,
+            ),
+            sessionState = sessionState,
+            currentContent = "raw",
+            persistDraft = false,
+            executor = { "submit failed" },
+        )
+        assertEquals(
+            MemoEditorSubmitWorkflowResult.Failed("submit failed"),
+            failed,
+        )
+
+        val succeeded = executeMemoEditorSubmitWorkflow(
+            submitState = MemoEditorSubmitState(
+                content = "raw",
+                trimmedContent = "raw",
+                mergedTags = listOf("focus"),
+                resourceIdentifiers = listOf("remote-a"),
+                hasPayload = true,
+            ),
+            sessionState = sessionState,
+            currentContent = "raw",
+            persistDraft = true,
+            clearDraft = true,
+            clearUploads = true,
+            clearUploadTasks = true,
+            executor = { null },
+        )
+        assertTrue(succeeded is MemoEditorSubmitWorkflowResult.Succeeded)
+        val workflow = (succeeded as MemoEditorSubmitWorkflowResult.Succeeded).workflowState
+        assertTrue(workflow.cleanup.clearUploads)
+        assertTrue(workflow.cleanup.clearUploadTasks)
+        assertEquals("", workflow.completion.draftPersistenceValue)
+    }
+
+    @Test
+    fun buildGroupQuickMemoSubmitPlan_normalizesAndDetectsNewTags() {
+        val plan = buildGroupQuickMemoSubmitPlan(
+            existingTags = listOf("Focus", "archive"),
+            requestedTags = listOf(" focus ", "deep/work", "archive"),
+        )
+
+        assertEquals(listOf("focus", "deep/work", "archive"), plan.normalizedTags)
+        assertEquals(listOf("deep/work"), plan.tagsToCreate)
+    }
+
+    @Test
+    fun buildMemoEditorLocationState_andSubmitState_followPermissionState() {
+        val disabledState = buildMemoEditorLocationState(
+            enabled = false,
+            hasPermission = false,
+        )
+        val disabledSubmitState = buildMemoEditorLocationSubmitState(disabledState)
+        assertFalse(disabledState.canPrefetch)
+        assertFalse(disabledState.shouldCollectCoordinatesOnSubmit)
+        assertFalse(disabledSubmitState.shouldRequestPermission)
+        assertFalse(disabledSubmitState.shouldCollectCoordinates)
+
+        val enabledWithoutPermission = buildMemoEditorLocationState(
+            enabled = true,
+            hasPermission = false,
+        )
+        val submitWithoutPermission = buildMemoEditorLocationSubmitState(enabledWithoutPermission)
+        assertFalse(enabledWithoutPermission.canPrefetch)
+        assertTrue(submitWithoutPermission.shouldRequestPermission)
+        assertFalse(submitWithoutPermission.shouldCollectCoordinates)
+
+        val enabledWithPermission = buildMemoEditorLocationState(
+            enabled = true,
+            hasPermission = true,
+        )
+        val submitWithPermission = buildMemoEditorLocationSubmitState(enabledWithPermission)
+        assertTrue(enabledWithPermission.canPrefetch)
+        assertTrue(enabledWithPermission.shouldCollectCoordinatesOnSubmit)
+        assertFalse(submitWithPermission.shouldRequestPermission)
+        assertTrue(submitWithPermission.shouldCollectCoordinates)
     }
 
     @Test

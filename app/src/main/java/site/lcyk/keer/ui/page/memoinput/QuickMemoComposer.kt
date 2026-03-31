@@ -1,15 +1,7 @@
 package site.lcyk.keer.ui.page.memoinput
 
-import android.Manifest
-import android.annotation.SuppressLint
-import android.content.Context
-import android.content.pm.PackageManager
 import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
 import android.net.Uri
-import android.os.Build
-import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
@@ -68,13 +60,10 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.isSpecified
-import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.skydoves.sandwich.suspendOnSuccess
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.suspendOnErrorMessage
@@ -94,12 +83,15 @@ import site.lcyk.keer.viewmodel.buildMemoEditorBaseline
 import site.lcyk.keer.viewmodel.buildMemoEditorDismissWorkflowState
 import site.lcyk.keer.viewmodel.buildMemoEditorDirtyState
 import site.lcyk.keer.viewmodel.buildMemoEditorEffectiveRestoreState
+import site.lcyk.keer.viewmodel.buildMemoEditorLocationState
+import site.lcyk.keer.viewmodel.buildMemoEditorLocationSubmitState
 import site.lcyk.keer.viewmodel.buildMemoEditorPersistedContentState
 import site.lcyk.keer.viewmodel.buildMemoEditorRestoreWorkflowState
 import site.lcyk.keer.viewmodel.buildMemoEditorSessionKey
 import site.lcyk.keer.viewmodel.buildMemoEditorSubmitState
 import site.lcyk.keer.viewmodel.buildMemoEditorUploadWorkflowState
-import kotlin.coroutines.resume
+import site.lcyk.keer.viewmodel.executeMemoEditorSubmitWorkflow
+import site.lcyk.keer.viewmodel.MemoEditorSubmitRequest
 
 private val quickComposerEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 private val quickComposerEditorPadding = PaddingValues(
@@ -118,14 +110,6 @@ private val quickComposerFallbackLineHeight = 20.dp
 private const val quickComposerMinEditorLines = 4
 private val quickComposerShape = RoundedCornerShape(16.dp)
 
-data class QuickMemoSubmitRequest(
-    val content: String,
-    val tags: List<String>,
-    val resourceIdentifiers: List<String>,
-    val latitude: Double?,
-    val longitude: Double?,
-)
-
 @Composable
 fun QuickMemoComposer(
     visible: Boolean,
@@ -134,7 +118,7 @@ fun QuickMemoComposer(
     availableTags: List<String>? = null,
     enableLocation: Boolean = true,
     persistDraft: Boolean = true,
-    onSubmitRequest: (suspend (QuickMemoSubmitRequest) -> String?)? = null,
+    onSubmitRequest: (suspend (MemoEditorSubmitRequest) -> String?)? = null,
     inputViewModel: MemoInputViewModel = hiltViewModel(),
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -165,13 +149,15 @@ fun QuickMemoComposer(
     var prefetchedLocation by remember { mutableStateOf<Location?>(null) }
     var isLocationPrefetching by remember { mutableStateOf(false) }
     var stopLocationTracking by remember { mutableStateOf<(() -> Unit)?>(null) }
-    val locationPermissions = remember {
-        arrayOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
+    val locationPermissions = remember { LOCATION_PERMISSIONS }
+    var pendingSubmitAfterLocationPermission by remember { mutableStateOf(false) }
+    val locationConfig = remember { MemoEditorLocationConfig() }
+    val locationState = remember(enableLocation, hasLocationPermission(context)) {
+        buildMemoEditorLocationState(
+            enabled = enableLocation,
+            hasPermission = hasLocationPermission(context),
         )
     }
-    var pendingSubmitAfterLocationPermission by remember { mutableStateOf(false) }
     val normalizedForcedTags = remember(forcedTags) { normalizeTagList(forcedTags) }
     val editorSessionKey = remember(normalizedForcedTags) {
         buildMemoEditorSessionKey("quick", normalizedForcedTags.joinToString("|"))
@@ -288,10 +274,7 @@ fun QuickMemoComposer(
     }
 
     fun startLocationPrefetch(force: Boolean = false) {
-        if (!enableLocation) {
-            return
-        }
-        if (!hasLocationPermission(context)) {
+        if (!locationState.canPrefetch) {
             return
         }
 
@@ -303,14 +286,14 @@ fun QuickMemoComposer(
         }
 
         val stopCallbacks = mutableListOf<() -> Unit>()
-        startPlatformLocationTracking(context) { candidate ->
-            if (isLocationFresh(candidate)) {
+        startPlatformLocationTracking(context, locationConfig) { candidate ->
+            if (isLocationFresh(candidate, locationConfig)) {
                 prefetchedLocation = pickMoreAccurateLocation(prefetchedLocation, candidate)
             }
         }?.let(stopCallbacks::add)
 
-        startGnssLocationTracking(context) { candidate ->
-            if (isLocationFresh(candidate)) {
+        startGnssLocationTracking(context, locationConfig) { candidate ->
+            if (isLocationFresh(candidate, locationConfig)) {
                 prefetchedLocation = pickMoreAccurateLocation(prefetchedLocation, candidate)
             }
         }?.let(stopCallbacks::add)
@@ -332,9 +315,10 @@ fun QuickMemoComposer(
             try {
                 val location = getCurrentLocationBestEffort(
                     context = context,
-                    maxWaitMillis = QUICK_PREFETCH_LOCATION_TIMEOUT_MILLIS
+                    config = locationConfig,
+                    maxWaitMillis = locationConfig.prefetchLocationTimeoutMillis,
                 )
-                if (location != null && isQualifiedLocation(location)) {
+                if (location != null && isQualifiedLocation(location, locationConfig)) {
                     prefetchedLocation = pickMoreAccurateLocation(prefetchedLocation, location)
                 }
             } finally {
@@ -395,22 +379,18 @@ fun QuickMemoComposer(
     }
 
     fun submit(collectCoordinates: Boolean = true) = coroutineScope.launch {
-        if (submitState.hasBlockingUpload) {
-            snackbarState.showSnackbar(R.string.upload_in_progress_wait.string)
-            return@launch
-        }
-
-        if (!submitState.hasPayload) {
-            return@launch
-        }
-
-        val location = if (enableLocation && collectCoordinates && hasLocationPermission(context)) {
-            val cached = prefetchedLocation?.takeIf(::isQualifiedLocation)
+        val location = if (collectCoordinates && locationState.shouldCollectCoordinatesOnSubmit) {
+            val cached = prefetchedLocation?.takeIf { location ->
+                isQualifiedLocation(location, locationConfig)
+            }
             cached ?: getCurrentLocationBestEffort(
                 context = context,
-                maxWaitMillis = QUICK_SUBMIT_LOCATION_TIMEOUT_MILLIS
+                config = locationConfig,
+                maxWaitMillis = locationConfig.submitLocationTimeoutMillis,
             )
-                ?.takeIf(::isQualifiedLocation)
+                ?.takeIf { location ->
+                    isQualifiedLocation(location, locationConfig)
+                }
                 ?.also { fresh ->
                     prefetchedLocation = pickMoreAccurateLocation(prefetchedLocation, fresh)
                 }
@@ -418,56 +398,49 @@ fun QuickMemoComposer(
             null
         }
 
-        val request = QuickMemoSubmitRequest(
-            content = submitState.trimmedContent,
-            tags = submitState.mergedTags,
-            resourceIdentifiers = submitState.resourceIdentifiers,
+        val submitResult = executeMemoEditorSubmitWorkflow(
+            submitState = submitState,
+            sessionState = sessionState,
+            currentContent = text.text,
+            persistDraft = persistDraft,
             latitude = location?.latitude,
             longitude = location?.longitude,
-        )
-
-        suspend fun clearComposerStateAfterSuccess() {
-            val workflowState = buildMemoEditorCompletionWorkflowState(
-                sessionState = sessionState,
-                persistDraft = persistDraft,
-                currentContent = text.text,
-                clearDraft = true,
-                clearUploads = true,
-                clearUploadTasks = true,
-                stopLocationTracking = true,
-                clearPrefetchedLocation = true,
-                resetPendingLocationPermission = true,
-                refreshLocalSnapshot = true,
-                hideKeyboard = true,
-            )
-            applyFieldsState(workflowState.completion.fields)
-            workflowState.completion.draftPersistenceValue?.let(inputViewModel::updateDraft)
-            applyWorkflowCleanup(workflowState.cleanup)
-            inputViewModel.clearPersistedEditorContent(editorSessionKey)
-            onDismissRequest()
-        }
-
-        val submitOverride = onSubmitRequest
-        if (submitOverride != null) {
-            val errorMessage = submitOverride(request)
-            if (errorMessage == null) {
-                clearComposerStateAfterSuccess()
+            clearDraft = true,
+            clearUploads = true,
+            clearUploadTasks = true,
+            stopLocationTracking = true,
+            clearPrefetchedLocation = true,
+            resetPendingLocationPermission = true,
+            refreshLocalSnapshot = true,
+            hideKeyboard = true,
+        ) { request ->
+            val submitOverride = onSubmitRequest
+            if (submitOverride != null) {
+                submitOverride(request)
             } else {
-                snackbarState.showSnackbar(errorMessage)
+                inputViewModel.submitEditorRequest(
+                    memoIdentifier = null,
+                    visibility = site.lcyk.keer.data.model.MemoVisibility.PRIVATE,
+                    request = request,
+                )
             }
-            return@launch
         }
 
-        inputViewModel.createMemo(
-            content = request.content,
-            visibility = site.lcyk.keer.data.model.MemoVisibility.PRIVATE,
-            tags = request.tags,
-            latitude = request.latitude,
-            longitude = request.longitude,
-        ).suspendOnSuccess {
-            clearComposerStateAfterSuccess()
-        }.suspendOnErrorMessage { message ->
-            snackbarState.showSnackbar(message)
+        when (submitResult) {
+            is site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Blocked -> {
+                snackbarState.showSnackbar(submitResult.messageResId.string)
+            }
+            is site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Failed -> {
+                snackbarState.showSnackbar(submitResult.message)
+            }
+            site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Skipped -> Unit
+            is site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Succeeded -> {
+                applyFieldsState(submitResult.workflowState.completion.fields)
+                submitResult.workflowState.completion.draftPersistenceValue?.let(inputViewModel::updateDraft)
+                applyWorkflowCleanup(submitResult.workflowState.cleanup)
+                inputViewModel.clearPersistedEditorContent(editorSessionKey)
+                onDismissRequest()
+            }
         }
     }
 
@@ -482,15 +455,16 @@ fun QuickMemoComposer(
     }
 
     fun attemptSubmit() {
+        val submitLocationState = buildMemoEditorLocationSubmitState(locationState)
         if (!enableLocation) {
             submit(collectCoordinates = false)
             return
         }
-        if (!hasLocationPermission(context)) {
+        if (submitLocationState.shouldRequestPermission) {
             pendingSubmitAfterLocationPermission = true
             requestLocationPermissions.launch(locationPermissions)
         } else {
-            submit()
+            submit(collectCoordinates = submitLocationState.shouldCollectCoordinates)
         }
     }
 
@@ -813,318 +787,3 @@ fun QuickMemoComposer(
         )
     }
 }
-
-private fun hasLocationPermission(context: Context): Boolean {
-    val fineLocationGranted = ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.ACCESS_FINE_LOCATION
-    ) == PackageManager.PERMISSION_GRANTED
-    val coarseLocationGranted = ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.ACCESS_COARSE_LOCATION
-    ) == PackageManager.PERMISSION_GRANTED
-    return fineLocationGranted || coarseLocationGranted
-}
-
-@SuppressLint("MissingPermission")
-private fun startPlatformLocationTracking(
-    context: Context,
-    onLocation: (Location) -> Unit
-): (() -> Unit)? {
-    val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-        ?: return null
-    val providers = resolveRealtimeTrackingProviders(locationManager)
-    if (providers.isEmpty()) {
-        return null
-    }
-
-    return runCatching<() -> Unit> {
-        val listener = LocationListener { location ->
-            if (isLocationFresh(location)) {
-                onLocation(location)
-            }
-        }
-
-        providers.forEach { provider ->
-            locationManager.requestLocationUpdates(
-                provider,
-                QUICK_NETWORK_TRACKING_MIN_TIME_MILLIS,
-                QUICK_NETWORK_TRACKING_MIN_DISTANCE_METERS,
-                listener,
-                Looper.getMainLooper()
-            )
-            runCatching {
-                locationManager.getLastKnownLocation(provider)
-            }.getOrNull()?.let { candidate ->
-                if (isLocationFresh(candidate)) {
-                    onLocation(candidate)
-                }
-            }
-        }
-
-        val stopTracking: () -> Unit = {
-            locationManager.removeUpdates(listener)
-        }
-        stopTracking
-    }.getOrNull()
-}
-
-@SuppressLint("MissingPermission")
-private fun startGnssLocationTracking(
-    context: Context,
-    onLocation: (Location) -> Unit
-): (() -> Unit)? {
-    if (!hasPreciseLocationPermission(context)) {
-        return null
-    }
-    val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-        ?: return null
-    val gpsEnabled = runCatching {
-        locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-    }.getOrDefault(false)
-    if (!gpsEnabled) {
-        return null
-    }
-
-    return runCatching<() -> Unit> {
-        val listener = LocationListener { location ->
-            if (isLocationFresh(location)) {
-                onLocation(location)
-            }
-        }
-
-        locationManager.requestLocationUpdates(
-            LocationManager.GPS_PROVIDER,
-            QUICK_GNSS_TRACKING_MIN_TIME_MILLIS,
-            QUICK_GNSS_TRACKING_MIN_DISTANCE_METERS,
-            listener,
-            Looper.getMainLooper()
-        )
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            runCatching {
-                locationManager.getCurrentLocation(
-                    LocationManager.GPS_PROVIDER,
-                    null,
-                    context.mainExecutor
-                ) { location ->
-                    if (location != null && isLocationFresh(location)) {
-                        onLocation(location)
-                    }
-                }
-            }
-        }
-
-        val stopTracking: () -> Unit = {
-            locationManager.removeUpdates(listener)
-        }
-        stopTracking
-    }.getOrNull()
-}
-
-@SuppressLint("MissingPermission")
-private suspend fun getCurrentLocationBestEffort(
-    context: Context,
-    maxWaitMillis: Long
-): Location? {
-    val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-        ?: return null
-    val preferPreciseProvider = hasPreciseLocationPermission(context)
-    val deadlineMillis = System.currentTimeMillis() + maxWaitMillis
-
-    var bestLocation = getBestLastKnownLocation(locationManager, preferPreciseProvider)
-    if (bestLocation != null && shouldStopSearching(bestLocation, preferPreciseProvider)) {
-        return bestLocation.takeIf(::isQualifiedLocation)
-    }
-
-    val providers = resolveLocationProviders(
-        locationManager = locationManager,
-        preferPreciseProvider = preferPreciseProvider,
-        fastFirst = true
-    )
-    for (provider in providers) {
-        val remainingMillis = remainingMillis(deadlineMillis)
-        if (remainingMillis <= 0L) {
-            break
-        }
-
-        val current = withTimeoutOrNull(minOf(providerTimeoutMillis(provider), remainingMillis)) {
-            getCurrentLocationFromProvider(context, locationManager, provider)
-        } ?: runCatching {
-            locationManager.getLastKnownLocation(provider)
-        }.getOrNull()
-
-        if (current == null || !isLocationFresh(current)) {
-            continue
-        }
-        bestLocation = pickMoreAccurateLocation(bestLocation, current)
-        if (shouldStopSearching(bestLocation, preferPreciseProvider)) {
-            break
-        }
-    }
-    return bestLocation?.takeIf(::isQualifiedLocation)
-}
-
-@SuppressLint("MissingPermission")
-private fun getBestLastKnownLocation(
-    locationManager: LocationManager,
-    preferPreciseProvider: Boolean
-): Location? {
-    var bestLocation: Location? = null
-    val providers = resolveLocationProviders(
-        locationManager = locationManager,
-        preferPreciseProvider = preferPreciseProvider,
-        fastFirst = true
-    )
-    for (provider in providers) {
-        val candidate = runCatching {
-            locationManager.getLastKnownLocation(provider)
-        }.getOrNull() ?: continue
-        if (!isLocationFresh(candidate)) {
-            continue
-        }
-        bestLocation = pickMoreAccurateLocation(bestLocation, candidate)
-    }
-    return bestLocation
-}
-
-private fun resolveRealtimeTrackingProviders(locationManager: LocationManager): List<String> {
-    val preferredOrder = listOf(
-        LocationManager.NETWORK_PROVIDER,
-        LocationManager.PASSIVE_PROVIDER
-    )
-    val enabledProviders = preferredOrder.filter { provider ->
-        runCatching { locationManager.isProviderEnabled(provider) }.getOrDefault(false)
-    }
-    if (enabledProviders.isNotEmpty()) {
-        return enabledProviders
-    }
-    return preferredOrder.filter { provider ->
-        runCatching { locationManager.allProviders.contains(provider) }.getOrDefault(false)
-    }
-}
-
-private fun resolveLocationProviders(
-    locationManager: LocationManager,
-    preferPreciseProvider: Boolean,
-    fastFirst: Boolean = false
-): List<String> {
-    val preferredOrder = when {
-        preferPreciseProvider && fastFirst -> listOf(
-            LocationManager.NETWORK_PROVIDER,
-            LocationManager.GPS_PROVIDER,
-            LocationManager.PASSIVE_PROVIDER
-        )
-        preferPreciseProvider -> listOf(
-            LocationManager.GPS_PROVIDER,
-            LocationManager.NETWORK_PROVIDER,
-            LocationManager.PASSIVE_PROVIDER
-        )
-        else -> listOf(
-            LocationManager.NETWORK_PROVIDER,
-            LocationManager.PASSIVE_PROVIDER
-        )
-    }
-    val enabledProviders = preferredOrder.filter { provider ->
-        runCatching { locationManager.isProviderEnabled(provider) }.getOrDefault(false)
-    }
-    if (enabledProviders.isNotEmpty()) {
-        return enabledProviders
-    }
-    return preferredOrder.filter { provider ->
-        runCatching { locationManager.allProviders.contains(provider) }.getOrDefault(false)
-    }
-}
-
-@SuppressLint("MissingPermission")
-private suspend fun getCurrentLocationFromProvider(
-    context: Context,
-    locationManager: LocationManager,
-    provider: String
-): Location? {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        return suspendCancellableCoroutine { continuation ->
-            runCatching {
-                locationManager.getCurrentLocation(provider, null, context.mainExecutor) { location ->
-                    if (continuation.isActive) {
-                        continuation.resume(location)
-                    }
-                }
-            }.onFailure {
-                if (continuation.isActive) {
-                    continuation.resume(null)
-                }
-            }
-        }
-    }
-    return runCatching {
-        locationManager.getLastKnownLocation(provider)
-    }.getOrNull()
-}
-
-private fun providerTimeoutMillis(provider: String): Long {
-    return when (provider) {
-        LocationManager.GPS_PROVIDER -> 4_000L
-        LocationManager.NETWORK_PROVIDER -> 2_000L
-        else -> 1_200L
-    }
-}
-
-private fun remainingMillis(deadlineMillis: Long): Long {
-    return (deadlineMillis - System.currentTimeMillis()).coerceAtLeast(0L)
-}
-
-private fun pickMoreAccurateLocation(currentBest: Location?, candidate: Location): Location {
-    val best = currentBest ?: return candidate
-    val candidateAccuracy = if (candidate.accuracy > 0f) candidate.accuracy else Float.MAX_VALUE
-    val bestAccuracy = if (best.accuracy > 0f) best.accuracy else Float.MAX_VALUE
-    return when {
-        candidateAccuracy + 12f < bestAccuracy -> candidate
-        candidate.time > best.time + 45_000L && candidateAccuracy <= bestAccuracy + 20f -> candidate
-        else -> best
-    }
-}
-
-private fun hasPreciseLocationPermission(context: Context): Boolean {
-    return ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.ACCESS_FINE_LOCATION
-    ) == PackageManager.PERMISSION_GRANTED
-}
-
-private fun shouldStopSearching(location: Location, preferPreciseProvider: Boolean): Boolean {
-    if (!location.hasAccuracy()) {
-        return false
-    }
-    val target = if (preferPreciseProvider) {
-        QUICK_TARGET_PRECISE_LOCATION_ACCURACY_METERS
-    } else {
-        QUICK_TARGET_COARSE_LOCATION_ACCURACY_METERS
-    }
-    return location.accuracy <= target
-}
-
-private fun isLocationFresh(location: Location): Boolean {
-    if (location.time <= 0L) {
-        return false
-    }
-    val ageMillis = System.currentTimeMillis() - location.time
-    return ageMillis in 0..QUICK_MAX_LOCATION_AGE_MILLIS
-}
-
-private fun isQualifiedLocation(location: Location): Boolean {
-    return location.hasAccuracy() &&
-        location.accuracy <= QUICK_MAX_ACCEPTABLE_LOCATION_ACCURACY_METERS &&
-        isLocationFresh(location)
-}
-
-private const val QUICK_TARGET_PRECISE_LOCATION_ACCURACY_METERS = 25f
-private const val QUICK_TARGET_COARSE_LOCATION_ACCURACY_METERS = 80f
-private const val QUICK_MAX_ACCEPTABLE_LOCATION_ACCURACY_METERS = 100f
-private const val QUICK_MAX_LOCATION_AGE_MILLIS = 2 * 60 * 1000L
-private const val QUICK_SUBMIT_LOCATION_TIMEOUT_MILLIS = 650L
-private const val QUICK_PREFETCH_LOCATION_TIMEOUT_MILLIS = 9_000L
-private const val QUICK_NETWORK_TRACKING_MIN_TIME_MILLIS = 1_500L
-private const val QUICK_NETWORK_TRACKING_MIN_DISTANCE_METERS = 0f
-private const val QUICK_GNSS_TRACKING_MIN_TIME_MILLIS = 800L
-private const val QUICK_GNSS_TRACKING_MIN_DISTANCE_METERS = 0f
