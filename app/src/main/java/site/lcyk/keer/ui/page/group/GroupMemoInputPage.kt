@@ -183,9 +183,6 @@ fun GroupMemoInputPage(
         uploadResources,
         uploadTasks,
         recentlyUploadedResourceIdentifiers,
-        inputViewModel.imageUploadSectionExpanded,
-        inputViewModel.attachmentUploadSectionExpanded,
-        inputViewModel.taskUploadSectionExpanded,
     ) {
         buildMemoEditorUploadWorkflowState(
             memoIdentifier = null,
@@ -193,9 +190,6 @@ fun GroupMemoInputPage(
             uploadTasks = uploadTasks,
             highlightedResourceIdentifiers = recentlyUploadedResourceIdentifiers,
             focusDelayMillis = 300L,
-            imageSectionExpanded = inputViewModel.imageUploadSectionExpanded,
-            attachmentSectionExpanded = inputViewModel.attachmentUploadSectionExpanded,
-            taskSectionExpanded = inputViewModel.taskUploadSectionExpanded,
         )
     }
     MemoUploadFeedbackSnackbarEffect(
@@ -438,10 +432,6 @@ fun GroupMemoInputPage(
                 },
                 uploadsState = uploadWorkflowState.uploads,
                 onRemoveUploadResource = { resource -> inputViewModel.removeResourceFromDraft(resource) },
-                onClearImageUploadResources = { inputViewModel.clearImageUploadResources() },
-                onClearAttachmentUploadResources = { inputViewModel.clearAttachmentUploadResources() },
-                onToggleImageUploadSection = { expanded -> inputViewModel.updateImageUploadSectionExpanded(expanded) },
-                onToggleAttachmentUploadSection = { expanded -> inputViewModel.updateAttachmentUploadSectionExpanded(expanded) },
                 onCancelUploadTask = { taskId -> inputViewModel.cancelUploadTask(taskId) },
                 onCancelActiveUploadTasks = { inputViewModel.cancelActiveUploadTasks() },
                 onRetryFailedUploadTasks = { inputViewModel.retryFailedUploadTasks() },
@@ -450,7 +440,6 @@ fun GroupMemoInputPage(
                 onDismissUploadTask = { taskId ->
                     inputViewModel.dismissUploadTask(taskId)
                 },
-                onToggleTaskUploadSection = { expanded -> inputViewModel.updateTaskUploadSectionExpanded(expanded) },
             )
             SurfaceHydrationLine(
                 hydrationState = hydrationState,

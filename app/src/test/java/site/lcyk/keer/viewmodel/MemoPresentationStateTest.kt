@@ -1,4 +1,4 @@
-package site.lcyk.keer.viewmodel
+﻿package site.lcyk.keer.viewmodel
 
 import java.time.Instant
 import kotlinx.coroutines.runBlocking
@@ -1079,10 +1079,6 @@ class MemoPresentationStateTest {
         assertEquals(listOf(task), workflowState.uploads.tasks)
         assertEquals(listOf("remote-a"), workflowState.uploads.resourceIdentifiers)
         assertTrue(workflowState.uploads.hasActiveUpload)
-        assertEquals(1, workflowState.uploads.activeTaskCount)
-        assertEquals(0, workflowState.uploads.failedTaskCount)
-        assertFalse(workflowState.uploads.canRetryFailedTasks)
-        assertFalse(workflowState.uploads.canClearFailedTasks)
         assertEquals(listOf(resource), workflowState.uploads.imageResources)
         assertEquals(emptyList<ResourceEntity>(), workflowState.uploads.attachmentResources)
         assertEquals(1, workflowState.uploads.imageItems.size)
@@ -1094,27 +1090,14 @@ class MemoPresentationStateTest {
         assertEquals(1, workflowState.uploads.taskSection.totalCount)
         assertEquals(1, workflowState.uploads.taskSection.activeCount)
         assertEquals(0, workflowState.uploads.taskSection.failedCount)
-        assertTrue(workflowState.uploads.taskSection.defaultExpanded)
-        assertFalse(workflowState.uploads.taskSection.canCollapse)
-        assertTrue(workflowState.uploads.summary.hasVisibleContent)
-        assertEquals(1, workflowState.uploads.summary.totalResourceCount)
-        assertEquals(1, workflowState.uploads.summary.imageResourceCount)
-        assertEquals(0, workflowState.uploads.summary.attachmentResourceCount)
-        assertEquals(MemoEditorUploadsSummaryKind.ACTIVE, workflowState.uploads.summary.kind)
-        assertEquals(1, workflowState.uploads.summary.activeTaskCount)
-        assertEquals(0, workflowState.uploads.summary.failedTaskCount)
-        assertEquals(1, workflowState.uploads.summary.recentlyCompletedResourceCount)
-        assertTrue(workflowState.uploads.actions.canCancelActiveTasks)
-        assertFalse(workflowState.uploads.actions.canRetryFailedTasks)
-        assertFalse(workflowState.uploads.actions.canClearFailedTasks)
+        assertTrue(workflowState.uploads.taskSection.canCancelActiveTasks)
+        assertFalse(workflowState.uploads.taskSection.canRetryFailedTasks)
+        assertFalse(workflowState.uploads.taskSection.canClearFailedTasks)
         assertTrue(workflowState.uploads.feedback.showRecentCompletionHint)
         assertEquals(1, workflowState.uploads.feedback.recentlyCompletedResourceCount)
         assertEquals("local-a", workflowState.uploads.feedback.recentCompletionTriggerId)
         assertTrue(workflowState.uploads.feedback.shouldShowRecentCompletionSnackbar)
         assertEquals(1, workflowState.uploads.imageSection.totalCount)
-        assertEquals(1, workflowState.uploads.imageSection.highlightedCount)
-        assertTrue(workflowState.uploads.imageSection.canClearAll)
-        assertTrue(workflowState.uploads.imageSection.isExpanded)
         assertEquals(0, workflowState.uploads.attachmentSection.totalCount)
     }
 
@@ -1153,30 +1136,14 @@ class MemoPresentationStateTest {
         assertFalse(uploadsState.imageItems.first().isHighlighted)
         assertTrue(uploadsState.attachmentItems.first().isHighlighted)
         assertFalse(uploadsState.hasActiveUpload)
-        assertEquals(1, uploadsState.failedTaskCount)
-        assertTrue(uploadsState.canRetryFailedTasks)
-        assertTrue(uploadsState.canClearFailedTasks)
-        assertEquals(MemoEditorUploadsSummaryKind.FAILED, uploadsState.summary.kind)
-        assertEquals(2, uploadsState.summary.totalResourceCount)
-        assertEquals(1, uploadsState.summary.failedTaskCount)
-        assertEquals(1, uploadsState.summary.recentlyCompletedResourceCount)
-        assertTrue(uploadsState.summary.canClearFailedTasks)
-        assertFalse(uploadsState.actions.canCancelActiveTasks)
-        assertTrue(uploadsState.actions.canRetryFailedTasks)
-        assertTrue(uploadsState.actions.canClearFailedTasks)
         assertEquals(1, uploadsState.taskSection.totalCount)
         assertEquals(0, uploadsState.taskSection.activeCount)
         assertEquals(1, uploadsState.taskSection.failedCount)
-        assertTrue(uploadsState.taskSection.defaultExpanded)
-        assertFalse(uploadsState.taskSection.canCollapse)
+        assertFalse(uploadsState.taskSection.canCancelActiveTasks)
+        assertTrue(uploadsState.taskSection.canRetryFailedTasks)
+        assertTrue(uploadsState.taskSection.canClearFailedTasks)
         assertEquals(1, uploadsState.imageSection.totalCount)
-        assertEquals(0, uploadsState.imageSection.highlightedCount)
-        assertTrue(uploadsState.imageSection.canClearAll)
-        assertTrue(uploadsState.imageSection.isExpanded)
         assertEquals(1, uploadsState.attachmentSection.totalCount)
-        assertEquals(1, uploadsState.attachmentSection.highlightedCount)
-        assertTrue(uploadsState.attachmentSection.canClearAll)
-        assertTrue(uploadsState.attachmentSection.isExpanded)
         assertTrue(uploadsState.feedback.showRecentCompletionHint)
         assertEquals(1, uploadsState.feedback.recentlyCompletedResourceCount)
         assertEquals("file-b", uploadsState.feedback.recentCompletionTriggerId)
@@ -1184,7 +1151,7 @@ class MemoPresentationStateTest {
     }
 
     @Test
-    fun buildMemoEditorUploadSectionState_andFeedbackState_trackHighlightCounts() {
+    fun buildMemoEditorUploadSectionState_andFeedbackState_trackItemsAndHighlights() {
         val items = listOf(
             MemoEditorUploadResourceItemState(
                 resource = resourceEntity(identifier = "image-a", remoteId = null),
@@ -1206,8 +1173,7 @@ class MemoPresentationStateTest {
 
         assertEquals(MemoEditorUploadSectionKind.IMAGES, sectionState.kind)
         assertEquals(2, sectionState.totalCount)
-        assertEquals(1, sectionState.highlightedCount)
-        assertTrue(sectionState.canClearAll)
+        assertEquals(items, sectionState.items)
         assertTrue(feedbackState.showRecentCompletionHint)
         assertEquals(1, feedbackState.recentlyCompletedResourceCount)
         assertEquals("image-a", feedbackState.recentCompletionTriggerId)
@@ -1215,7 +1181,7 @@ class MemoPresentationStateTest {
     }
 
     @Test
-    fun buildMemoEditorUploadTaskSectionState_tracks_counts_and_collapse_defaults() {
+    fun buildMemoEditorUploadTaskSectionState_tracks_counts_and_actions() {
         val activeTask = UploadTaskState(
             id = "uploading",
             sequence = 1L,
@@ -1233,17 +1199,12 @@ class MemoPresentationStateTest {
             status = UploadTaskStatus.FAILED,
             sourceUri = "content://failed",
         )
-        val actions = buildMemoEditorUploadsActionsState(
-            activeTaskCount = 1,
-            canRetryFailedTasks = true,
-            canClearFailedTasks = true,
-        )
-
         val sectionState = buildMemoEditorUploadTaskSectionState(
             items = buildMemoEditorUploadTaskItems(listOf(activeTask, failedTask)),
             activeTaskCount = 1,
             failedTaskCount = 1,
-            actions = actions,
+            canRetryFailedTasks = true,
+            canClearFailedTasks = true,
         )
 
         assertEquals(2, sectionState.totalCount)
@@ -1252,61 +1213,6 @@ class MemoPresentationStateTest {
         assertTrue(sectionState.canCancelActiveTasks)
         assertTrue(sectionState.canRetryFailedTasks)
         assertTrue(sectionState.canClearFailedTasks)
-        assertTrue(sectionState.canCollapse)
-        assertTrue(sectionState.defaultExpanded)
-        assertTrue(sectionState.isExpanded)
-    }
-
-    @Test
-    fun buildMemoEditorUploadsState_applies_expanded_preferences() {
-        val image = resourceEntity(identifier = "image-a", remoteId = null)
-        val attachment = resourceEntity(
-            identifier = "file-b",
-            remoteId = null,
-        ).copy(
-            filename = "file-b.pdf",
-            mimeType = "application/pdf",
-            uri = "content://file-b",
-        )
-        val task = UploadTaskState(
-            id = "task-failed",
-            sequence = 1L,
-            filename = "failed.pdf",
-            uploadedBytes = 0L,
-            totalBytes = 50L,
-            status = UploadTaskStatus.FAILED,
-            sourceUri = "content://failed",
-        )
-
-        val uploadsState = buildMemoEditorUploadsState(
-            uploadResources = listOf(image, attachment),
-            uploadTasks = listOf(task),
-            imageSectionExpanded = false,
-            attachmentSectionExpanded = false,
-            taskSectionExpanded = false,
-        )
-
-        assertFalse(uploadsState.imageSection.isExpanded)
-        assertFalse(uploadsState.attachmentSection.isExpanded)
-        assertFalse(uploadsState.taskSection.isExpanded)
-    }
-
-    @Test
-    fun buildMemoEditorUploadsSummaryKind_and_actions_track_mixed_state() {
-        val kind = buildMemoEditorUploadsSummaryKind(
-            activeTaskCount = 2,
-            failedTaskCount = 1,
-        )
-        val actions = buildMemoEditorUploadsActionsState(
-            activeTaskCount = 2,
-            canRetryFailedTasks = true,
-            canClearFailedTasks = true,
-        )
-
-        assertEquals(MemoEditorUploadsSummaryKind.MIXED, kind)
-        assertTrue(actions.canCancelActiveTasks)
-        assertTrue(actions.canRetryFailedTasks)
-        assertTrue(actions.canClearFailedTasks)
     }
 
     @Test
@@ -1518,3 +1424,4 @@ class MemoPresentationStateTest {
         mimeType = "image/jpeg",
     )
 }
+

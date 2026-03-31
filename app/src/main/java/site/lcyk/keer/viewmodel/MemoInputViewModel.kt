@@ -83,12 +83,6 @@ class MemoInputViewModel @Inject constructor(
     var uploadResources = mutableStateListOf<ResourceEntity>()
     var uploadTasks = mutableStateListOf<UploadTaskState>()
     var recentlyUploadedResourceIdentifiers = mutableStateListOf<String>()
-    var imageUploadSectionExpanded by mutableStateOf<Boolean?>(null)
-        private set
-    var attachmentUploadSectionExpanded by mutableStateOf<Boolean?>(null)
-        private set
-    var taskUploadSectionExpanded by mutableStateOf<Boolean?>(null)
-        private set
 
     init {
         viewModelScope.launch {
@@ -312,35 +306,12 @@ class MemoInputViewModel @Inject constructor(
         schedulePersistEditorWorkflowState()
     }
 
-    fun updateImageUploadSectionExpanded(expanded: Boolean?) {
-        imageUploadSectionExpanded = expanded
-        schedulePersistEditorWorkflowState()
-    }
-
-    fun updateAttachmentUploadSectionExpanded(expanded: Boolean?) {
-        attachmentUploadSectionExpanded = expanded
-        schedulePersistEditorWorkflowState()
-    }
-
-    fun updateTaskUploadSectionExpanded(expanded: Boolean?) {
-        taskUploadSectionExpanded = expanded
-        schedulePersistEditorWorkflowState()
-    }
-
     fun clearUploadResources() {
         viewModelScope.launch(Dispatchers.Main.immediate) {
             uploadResources.clear()
             recentlyUploadedResourceIdentifiers.clear()
             schedulePersistEditorWorkflowState()
         }
-    }
-
-    fun clearImageUploadResources() {
-        clearUploadResourcesByMimeType(imageOnly = true)
-    }
-
-    fun clearAttachmentUploadResources() {
-        clearUploadResourcesByMimeType(imageOnly = false)
     }
 
     fun clearUploadTasks(clearFailedOnly: Boolean = false) {
@@ -473,18 +444,6 @@ class MemoInputViewModel @Inject constructor(
         }
     }
 
-    private fun clearUploadResourcesByMimeType(imageOnly: Boolean) = viewModelScope.launch {
-        val matchedResources = uploadResources
-            .toList()
-            .filter { resource ->
-                val isImage = resource.mimeType?.startsWith("image/") == true
-                if (imageOnly) isImage else !isImage
-            }
-        matchedResources.forEach { resource ->
-            removeResourceFromDraft(resource)
-        }
-    }
-
     private fun markRecentlyUploadedResource(resourceIdentifier: String) {
         viewModelScope.launch(Dispatchers.Main.immediate) {
             recentlyUploadedResourceIdentifiers.remove(resourceIdentifier)
@@ -530,9 +489,6 @@ class MemoInputViewModel @Inject constructor(
                 uploadTasks.clear()
                 uploadTasks.addAll(restoredTasks)
                 recentlyUploadedResourceIdentifiers.clear()
-                imageUploadSectionExpanded = persistedState.imageSectionExpanded
-                attachmentUploadSectionExpanded = persistedState.attachmentSectionExpanded
-                taskUploadSectionExpanded = persistedState.taskSectionExpanded
             }
 
             val restoredSequence = maxOf(
@@ -616,9 +572,6 @@ class MemoInputViewModel @Inject constructor(
                     targetMemoIdentifier = task.targetMemoIdentifier.orEmpty(),
                 )
             },
-            imageSectionExpanded = imageUploadSectionExpanded,
-            attachmentSectionExpanded = attachmentUploadSectionExpanded,
-            taskSectionExpanded = taskUploadSectionExpanded,
             lastUploadTaskSequence = maxOf(
                 uploadTaskSequence.get(),
                 uploadTasks.maxOfOrNull(UploadTaskState::sequence) ?: 0L,

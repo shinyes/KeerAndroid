@@ -7,8 +7,11 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -37,7 +40,7 @@ class MemoInputComponentsUiTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
 
     @Test
-    fun memoInputEditor_summaryActionsInvokeCallbacks() {
+    fun memoInputEditor_taskHeaderActionsInvokeCallbacks() {
         var cancelAllCount = 0
         var retryAllCount = 0
         var clearFailedCount = 0
@@ -59,17 +62,12 @@ class MemoInputComponentsUiTest {
                         ),
                     ),
                     onRemoveUploadResource = {},
-                    onClearImageUploadResources = {},
-                    onClearAttachmentUploadResources = {},
-                    onToggleImageUploadSection = {},
-                    onToggleAttachmentUploadSection = {},
                     onCancelUploadTask = {},
                     onCancelActiveUploadTasks = { cancelAllCount++ },
                     onRetryFailedUploadTasks = { retryAllCount++ },
                     onClearFailedUploadTasks = { clearFailedCount++ },
                     onRetryUploadTask = {},
                     onDismissUploadTask = {},
-                    onToggleTaskUploadSection = {},
                 )
             }
         }
@@ -110,20 +108,14 @@ class MemoInputComponentsUiTest {
                             uploadingTask(id = "task-uploading", sequence = 1L),
                             failedTask(id = "task-failed", sequence = 2L),
                         ),
-                        taskSectionExpanded = true,
                     ),
                     onRemoveUploadResource = {},
-                    onClearImageUploadResources = {},
-                    onClearAttachmentUploadResources = {},
-                    onToggleImageUploadSection = {},
-                    onToggleAttachmentUploadSection = {},
                     onCancelUploadTask = { cancelledTaskId = it },
                     onCancelActiveUploadTasks = {},
                     onRetryFailedUploadTasks = {},
                     onClearFailedUploadTasks = {},
                     onRetryUploadTask = { retriedTaskId = it },
                     onDismissUploadTask = { dismissedTaskId = it },
-                    onToggleTaskUploadSection = {},
                 )
             }
         }
@@ -144,10 +136,7 @@ class MemoInputComponentsUiTest {
     }
 
     @Test
-    fun memoInputEditor_imageSectionHeaderInvokesToggleAndClear() {
-        var toggledExpanded: Boolean? = null
-        var clearAllCount = 0
-
+    fun memoInputEditor_resourceSectionsUseMinimalChrome() {
         composeTestRule.setContent {
             MaterialTheme {
                 MemoInputEditor(
@@ -160,33 +149,27 @@ class MemoInputComponentsUiTest {
                     uploadsState = buildMemoEditorUploadsState(
                         uploadResources = listOf(imageResource("image-1")),
                         uploadTasks = emptyList(),
-                        imageSectionExpanded = false,
                     ),
                     onRemoveUploadResource = {},
-                    onClearImageUploadResources = { clearAllCount++ },
-                    onClearAttachmentUploadResources = {},
-                    onToggleImageUploadSection = { toggledExpanded = it },
-                    onToggleAttachmentUploadSection = {},
                     onCancelUploadTask = {},
                     onCancelActiveUploadTasks = {},
                     onRetryFailedUploadTasks = {},
                     onClearFailedUploadTasks = {},
                     onRetryUploadTask = {},
                     onDismissUploadTask = {},
-                    onToggleTaskUploadSection = {},
                 )
             }
         }
 
-        composeTestRule.onNodeWithText(
+        composeTestRule.onAllNodesWithText(
             context.getString(R.string.clear_all),
-        ).assertIsDisplayed().performClick()
-        composeTestRule.onNodeWithContentDescription(
+        ).assertCountEquals(0)
+        composeTestRule.onAllNodesWithContentDescription(
             context.getString(R.string.expand),
-        ).assertIsDisplayed().performClick()
-
-        assertEquals(1, clearAllCount)
-        assertEquals(true, toggledExpanded)
+        ).assertCountEquals(0)
+        composeTestRule.onAllNodesWithText(
+            context.getString(R.string.upload_section_images, 1),
+        ).assertCountEquals(0)
     }
 
     @Test

@@ -186,11 +186,6 @@ data class MemoEditorUploadSectionState(
     val kind: MemoEditorUploadSectionKind,
     val items: List<MemoEditorUploadResourceItemState> = emptyList(),
     val totalCount: Int = 0,
-    val highlightedCount: Int = 0,
-    val canClearAll: Boolean = false,
-    val canCollapse: Boolean = false,
-    val defaultExpanded: Boolean = true,
-    val isExpanded: Boolean = true,
 )
 
 data class MemoEditorUploadTaskSectionState(
@@ -201,9 +196,6 @@ data class MemoEditorUploadTaskSectionState(
     val canRetryFailedTasks: Boolean = false,
     val canClearFailedTasks: Boolean = false,
     val canCancelActiveTasks: Boolean = false,
-    val canCollapse: Boolean = false,
-    val defaultExpanded: Boolean = true,
-    val isExpanded: Boolean = true,
 )
 
 data class MemoEditorUploadFeedbackState(
@@ -211,32 +203,6 @@ data class MemoEditorUploadFeedbackState(
     val recentlyCompletedResourceCount: Int = 0,
     val recentCompletionTriggerId: String? = null,
     val shouldShowRecentCompletionSnackbar: Boolean = false,
-)
-
-enum class MemoEditorUploadsSummaryKind {
-    READY,
-    ACTIVE,
-    FAILED,
-    MIXED,
-}
-
-data class MemoEditorUploadsActionsState(
-    val canRetryFailedTasks: Boolean = false,
-    val canClearFailedTasks: Boolean = false,
-    val canCancelActiveTasks: Boolean = false,
-)
-
-data class MemoEditorUploadsSummaryState(
-    val hasVisibleContent: Boolean = false,
-    val kind: MemoEditorUploadsSummaryKind = MemoEditorUploadsSummaryKind.READY,
-    val totalResourceCount: Int = 0,
-    val imageResourceCount: Int = 0,
-    val attachmentResourceCount: Int = 0,
-    val activeTaskCount: Int = 0,
-    val failedTaskCount: Int = 0,
-    val recentlyCompletedResourceCount: Int = 0,
-    val canRetryFailedTasks: Boolean = false,
-    val canClearFailedTasks: Boolean = false,
 )
 
 data class MemoEditorUploadsState(
@@ -256,13 +222,7 @@ data class MemoEditorUploadsState(
     ),
     val taskItems: List<MemoEditorUploadTaskItemState> = emptyList(),
     val taskSection: MemoEditorUploadTaskSectionState = MemoEditorUploadTaskSectionState(),
-    val activeTaskCount: Int = 0,
-    val failedTaskCount: Int = 0,
-    val canRetryFailedTasks: Boolean = false,
-    val canClearFailedTasks: Boolean = false,
-    val summary: MemoEditorUploadsSummaryState = MemoEditorUploadsSummaryState(),
     val feedback: MemoEditorUploadFeedbackState = MemoEditorUploadFeedbackState(),
-    val actions: MemoEditorUploadsActionsState = MemoEditorUploadsActionsState(),
 )
 
 data class MemoEditorUploadTaskItemState(
@@ -951,9 +911,6 @@ internal fun buildMemoEditorUploadsState(
     uploadResources: List<ResourceEntity>,
     uploadTasks: List<UploadTaskState>,
     highlightedResourceIdentifiers: List<String> = emptyList(),
-    imageSectionExpanded: Boolean? = null,
-    attachmentSectionExpanded: Boolean? = null,
-    taskSectionExpanded: Boolean? = null,
 ): MemoEditorUploadsState {
     val resources = uploadResources.map { it.copy() }
     val tasks = uploadTasks.toList()
@@ -980,20 +937,13 @@ internal fun buildMemoEditorUploadsState(
     val imageSection = buildMemoEditorUploadSectionState(
         kind = MemoEditorUploadSectionKind.IMAGES,
         items = imageItems,
-        expandedPreference = imageSectionExpanded,
     )
     val attachmentSection = buildMemoEditorUploadSectionState(
         kind = MemoEditorUploadSectionKind.ATTACHMENTS,
         items = attachmentItems,
-        expandedPreference = attachmentSectionExpanded,
     )
     val canRetryFailedTasks = sortedTaskItems.any { it.canRetry }
     val canClearFailedTasks = failedTaskCount > 0
-    val actions = buildMemoEditorUploadsActionsState(
-        activeTaskCount = activeTaskCount,
-        canRetryFailedTasks = canRetryFailedTasks,
-        canClearFailedTasks = canClearFailedTasks,
-    )
     val feedback = buildMemoEditorUploadFeedbackState(
         highlightedResourceIdentifiers = sanitizedHighlightedResourceIdentifiers,
     )
@@ -1001,8 +951,8 @@ internal fun buildMemoEditorUploadsState(
         items = sortedTaskItems,
         activeTaskCount = activeTaskCount,
         failedTaskCount = failedTaskCount,
-        actions = actions,
-        expandedPreference = taskSectionExpanded,
+        canRetryFailedTasks = canRetryFailedTasks,
+        canClearFailedTasks = canClearFailedTasks,
     )
     return MemoEditorUploadsState(
         resources = resources,
@@ -1017,18 +967,7 @@ internal fun buildMemoEditorUploadsState(
         attachmentSection = attachmentSection,
         taskItems = sortedTaskItems,
         taskSection = taskSection,
-        activeTaskCount = activeTaskCount,
-        failedTaskCount = failedTaskCount,
-        canRetryFailedTasks = canRetryFailedTasks,
-        canClearFailedTasks = canClearFailedTasks,
-        summary = buildMemoEditorUploadsSummaryState(
-            imageItems = imageItems,
-            attachmentItems = attachmentItems,
-            activeTaskCount = activeTaskCount,
-            failedTaskCount = failedTaskCount,
-        ),
         feedback = feedback,
-        actions = actions,
     )
 }
 
@@ -1050,62 +989,14 @@ internal fun buildMemoEditorUploadResourceItems(
         }
 }
 
-internal fun buildMemoEditorUploadsSummaryState(
-    imageItems: List<MemoEditorUploadResourceItemState>,
-    attachmentItems: List<MemoEditorUploadResourceItemState>,
-    activeTaskCount: Int,
-    failedTaskCount: Int,
-): MemoEditorUploadsSummaryState {
-    val totalResourceCount = imageItems.size + attachmentItems.size
-    val recentlyCompletedResourceCount = (imageItems + attachmentItems).count { it.isHighlighted }
-    return MemoEditorUploadsSummaryState(
-        hasVisibleContent = totalResourceCount > 0 || activeTaskCount > 0 || failedTaskCount > 0,
-        kind = buildMemoEditorUploadsSummaryKind(
-            activeTaskCount = activeTaskCount,
-            failedTaskCount = failedTaskCount,
-        ),
-        totalResourceCount = totalResourceCount,
-        imageResourceCount = imageItems.size,
-        attachmentResourceCount = attachmentItems.size,
-        activeTaskCount = activeTaskCount,
-        failedTaskCount = failedTaskCount,
-        recentlyCompletedResourceCount = recentlyCompletedResourceCount,
-        canRetryFailedTasks = failedTaskCount > 0,
-        canClearFailedTasks = failedTaskCount > 0,
-    )
-}
-
-internal fun buildMemoEditorUploadsSummaryKind(
-    activeTaskCount: Int,
-    failedTaskCount: Int,
-): MemoEditorUploadsSummaryKind {
-    return when {
-        activeTaskCount > 0 && failedTaskCount > 0 -> MemoEditorUploadsSummaryKind.MIXED
-        activeTaskCount > 0 -> MemoEditorUploadsSummaryKind.ACTIVE
-        failedTaskCount > 0 -> MemoEditorUploadsSummaryKind.FAILED
-        else -> MemoEditorUploadsSummaryKind.READY
-    }
-}
-
 internal fun buildMemoEditorUploadSectionState(
     kind: MemoEditorUploadSectionKind,
     items: List<MemoEditorUploadResourceItemState>,
-    expandedPreference: Boolean? = null,
 ): MemoEditorUploadSectionState {
-    val highlightedCount = items.count { it.isHighlighted }
-    val defaultExpanded = when (kind) {
-        MemoEditorUploadSectionKind.IMAGES -> items.size <= 4 || highlightedCount > 0
-        MemoEditorUploadSectionKind.ATTACHMENTS -> items.size <= 3 || highlightedCount > 0
-    }
     return MemoEditorUploadSectionState(
         kind = kind,
         items = items,
         totalCount = items.size,
-        highlightedCount = highlightedCount,
-        canClearAll = items.isNotEmpty(),
-        canCollapse = items.size > 1,
-        defaultExpanded = defaultExpanded,
-        isExpanded = expandedPreference ?: defaultExpanded,
     )
 }
 
@@ -1113,21 +1004,17 @@ internal fun buildMemoEditorUploadTaskSectionState(
     items: List<MemoEditorUploadTaskItemState>,
     activeTaskCount: Int,
     failedTaskCount: Int,
-    actions: MemoEditorUploadsActionsState,
-    expandedPreference: Boolean? = null,
+    canRetryFailedTasks: Boolean,
+    canClearFailedTasks: Boolean,
 ): MemoEditorUploadTaskSectionState {
-    val defaultExpanded = activeTaskCount > 0 || failedTaskCount > 0
     return MemoEditorUploadTaskSectionState(
         items = items,
         totalCount = items.size,
         activeCount = activeTaskCount,
         failedCount = failedTaskCount,
-        canRetryFailedTasks = actions.canRetryFailedTasks,
-        canClearFailedTasks = actions.canClearFailedTasks,
-        canCancelActiveTasks = actions.canCancelActiveTasks,
-        canCollapse = items.size > 1,
-        defaultExpanded = defaultExpanded,
-        isExpanded = expandedPreference ?: defaultExpanded,
+        canRetryFailedTasks = canRetryFailedTasks,
+        canClearFailedTasks = canClearFailedTasks,
+        canCancelActiveTasks = activeTaskCount > 0,
     )
 }
 
@@ -1141,18 +1028,6 @@ internal fun buildMemoEditorUploadFeedbackState(
         recentlyCompletedResourceCount = recentlyCompletedResourceCount,
         recentCompletionTriggerId = recentCompletionTriggerId,
         shouldShowRecentCompletionSnackbar = recentCompletionTriggerId != null,
-    )
-}
-
-internal fun buildMemoEditorUploadsActionsState(
-    activeTaskCount: Int,
-    canRetryFailedTasks: Boolean,
-    canClearFailedTasks: Boolean,
-): MemoEditorUploadsActionsState {
-    return MemoEditorUploadsActionsState(
-        canRetryFailedTasks = canRetryFailedTasks,
-        canClearFailedTasks = canClearFailedTasks,
-        canCancelActiveTasks = activeTaskCount > 0,
     )
 }
 
@@ -1200,9 +1075,6 @@ internal fun buildMemoEditorUploadWorkflowState(
     highlightedResourceIdentifiers: List<String> = emptyList(),
     focusDelayMillis: Long = 0L,
     showKeyboardAfterUpload: Boolean = false,
-    imageSectionExpanded: Boolean? = null,
-    attachmentSectionExpanded: Boolean? = null,
-    taskSectionExpanded: Boolean? = null,
 ): MemoEditorUploadWorkflowState {
     return MemoEditorUploadWorkflowState(
         entry = MemoEditorUploadEntryState(
@@ -1217,9 +1089,6 @@ internal fun buildMemoEditorUploadWorkflowState(
             uploadResources = uploadResources,
             uploadTasks = uploadTasks,
             highlightedResourceIdentifiers = highlightedResourceIdentifiers,
-            imageSectionExpanded = imageSectionExpanded,
-            attachmentSectionExpanded = attachmentSectionExpanded,
-            taskSectionExpanded = taskSectionExpanded,
         ),
     )
 }
