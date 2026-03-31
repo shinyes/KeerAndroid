@@ -33,6 +33,7 @@ import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.ext.getErrorMessage
+import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.widget.WidgetUpdater
 import timber.log.Timber
@@ -70,6 +71,14 @@ class MemoInputViewModel @Inject constructor(
     private var persistEditorWorkflowJob: Job? = null
     private var restoringPersistedWorkflow = false
     val draft = accountLocalSettingsStore.observeCurrentUserSettings().map { settings -> settings?.draft }
+    var persistedEditorSessionKey by mutableStateOf("")
+        private set
+    var persistedEditorContent by mutableStateOf("")
+        private set
+    var persistedEditorSelectedTags by mutableStateOf(emptyList<String>())
+        private set
+    var persistedEditorSelectedCollaborators by mutableStateOf(emptyList<String>())
+        private set
     var uploadResources = mutableStateListOf<ResourceEntity>()
     var uploadTasks = mutableStateListOf<UploadTaskState>()
     var recentlyUploadedResourceIdentifiers = mutableStateListOf<String>()
@@ -245,6 +254,34 @@ class MemoInputViewModel @Inject constructor(
 
     fun dismissUploadTask(taskId: String) {
         removeUploadTask(taskId)
+    }
+
+    fun updatePersistedEditorContent(
+        sessionKey: String,
+        content: String,
+        selectedTags: List<String>,
+        selectedCollaborators: List<String>,
+    ) {
+        persistedEditorSessionKey = sessionKey.trim()
+        persistedEditorContent = content
+        persistedEditorSelectedTags = normalizeTagList(selectedTags)
+        persistedEditorSelectedCollaborators = selectedCollaborators
+            .map(::normalizeCollaboratorId)
+            .filter { it.isNotEmpty() }
+            .distinct()
+        schedulePersistEditorWorkflowState()
+    }
+
+    fun clearPersistedEditorContent(sessionKey: String? = null) {
+        val normalizedSessionKey = sessionKey?.trim().orEmpty()
+        if (normalizedSessionKey.isNotEmpty() && persistedEditorSessionKey != normalizedSessionKey) {
+            return
+        }
+        persistedEditorSessionKey = ""
+        persistedEditorContent = ""
+        persistedEditorSelectedTags = emptyList()
+        persistedEditorSelectedCollaborators = emptyList()
+        schedulePersistEditorWorkflowState()
     }
 
     fun updateImageUploadSectionExpanded(expanded: Boolean?) {
@@ -453,6 +490,13 @@ class MemoInputViewModel @Inject constructor(
                 .sortedBy { task -> task.sequence }
 
             withContext(Dispatchers.Main.immediate) {
+                persistedEditorSessionKey = persistedState.editorSessionKey
+                persistedEditorContent = persistedState.editorContent
+                persistedEditorSelectedTags = normalizeTagList(persistedState.editorSelectedTags)
+                persistedEditorSelectedCollaborators = persistedState.editorSelectedCollaborators
+                    .map(::normalizeCollaboratorId)
+                    .filter { it.isNotEmpty() }
+                    .distinct()
                 uploadResources.clear()
                 uploadResources.addAll(restoredResources)
                 uploadTasks.clear()
@@ -523,6 +567,10 @@ class MemoInputViewModel @Inject constructor(
             return
         }
         val snapshot = MemoEditorWorkflowPersistenceState(
+            editorSessionKey = persistedEditorSessionKey,
+            editorContent = persistedEditorContent,
+            editorSelectedTags = persistedEditorSelectedTags,
+            editorSelectedCollaborators = persistedEditorSelectedCollaborators,
             uploadResourceIdentifiers = uploadResources
                 .map { resource -> resource.identifier.trim() }
                 .filter { it.isNotEmpty() }

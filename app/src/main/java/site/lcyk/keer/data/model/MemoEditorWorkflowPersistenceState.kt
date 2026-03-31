@@ -4,6 +4,10 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class MemoEditorWorkflowPersistenceState(
+    val editorSessionKey: String = "",
+    val editorContent: String = "",
+    val editorSelectedTags: List<String> = emptyList(),
+    val editorSelectedCollaborators: List<String> = emptyList(),
     val uploadResourceIdentifiers: List<String> = emptyList(),
     val uploadTasks: List<MemoEditorUploadTaskPersistenceState> = emptyList(),
     val imageSectionExpanded: Boolean? = null,

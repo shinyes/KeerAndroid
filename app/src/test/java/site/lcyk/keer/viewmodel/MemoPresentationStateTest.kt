@@ -7,6 +7,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
+import site.lcyk.keer.data.model.MemoEditorWorkflowPersistenceState
 import site.lcyk.keer.data.model.MemoQuotePreview
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.util.MemoQuoteDescriptor
@@ -757,6 +758,124 @@ class MemoPresentationStateTest {
         assertEquals(listOf(resource), workflowState.uploadResources)
         assertTrue(workflowState.cleanup.clearUploads)
         assertTrue(workflowState.cleanup.clearUploadTasks)
+    }
+
+    @Test
+    fun buildMemoEditorSessionKey_joins_non_blank_parts() {
+        assertEquals(
+            "memo:edit:memo-1",
+            buildMemoEditorSessionKey("memo", "edit", " memo-1 ", "", null),
+        )
+    }
+
+    @Test
+    fun buildMemoEditorPersistedContentState_normalizes_tags_and_collaborators() {
+        val persistedState = buildMemoEditorPersistedContentState(
+            MemoEditorWorkflowPersistenceState(
+                editorSessionKey = " memo:edit:memo-1 ",
+                editorContent = "Working copy",
+                editorSelectedTags = listOf(" focus ", "focus"),
+                editorSelectedCollaborators = listOf(" user/alice ", "alice"),
+            ),
+        )
+
+        assertEquals("memo:edit:memo-1", persistedState.sessionKey)
+        assertEquals("Working copy", persistedState.content)
+        assertEquals(listOf("focus"), persistedState.selectedTags)
+        assertEquals(listOf("alice"), persistedState.selectedCollaborators)
+    }
+
+    @Test
+    fun buildMemoEditorEffectiveRestoreState_applies_matching_persisted_content() {
+        val baseRestoreState = buildMemoEditorRestoreState(
+            content = "Server copy",
+            tags = listOf("work"),
+            collaboratorIds = listOf("alice"),
+            resourceIdentifiers = listOf("remote-1"),
+        )
+
+        val effectiveRestoreState = buildMemoEditorEffectiveRestoreState(
+            baseRestoreState = baseRestoreState,
+            persistedContentState = MemoEditorPersistedContentState(
+                sessionKey = "memo:edit:memo-1",
+                content = "Working copy",
+                selectedTags = listOf("focus"),
+                selectedCollaborators = listOf("bob"),
+            ),
+            expectedSessionKey = "memo:edit:memo-1",
+        )
+
+        assertEquals("Working copy", effectiveRestoreState.content)
+        assertEquals(listOf("focus"), effectiveRestoreState.selectedTags)
+        assertEquals(listOf("bob"), effectiveRestoreState.selectedCollaborators)
+        assertEquals(baseRestoreState.baseline, effectiveRestoreState.baseline)
+    }
+
+    @Test
+    fun buildMemoEditorEffectiveRestoreState_ignores_blank_persisted_content_without_payload() {
+        val baseRestoreState = buildMemoEditorRestoreState(
+            content = "Server copy",
+            tags = listOf("work"),
+            collaboratorIds = listOf("alice"),
+            resourceIdentifiers = listOf("remote-1"),
+        )
+
+        val effectiveRestoreState = buildMemoEditorEffectiveRestoreState(
+            baseRestoreState = baseRestoreState,
+            persistedContentState = MemoEditorPersistedContentState(
+                sessionKey = "memo:edit:memo-1",
+                content = "",
+                selectedTags = emptyList(),
+                selectedCollaborators = emptyList(),
+            ),
+            expectedSessionKey = "memo:edit:memo-1",
+            hasPersistedWorkflowPayload = false,
+        )
+
+        assertEquals(baseRestoreState, effectiveRestoreState)
+    }
+
+    @Test
+    fun buildMemoEditorSubmitState_exposes_merged_tags_and_blocking_flags() {
+        val uploadsState = buildMemoEditorUploadsState(
+            uploadResources = listOf(
+                resourceEntity(
+                    identifier = "local-a",
+                    remoteId = "remote-a",
+                ),
+            ),
+            uploadTasks = listOf(
+                UploadTaskState(
+                    id = "task-1",
+                    sequence = 1L,
+                    filename = "file-a.png",
+                    uploadedBytes = 10L,
+                    totalBytes = 100L,
+                    status = UploadTaskStatus.UPLOADING,
+                ),
+            ),
+        )
+
+        val submitState = buildMemoEditorSubmitState(
+            content = "  Draft body  ",
+            selectedTags = listOf("focus"),
+            selectedCollaborators = listOf("user/alice"),
+            quoteDescriptor = MemoQuoteDescriptor(
+                sourceKind = MemoQuoteSourceKind.LOCAL,
+                source = "quoted-1",
+            ),
+            uploadsState = uploadsState,
+        )
+
+        assertEquals("  Draft body  ", submitState.content)
+        assertEquals("Draft body", submitState.trimmedContent)
+        assertTrue(submitState.hasPayload)
+        assertTrue(submitState.hasBlockingUpload)
+        assertFalse(submitState.canSubmit)
+        assertEquals(listOf("remote-a"), submitState.resourceIdentifiers)
+        assertTrue(submitState.mergedTags.contains("focus"))
+        assertTrue(submitState.mergedTags.contains("collab/alice"))
+        assertTrue(submitState.mergedTags.any { it.startsWith("quote/") })
     }
 
     @Test

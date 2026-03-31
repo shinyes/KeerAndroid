@@ -2,10 +2,12 @@
 
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
+import site.lcyk.keer.data.model.MemoEditorWorkflowPersistenceState
 import site.lcyk.keer.data.model.MemoQuotePreview
 import site.lcyk.keer.util.buildMemoQuoteDescriptor
 import site.lcyk.keer.util.MemoQuoteDescriptor
 import site.lcyk.keer.util.MemoQuoteSourceKind
+import site.lcyk.keer.util.mergeTagsWithCollaboratorsAndQuote
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.resolveMemoFromQuoteDescriptor
@@ -115,9 +117,26 @@ data class MemoEditorFieldsState(
     val baseline: MemoEditorBaseline = MemoEditorBaseline(),
 )
 
+data class MemoEditorPersistedContentState(
+    val sessionKey: String = "",
+    val content: String = "",
+    val selectedTags: List<String> = emptyList(),
+    val selectedCollaborators: List<String> = emptyList(),
+)
+
 data class MemoEditorSessionState(
     val initialFields: MemoEditorFieldsState = MemoEditorFieldsState(),
     val resetFields: MemoEditorFieldsState = MemoEditorFieldsState(),
+)
+
+data class MemoEditorSubmitState(
+    val content: String = "",
+    val trimmedContent: String = "",
+    val mergedTags: List<String> = emptyList(),
+    val resourceIdentifiers: List<String> = emptyList(),
+    val hasPayload: Boolean = false,
+    val hasBlockingUpload: Boolean = false,
+    val canSubmit: Boolean = false,
 )
 
 data class MemoEditorUploadEntryState(
@@ -679,6 +698,66 @@ internal fun buildMemoEditorFieldsState(
     )
 }
 
+internal fun buildMemoEditorSessionKey(
+    vararg parts: String?,
+): String {
+    return parts
+        .mapNotNull { part -> part?.trim()?.takeIf(String::isNotEmpty) }
+        .joinToString(":")
+}
+
+internal fun buildMemoEditorPersistedContentState(
+    persistenceState: MemoEditorWorkflowPersistenceState,
+): MemoEditorPersistedContentState {
+    return buildMemoEditorPersistedContentState(
+        sessionKey = persistenceState.editorSessionKey,
+        content = persistenceState.editorContent,
+        selectedTags = persistenceState.editorSelectedTags,
+        selectedCollaborators = persistenceState.editorSelectedCollaborators,
+    )
+}
+
+internal fun buildMemoEditorPersistedContentState(
+    sessionKey: String,
+    content: String,
+    selectedTags: List<String>,
+    selectedCollaborators: List<String>,
+): MemoEditorPersistedContentState {
+    return MemoEditorPersistedContentState(
+        sessionKey = sessionKey.trim(),
+        content = content,
+        selectedTags = normalizeTagList(selectedTags),
+        selectedCollaborators = selectedCollaborators
+            .map(::normalizeCollaboratorId)
+            .filter { it.isNotEmpty() }
+            .distinct(),
+    )
+}
+
+internal fun buildMemoEditorEffectiveRestoreState(
+    baseRestoreState: MemoEditorRestoreState,
+    persistedContentState: MemoEditorPersistedContentState,
+    expectedSessionKey: String,
+    hasPersistedWorkflowPayload: Boolean = false,
+): MemoEditorRestoreState {
+    val normalizedSessionKey = expectedSessionKey.trim()
+    if (normalizedSessionKey.isEmpty() || persistedContentState.sessionKey != normalizedSessionKey) {
+        return baseRestoreState
+    }
+    val shouldApplyPersistedContent = persistedContentState.content.isNotEmpty() ||
+        persistedContentState.selectedTags.isNotEmpty() ||
+        persistedContentState.selectedCollaborators.isNotEmpty() ||
+        hasPersistedWorkflowPayload
+    if (!shouldApplyPersistedContent) {
+        return baseRestoreState
+    }
+    return baseRestoreState.copy(
+        content = persistedContentState.content,
+        selectedTags = persistedContentState.selectedTags,
+        selectedCollaborators = persistedContentState.selectedCollaborators,
+    )
+}
+
 internal fun buildMemoEditorSessionState(
     restoreState: MemoEditorRestoreState,
     resetContent: String = "",
@@ -1120,6 +1199,37 @@ internal fun buildMemoEditorCanSubmit(
     uploadsState: MemoEditorUploadsState,
 ): Boolean {
     return (content.isNotEmpty() || uploadsState.resources.isNotEmpty()) && !uploadsState.hasActiveUpload
+}
+
+internal fun buildMemoEditorSubmitState(
+    content: String,
+    selectedTags: List<String>,
+    selectedCollaborators: List<String>,
+    quoteDescriptor: MemoQuoteDescriptor?,
+    uploadsState: MemoEditorUploadsState,
+): MemoEditorSubmitState {
+    val normalizedCollaborators = selectedCollaborators
+        .map(::normalizeCollaboratorId)
+        .filter { it.isNotEmpty() }
+        .distinct()
+    val mergedTags = mergeTagsWithCollaboratorsAndQuote(
+        normalizeTagList(selectedTags),
+        normalizedCollaborators,
+        quoteDescriptor,
+    )
+    val trimmedContent = content.trim()
+    return MemoEditorSubmitState(
+        content = content,
+        trimmedContent = trimmedContent,
+        mergedTags = mergedTags,
+        resourceIdentifiers = uploadsState.resourceIdentifiers,
+        hasPayload = trimmedContent.isNotEmpty() || uploadsState.resourceIdentifiers.isNotEmpty(),
+        hasBlockingUpload = uploadsState.hasActiveUpload,
+        canSubmit = buildMemoEditorCanSubmit(
+            content = content,
+            uploadsState = uploadsState,
+        ),
+    )
 }
 
 internal fun buildMemoEditorDirtyState(

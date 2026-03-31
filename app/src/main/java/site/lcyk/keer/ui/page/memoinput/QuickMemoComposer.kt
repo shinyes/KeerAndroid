@@ -86,21 +86,23 @@ import site.lcyk.keer.ext.suspendOnErrorMessage
 import site.lcyk.keer.ui.component.SurfaceHydrationLine
 import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.isQuoteTag
-import site.lcyk.keer.util.mergeTagsWithCollaboratorsAndQuote
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.normalizeTagName
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
 import site.lcyk.keer.viewmodel.MemoInputViewModel
-import site.lcyk.keer.viewmodel.buildMemoEditorCanSubmit
 import site.lcyk.keer.viewmodel.buildDraftEditorScreenState
 import site.lcyk.keer.viewmodel.MemoEditorWorkflowCleanupState
 import site.lcyk.keer.viewmodel.buildMemoEditorCompletionWorkflowState
 import site.lcyk.keer.viewmodel.buildMemoEditorBaseline
 import site.lcyk.keer.viewmodel.buildMemoEditorDismissWorkflowState
 import site.lcyk.keer.viewmodel.buildMemoEditorDirtyState
+import site.lcyk.keer.viewmodel.buildMemoEditorEffectiveRestoreState
+import site.lcyk.keer.viewmodel.buildMemoEditorPersistedContentState
 import site.lcyk.keer.viewmodel.buildMemoEditorRestoreWorkflowState
+import site.lcyk.keer.viewmodel.buildMemoEditorSessionKey
+import site.lcyk.keer.viewmodel.buildMemoEditorSubmitState
 import site.lcyk.keer.viewmodel.buildMemoEditorUploadWorkflowState
 import kotlin.coroutines.resume
 
@@ -176,6 +178,22 @@ fun QuickMemoComposer(
     }
     var pendingSubmitAfterLocationPermission by remember { mutableStateOf(false) }
     val normalizedForcedTags = remember(forcedTags) { normalizeTagList(forcedTags) }
+    val editorSessionKey = remember(normalizedForcedTags) {
+        buildMemoEditorSessionKey("quick", normalizedForcedTags.joinToString("|"))
+    }
+    val persistedContentState = remember(
+        inputViewModel.persistedEditorSessionKey,
+        inputViewModel.persistedEditorContent,
+        inputViewModel.persistedEditorSelectedTags,
+        inputViewModel.persistedEditorSelectedCollaborators,
+    ) {
+        buildMemoEditorPersistedContentState(
+            sessionKey = inputViewModel.persistedEditorSessionKey,
+            content = inputViewModel.persistedEditorContent,
+            selectedTags = inputViewModel.persistedEditorSelectedTags,
+            selectedCollaborators = inputViewModel.persistedEditorSelectedCollaborators,
+        )
+    }
     val normalizedSelectedTags = remember(selectedTags) { normalizeTagList(selectedTags) }
     val normalizedSelectedCollaborators = remember(selectedCollaborators) {
         selectedCollaborators
@@ -225,6 +243,21 @@ fun QuickMemoComposer(
         hostState = snackbarState,
         feedbackState = uploadWorkflowState.uploads.feedback,
     )
+    val submitState = remember(
+        text.text,
+        normalizedForcedTags,
+        normalizedSelectedTags,
+        normalizedSelectedCollaborators,
+        uploadWorkflowState.uploads,
+    ) {
+        buildMemoEditorSubmitState(
+            content = text.text,
+            selectedTags = normalizedForcedTags + normalizedSelectedTags,
+            selectedCollaborators = normalizedSelectedCollaborators,
+            quoteDescriptor = null,
+            uploadsState = uploadWorkflowState.uploads,
+        )
+    }
     val validMimeTypePrefixes = remember { setOf("text/") }
     val applyFieldsState: (site.lcyk.keer.viewmodel.MemoEditorFieldsState) -> Unit = { fieldsState ->
         text = TextFieldValue(fieldsState.content, TextRange(fieldsState.content.length))
@@ -332,11 +365,12 @@ fun QuickMemoComposer(
             applyFieldsState(workflowState.completion.fields)
             workflowState.completion.draftPersistenceValue?.let(inputViewModel::updateDraft)
             applyWorkflowCleanup(workflowState.cleanup)
+            inputViewModel.clearPersistedEditorContent(editorSessionKey)
             onDismissRequest()
             return
         }
 
-        if (uploadWorkflowState.uploads.hasActiveUpload) {
+        if (submitState.hasBlockingUpload) {
             coroutineScope.launch {
                 snackbarState.showSnackbar(R.string.upload_in_progress_wait.string)
             }
@@ -360,26 +394,20 @@ fun QuickMemoComposer(
         } else if (workflowState.dismiss.shouldDismiss) {
             workflowState.dismiss.draftPersistenceValue?.let(inputViewModel::updateDraft)
             applyWorkflowCleanup(workflowState.cleanup)
+            inputViewModel.clearPersistedEditorContent(editorSessionKey)
             onDismissRequest()
         }
     }
 
     fun submit(collectCoordinates: Boolean = true) = coroutineScope.launch {
-        if (uploadWorkflowState.uploads.hasActiveUpload) {
+        if (submitState.hasBlockingUpload) {
             snackbarState.showSnackbar(R.string.upload_in_progress_wait.string)
             return@launch
         }
 
-        val payload = text.text.trim()
-        if (payload.isBlank() && uploadWorkflowState.uploads.resources.isEmpty()) {
+        if (!submitState.hasPayload) {
             return@launch
         }
-
-        val mergedTags = mergeTagsWithCollaboratorsAndQuote(
-            normalizeTagList(normalizedForcedTags + normalizedSelectedTags),
-            normalizedSelectedCollaborators,
-            quoteDescriptor = null,
-        )
 
         val location = if (enableLocation && collectCoordinates && hasLocationPermission(context)) {
             val cached = prefetchedLocation?.takeIf(::isQualifiedLocation)
@@ -396,9 +424,9 @@ fun QuickMemoComposer(
         }
 
         val request = QuickMemoSubmitRequest(
-            content = payload,
-            tags = mergedTags,
-            resourceIdentifiers = uploadWorkflowState.uploads.resourceIdentifiers,
+            content = submitState.trimmedContent,
+            tags = submitState.mergedTags,
+            resourceIdentifiers = submitState.resourceIdentifiers,
             latitude = location?.latitude,
             longitude = location?.longitude,
         )
@@ -420,6 +448,7 @@ fun QuickMemoComposer(
             applyFieldsState(workflowState.completion.fields)
             workflowState.completion.draftPersistenceValue?.let(inputViewModel::updateDraft)
             applyWorkflowCleanup(workflowState.cleanup)
+            inputViewModel.clearPersistedEditorContent(editorSessionKey)
             onDismissRequest()
         }
 
@@ -706,10 +735,7 @@ fun QuickMemoComposer(
                         compact = true,
                         trailingAction = {
                             IconButton(
-                                enabled = buildMemoEditorCanSubmit(
-                                    content = text.text,
-                                    uploadsState = uploadWorkflowState.uploads,
-                                ),
+                                enabled = submitState.canSubmit,
                                 onClick = { attemptSubmit() },
                                 modifier = Modifier.size(40.dp)
                             ) {
@@ -787,7 +813,17 @@ fun QuickMemoComposer(
         }
 
         val restoreWorkflowState = buildMemoEditorRestoreWorkflowState(
-            restoreState = draftScreenState.initialRestoreState,
+            restoreState = buildMemoEditorEffectiveRestoreState(
+                baseRestoreState = draftScreenState.initialRestoreState,
+                persistedContentState = persistedContentState,
+                expectedSessionKey = editorSessionKey,
+                hasPersistedWorkflowPayload = uploadResources.isNotEmpty() || uploadTasks.isNotEmpty(),
+            ),
+            uploadResources = if (persistedContentState.sessionKey == editorSessionKey) {
+                uploadResources
+            } else {
+                emptyList()
+            },
         )
         applyWorkflowCleanup(restoreWorkflowState.cleanup)
         memosViewModel.loadTags()
@@ -798,6 +834,24 @@ fun QuickMemoComposer(
         withFrameNanos { }
         focusRequester.requestFocus()
         keyboardController?.show()
+    }
+
+    LaunchedEffect(
+        visible,
+        text.text,
+        normalizedForcedTags,
+        normalizedSelectedTags,
+        normalizedSelectedCollaborators,
+    ) {
+        if (!visible) {
+            return@LaunchedEffect
+        }
+        inputViewModel.updatePersistedEditorContent(
+            sessionKey = editorSessionKey,
+            content = text.text,
+            selectedTags = normalizedForcedTags + normalizedSelectedTags,
+            selectedCollaborators = normalizedSelectedCollaborators,
+        )
     }
 }
 
