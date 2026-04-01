@@ -21,28 +21,22 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.R
-import site.lcyk.keer.data.local.entity.MemoEntity
-import site.lcyk.keer.data.local.entity.ResourceEntity
-import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.Memo
-import site.lcyk.keer.data.model.Resource
 import site.lcyk.keer.data.model.SyncDomain
-import site.lcyk.keer.data.model.toMemo
 import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.data.service.OfflineGroupStore
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.util.buildResolvedMemoQuoteMap
-import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
-import site.lcyk.keer.util.toMemoEntityForCard
+import site.lcyk.keer.util.ResolvedMemoQuoteProjector
 
 data class ExploreMemoItem(
     val memo: Memo,
@@ -86,13 +80,18 @@ class ExploreViewModel @Inject constructor(
             if (accountKey.isBlank()) {
                 return@flatMapLatest flowOf(emptyList())
             }
+            val projector = ExploreMemoListProjector()
             combine(
                 projectionMemos,
                 offlineGroupStore.observeAllCachedGroupMemos(accountKey),
                 offlineGroupStore.observePinnedGroupMemoKeys(accountKey),
             ) { localMemos, cachedGroupMemos, pinnedGroupMemoKeys ->
-                buildExploreMemoItems(
-                    account = account,
+                projector.project(
+                    currentUserId = (account as? site.lcyk.keer.data.model.Account.KeerV2)
+                        ?.info
+                        ?.id
+                        ?.toString()
+                        ?.let(::normalizeCollaboratorId),
                     localMemos = localMemos,
                     cachedGroupMemos = cachedGroupMemos,
                     pinnedGroupMemoKeys = pinnedGroupMemoKeys,
@@ -100,6 +99,28 @@ class ExploreViewModel @Inject constructor(
             }.flowOn(Dispatchers.Default)
         }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    private val liveResolvedQuotes = accountService.currentAccount
+        .flatMapLatest { account ->
+            val accountKey = account?.accountKey().orEmpty()
+            if (accountKey.isBlank()) {
+                return@flatMapLatest flowOf(emptyMap())
+            }
+            val memoProjector = ExploreQuoteMemoProjector()
+            val resolvedQuoteProjector = ResolvedMemoQuoteProjector()
+            liveItems
+                .mapLatest { items ->
+                    withContext(Dispatchers.Default) {
+                        val quoteCandidates = memoProjector.project(
+                            accountKey = accountKey,
+                            items = items,
+                        )
+                        resolvedQuoteProjector.project(quoteCandidates)
+                    }
+                }
+                .flowOn(Dispatchers.Default)
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     val visibleItems: StateFlow<List<ExploreMemoItem>> =
         snapshotStore.visibleState
@@ -115,14 +136,8 @@ class ExploreViewModel @Inject constructor(
         viewModelScope.launch {
             combine(
                 liveItems,
-                accountService.currentAccount.map { account -> account?.accountKey().orEmpty() },
-            ) { items, accountKey ->
-                val quoteCandidates = withContext(Dispatchers.Default) {
-                    items.map { item -> item.memo.toExploreMemoEntity(accountKey) }
-                }
-                val resolvedQuotes = withContext(Dispatchers.Default) {
-                    buildResolvedMemoQuoteMap(quoteCandidates)
-                }
+                liveResolvedQuotes,
+            ) { items, resolvedQuotes ->
                 ExploreUiState(
                     items = items,
                     resolvedQuoteByMemoId = resolvedQuotes,
@@ -237,87 +252,8 @@ class ExploreViewModel @Inject constructor(
         }
     }
 
-    private fun buildExploreMemoItems(
-        account: Account?,
-        localMemos: List<MemoEntity>,
-        cachedGroupMemos: List<Pair<site.lcyk.keer.data.model.CachedMemoItem, String>>,
-        pinnedGroupMemoKeys: Set<String>,
-    ): List<ExploreMemoItem> {
-        val collaborative = buildCollaborativeMemoItems(account, localMemos)
-        val groupItems = cachedGroupMemos.map { (cachedMemo, groupId) ->
-            val memo = cachedMemo.toMemo()
-            val pinned = groupMemoKey(groupId, memo.remoteId) in pinnedGroupMemoKeys
-            ExploreMemoItem(
-                memo = if (memo.pinned == pinned) memo else memo.copy(pinned = pinned),
-                groupId = groupId,
-            )
-        }
-        return (collaborative + groupItems)
-            .distinctBy { item -> "${item.groupId.orEmpty()}|${item.memo.remoteId}" }
-            .sortedByDescending { item -> item.memo.date }
-    }
-
-    private fun buildCollaborativeMemoItems(
-        account: Account?,
-        localMemos: List<MemoEntity>,
-    ): List<ExploreMemoItem> {
-        val currentUserId = (account as? Account.KeerV2)?.info?.id?.toString()?.let(::normalizeCollaboratorId)
-            ?: return emptyList()
-        return localMemos
-            .asSequence()
-            .filter { memo ->
-                extractCollaboratorIds(memo.tags).any { collaboratorId ->
-                    normalizeCollaboratorId(collaboratorId) == currentUserId
-                }
-            }
-            .map { memo -> ExploreMemoItem(memo = memo.toExploreMemo(), groupId = null) }
-            .toList()
-    }
-
-    private fun MemoEntity.toExploreMemo(): Memo {
-        return Memo(
-            remoteId = remoteId ?: identifier,
-            content = content,
-            date = date,
-            pinned = pinned,
-            visibility = visibility,
-            resources = resources.map { resource -> resource.toExploreResource() },
-            tags = tags,
-            latitude = latitude,
-            longitude = longitude,
-            creator = null,
-            archived = archived,
-            updatedAt = lastSyncedAt ?: lastModified,
-        )
-    }
-
-    private fun ResourceEntity.toExploreResource(): Resource {
-        return Resource(
-            remoteId = remoteId ?: identifier,
-            date = date,
-            filename = filename,
-            mimeType = mimeType,
-            encryptionMetadata = encryptionMetadata,
-            uri = uri,
-            localUri = localUri,
-            thumbnailUri = thumbnailUri,
-            thumbnailLocalUri = thumbnailLocalUri,
-        )
-    }
-
-    private fun groupMemoKey(groupId: String, memoRemoteId: String): String {
-        return "$groupId|$memoRemoteId"
-    }
-
     private companion object {
         private const val EXPLORE_PROJECTION_MEMO_DEBOUNCE_MILLIS = 64L
         private const val SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS = 300L
     }
-}
-
-private fun Memo.toExploreMemoEntity(accountKey: String): MemoEntity {
-    return toMemoEntityForCard(
-        identifier = "explore:$remoteId",
-        accountKey = accountKey,
-    )
 }

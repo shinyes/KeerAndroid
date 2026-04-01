@@ -6,7 +6,9 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
@@ -63,14 +65,16 @@ class SyncCoordinatorTest {
     }
 
     @Test
-    fun `requestSync ignores non-manual non-force triggers`() = runTest {
+    fun `requestSync accepts auto trigger`() = runTest {
         coordinator.requestSync(
             trigger = SyncTrigger.AUTO,
             force = false,
             domains = setOf(SyncDomain.MEMOS),
         )
         advanceUntilIdle()
-        coVerify(exactly = 0) { pullSyncEngine.run(any(), any(), any()) }
+        coVerify(exactly = 1) {
+            pullSyncEngine.run(setOf(SyncDomain.MEMOS), null, SyncTrigger.AUTO)
+        }
     }
 
     @Test
@@ -82,6 +86,58 @@ class SyncCoordinatorTest {
         )
         advanceUntilIdle()
         coVerify(exactly = 1) { pullSyncEngine.run(any(), any(), any()) }
+    }
+
+    @Test
+    fun `requestSync merges pending requests by priority and domains`() = runTest {
+        coordinator.requestSync(
+            trigger = SyncTrigger.AUTO,
+            force = false,
+            domains = setOf(SyncDomain.MEMOS),
+        )
+        coordinator.requestSync(
+            trigger = SyncTrigger.MANUAL,
+            force = true,
+            domains = setOf(SyncDomain.GROUPS),
+            groupId = "group-1",
+            bypassCoalesce = true,
+        )
+
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) {
+            pullSyncEngine.run(
+                setOf(SyncDomain.MEMOS, SyncDomain.GROUPS),
+                "group-1",
+                SyncTrigger.MANUAL,
+            )
+        }
+    }
+
+    @Test
+    fun `foreground sync preempts tail session`() = runTest {
+        coEvery { pullSyncEngine.runUnifiedTailSession() } coAnswers {
+            awaitCancellation()
+        }
+
+        val tailJob = backgroundScope.launch {
+            coordinator.runTailSessionLoop()
+        }
+
+        advanceUntilIdle()
+        coordinator.sync(
+            force = true,
+            trigger = SyncTrigger.MANUAL,
+            domains = setOf(SyncDomain.MEMOS),
+        )
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { pullSyncEngine.runUnifiedTailSession() }
+        coVerify(atLeast = 1) {
+            pullSyncEngine.run(setOf(SyncDomain.MEMOS), null, SyncTrigger.MANUAL)
+        }
+
+        tailJob.cancel()
     }
 
     @Test
@@ -103,4 +159,3 @@ class SyncCoordinatorTest {
         coVerify(exactly = 1) { pullSyncEngine.run(any(), any(), any()) }
     }
 }
-

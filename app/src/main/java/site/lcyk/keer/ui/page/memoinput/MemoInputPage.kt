@@ -13,8 +13,11 @@ import android.os.Build
 import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
+import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
 import androidx.compose.foundation.layout.imePadding
@@ -333,17 +336,29 @@ fun MemoInputPage(
         }
     }
 
-    fun uploadResource(uri: Uri) = coroutineScope.launch {
-        viewModel.upload(uri, memo?.identifier).suspendOnSuccess {
+    fun uploadResources(uris: List<Uri>) = coroutineScope.launch {
+        var uploadedAny = false
+        uris.forEach { uri ->
+            viewModel.upload(uri, memo?.identifier).suspendOnSuccess {
+                uploadedAny = true
+            }.suspendOnErrorMessage { message ->
+                snackbarState.showSnackbar(message)
+            }
+        }
+        if (uploadedAny) {
             delay(300)
             focusRequester.requestFocus()
-        }.suspendOnErrorMessage { message ->
-            snackbarState.showSnackbar(message)
         }
     }
 
-    val pickImage = rememberLauncherForActivityResult(OpenDocument()) { uri ->
-        uri?.let { uploadResource(it) }
+    fun uploadResource(uri: Uri) {
+        uploadResources(listOf(uri))
+    }
+
+    val pickMedia = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { uris ->
+        if (uris.isNotEmpty()) {
+            uploadResources(uris)
+        }
     }
 
     val takePhoto = rememberLauncherForActivityResult(TakePicture()) { success ->
@@ -454,7 +469,7 @@ fun MemoInputPage(
                     text = toggleTodoItemInText(text)
                 },
                 onPickImage = {
-                    pickImage.launch(arrayOf("image/*", "video/*"))
+                    pickMedia.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
                 },
                 onPickAttachment = {
                     pickAttachment.launch(arrayOf("*/*"))

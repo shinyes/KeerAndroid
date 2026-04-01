@@ -5,8 +5,8 @@ import androidx.core.net.toUri
 import com.skydoves.sandwich.ApiResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.FileStorage
 import site.lcyk.keer.data.local.dao.MemoDao
@@ -32,12 +32,10 @@ class LocalDatabaseRepository(
     private val recentTagUsageSince: Instant = Instant.now().minusSeconds(30L * 24L * 60L * 60L)
 
     override fun observeMemos(): Flow<List<MemoEntity>> {
-        return memoDao.observeAllMemos(accountKey).map { memos ->
-            memos.map { item ->
-                item.memo.copy().also {
-                    it.resources = item.resources
-                    it.tags = item.tags.map { tag -> tag.name }
-                }
+        return flow {
+            val projector = MemoListProjector()
+            memoDao.observeAllMemos(accountKey).collect { memoItems ->
+                emit(projector.project(memoItems))
             }
         }.flowOn(Dispatchers.Default)
     }
@@ -56,7 +54,7 @@ class LocalDatabaseRepository(
 
     override suspend fun listMemos(): ApiResponse<List<MemoEntity>> {
         return try {
-            val memos = memoDao.getAllMemoItems(accountKey).map(::toMemoEntity)
+            val memos = memoDao.getAllMemoItems(accountKey).map(::projectMemoWithRelations)
             ApiResponse.Success(memos)
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
@@ -65,7 +63,7 @@ class LocalDatabaseRepository(
 
     override suspend fun listArchivedMemos(): ApiResponse<List<MemoEntity>> {
         return try {
-            val memos = memoDao.getArchivedMemoItems(accountKey).map(::toMemoEntity)
+            val memos = memoDao.getArchivedMemoItems(accountKey).map(::projectMemoWithRelations)
             ApiResponse.Success(memos)
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
@@ -481,13 +479,6 @@ class LocalDatabaseRepository(
         return memo.copy().also {
             it.resources = resources
             it.tags = tags
-        }
-    }
-
-    private fun toMemoEntity(item: site.lcyk.keer.data.local.entity.MemoWithResources): MemoEntity {
-        return item.memo.copy().also { memo ->
-            memo.resources = item.resources
-            memo.tags = item.tags.map { tag -> tag.name }
         }
     }
 

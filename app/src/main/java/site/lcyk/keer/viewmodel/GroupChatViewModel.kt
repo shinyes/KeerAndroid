@@ -41,12 +41,11 @@ import site.lcyk.keer.data.service.OfflineGroupStore
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.util.buildResolvedMemoQuoteMap
+import site.lcyk.keer.util.ResolvedMemoQuoteProjector
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.resolveAvatarUrl
-import site.lcyk.keer.util.toMemoEntityForCard
 
 @HiltViewModel
 class GroupChatViewModel @Inject constructor(
@@ -59,6 +58,8 @@ class GroupChatViewModel @Inject constructor(
 ) : ViewModel() {
     private val lastGroupSyncAtMillis = mutableMapOf<String, Long>()
     private val lastGroupTagFetchAtMillis = mutableMapOf<String, Long>()
+    private val quoteMemoProjector = GroupChatQuoteMemoProjector()
+    private val resolvedQuoteProjector = ResolvedMemoQuoteProjector()
     private val snapshotStore = InteractionSnapshotStore(
         scope = viewModelScope,
         initialState = GroupChatUiState(),
@@ -802,15 +803,14 @@ class GroupChatViewModel @Inject constructor(
     private suspend fun publishGroupUiState(groupId: String, groupMemos: List<Memo>) {
         val accountKey = readCurrentAccountKey().orEmpty()
         val quoteCandidates = withContext(Dispatchers.Default) {
-            groupMemos.map { memo ->
-                memo.toGroupMemoEntity(
-                    accountKey = accountKey,
-                    groupId = groupId,
-                )
-            }
+            quoteMemoProjector.project(
+                accountKey = accountKey,
+                groupId = groupId,
+                memos = groupMemos,
+            )
         }
         val resolvedQuotes = withContext(Dispatchers.Default) {
-            buildResolvedMemoQuoteMap(quoteCandidates)
+            resolvedQuoteProjector.project(quoteCandidates)
         }
         snapshotStore.updateLiveState(
             GroupChatUiState(
@@ -839,16 +839,5 @@ private fun ResourceEntity.toPendingMemoResource(fallbackRemoteId: String): Reso
         localUri = localUri,
         thumbnailUri = thumbnailUri,
         thumbnailLocalUri = thumbnailLocalUri,
-    )
-}
-
-private fun Memo.toGroupMemoEntity(
-    accountKey: String,
-    groupId: String,
-): site.lcyk.keer.data.local.entity.MemoEntity {
-    return toMemoEntityForCard(
-        identifier = "group:$groupId:$remoteId",
-        accountKey = accountKey,
-        needsSync = remoteId.startsWith("local:"),
     )
 }

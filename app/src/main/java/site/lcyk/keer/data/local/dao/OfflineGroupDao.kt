@@ -98,6 +98,14 @@ interface OfflineGroupDao {
     @Query("DELETE FROM offline_group_aliases WHERE accountKey = :accountKey AND (localId IN (:groupIds) OR remoteId IN (:groupIds))")
     suspend fun deleteGroupAliasesByGroupIds(accountKey: String, groupIds: List<String>)
 
+    @Query(
+        """
+        DELETE FROM offline_group_aliases
+        WHERE accountKey = :accountKey AND (localId = :localGroupId OR remoteId = :remoteGroupId)
+        """
+    )
+    suspend fun deleteGroupAliasesForReplacement(accountKey: String, localGroupId: String, remoteGroupId: String)
+
     @Query("SELECT * FROM offline_pending_group_operations WHERE accountKey = :accountKey ORDER BY createdAtEpochMillis ASC")
     suspend fun getPendingGroupOperations(accountKey: String): List<OfflinePendingGroupOperationEntity>
 
@@ -110,6 +118,18 @@ interface OfflineGroupDao {
     @Query("DELETE FROM offline_pending_group_operations WHERE accountKey = :accountKey")
     suspend fun deletePendingGroupOperationsByAccount(accountKey: String)
 
+    @Query("DELETE FROM offline_pending_group_operations WHERE accountKey = :accountKey AND groupId IN (:groupIds)")
+    suspend fun deletePendingGroupOperationsByGroups(accountKey: String, groupIds: List<String>)
+
+    @Query(
+        """
+        UPDATE offline_pending_group_operations
+        SET groupId = :newGroupId
+        WHERE accountKey = :accountKey AND groupId = :oldGroupId
+        """
+    )
+    suspend fun reassignPendingGroupOperations(accountKey: String, oldGroupId: String, newGroupId: String)
+
     @Query("SELECT * FROM offline_pending_group_memos WHERE accountKey = :accountKey ORDER BY createdAtEpochMillis ASC")
     suspend fun getPendingGroupMemos(accountKey: String): List<OfflinePendingGroupMemoEntity>
 
@@ -121,6 +141,43 @@ interface OfflineGroupDao {
 
     @Query("DELETE FROM offline_pending_group_memos WHERE accountKey = :accountKey")
     suspend fun deletePendingGroupMemosByAccount(accountKey: String)
+
+    @Query("DELETE FROM offline_pending_group_memos WHERE accountKey = :accountKey AND groupId = :groupId")
+    suspend fun deletePendingGroupMemosByGroup(accountKey: String, groupId: String)
+
+    @Query("DELETE FROM offline_pending_group_memos WHERE accountKey = :accountKey AND groupId IN (:groupIds)")
+    suspend fun deletePendingGroupMemosByGroups(accountKey: String, groupIds: List<String>)
+
+    @Query(
+        """
+        INSERT OR REPLACE INTO offline_pending_group_memos (
+            accountKey,
+            localId,
+            groupId,
+            content,
+            tagsJson,
+            creatorId,
+            creatorName,
+            creatorAvatarUrl,
+            createdAtEpochMillis,
+            resourceIdsJson
+        )
+        SELECT
+            accountKey,
+            localId,
+            :newGroupId,
+            content,
+            tagsJson,
+            creatorId,
+            creatorName,
+            creatorAvatarUrl,
+            createdAtEpochMillis,
+            resourceIdsJson
+        FROM offline_pending_group_memos
+        WHERE accountKey = :accountKey AND groupId = :oldGroupId
+        """
+    )
+    suspend fun copyPendingGroupMemosToGroup(accountKey: String, oldGroupId: String, newGroupId: String)
 
     @Query("SELECT * FROM offline_pinned_group_memos WHERE accountKey = :accountKey")
     suspend fun getPinnedGroupMemos(accountKey: String): List<OfflinePinnedGroupMemoEntity>
@@ -137,8 +194,28 @@ interface OfflineGroupDao {
     @Query("DELETE FROM offline_pinned_group_memos WHERE accountKey = :accountKey")
     suspend fun deletePinnedGroupMemosByAccount(accountKey: String)
 
+    @Query("DELETE FROM offline_pinned_group_memos WHERE accountKey = :accountKey AND groupId = :groupId")
+    suspend fun deletePinnedGroupMemosByGroup(accountKey: String, groupId: String)
+
     @Query("DELETE FROM offline_pinned_group_memos WHERE accountKey = :accountKey AND groupId IN (:groupIds)")
     suspend fun deletePinnedGroupMemosByGroups(accountKey: String, groupIds: List<String>)
+
+    @Query(
+        """
+        INSERT OR REPLACE INTO offline_pinned_group_memos (
+            accountKey,
+            groupId,
+            memoRemoteId
+        )
+        SELECT
+            accountKey,
+            :newGroupId,
+            memoRemoteId
+        FROM offline_pinned_group_memos
+        WHERE accountKey = :accountKey AND groupId = :oldGroupId
+        """
+    )
+    suspend fun copyPinnedGroupMemosToGroup(accountKey: String, oldGroupId: String, newGroupId: String)
 
     @Query("SELECT * FROM offline_cached_group_memos WHERE accountKey = :accountKey AND groupId = :groupId ORDER BY updatedAtEpochMillis DESC")
     suspend fun getCachedGroupMemos(accountKey: String, groupId: String): List<OfflineCachedGroupMemoEntity>
@@ -170,6 +247,27 @@ interface OfflineGroupDao {
     @Query("DELETE FROM offline_cached_group_memos WHERE accountKey = :accountKey AND groupId IN (:groupIds)")
     suspend fun deleteCachedGroupMemosByGroups(accountKey: String, groupIds: List<String>)
 
+    @Query(
+        """
+        INSERT OR REPLACE INTO offline_cached_group_memos (
+            accountKey,
+            groupId,
+            remoteId,
+            payloadJson,
+            updatedAtEpochMillis
+        )
+        SELECT
+            accountKey,
+            :newGroupId,
+            remoteId,
+            payloadJson,
+            updatedAtEpochMillis
+        FROM offline_cached_group_memos
+        WHERE accountKey = :accountKey AND groupId = :oldGroupId
+        """
+    )
+    suspend fun copyCachedGroupMemosToGroup(accountKey: String, oldGroupId: String, newGroupId: String)
+
     @Query("SELECT * FROM offline_cached_group_tags WHERE accountKey = :accountKey")
     suspend fun getCachedGroupTags(accountKey: String): List<OfflineCachedGroupTagEntity>
 
@@ -187,6 +285,9 @@ interface OfflineGroupDao {
 
     @Query("DELETE FROM offline_cached_group_tags WHERE accountKey = :accountKey")
     suspend fun deleteCachedGroupTagsByAccount(accountKey: String)
+
+    @Query("DELETE FROM offline_cached_group_tags WHERE accountKey = :accountKey AND groupId = :groupId")
+    suspend fun deleteCachedGroupTagsByGroup(accountKey: String, groupId: String)
 
     @Query("DELETE FROM offline_cached_group_tags WHERE accountKey = :accountKey AND groupId IN (:groupIds)")
     suspend fun deleteCachedGroupTagsByGroups(accountKey: String, groupIds: List<String>)

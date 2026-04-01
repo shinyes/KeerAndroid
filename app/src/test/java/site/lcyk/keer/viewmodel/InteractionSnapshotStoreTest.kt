@@ -48,4 +48,21 @@ class InteractionSnapshotStoreTest {
         runCurrent()
         assertEquals(1, store.visibleState.value)
     }
+
+    @Test
+    fun `preload commits latest state even while frozen`() = runTest {
+        val store = InteractionSnapshotStore(
+            scope = backgroundScope,
+            initialState = 0,
+            idleCommitDelayMillis = 300L,
+        )
+
+        store.setFrozen(true)
+        store.updateLiveState(1)
+        assertEquals(0, store.visibleState.value)
+
+        store.preloadLatestVisibleState()
+
+        assertEquals(1, store.visibleState.value)
+    }
 }

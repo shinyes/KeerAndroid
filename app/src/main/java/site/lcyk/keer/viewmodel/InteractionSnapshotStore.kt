@@ -29,6 +29,16 @@ class InteractionSnapshotStore<T>(
         }
     }
 
+    fun preloadLatestVisibleState() {
+        pendingUnfreezeCommitJob?.cancel()
+        pendingUnfreezeCommitJob = null
+        pendingLiveCommitJob?.cancel()
+        pendingLiveCommitJob = null
+        if (_visibleState.value != latestLiveState) {
+            _visibleState.value = latestLiveState
+        }
+    }
+
     fun setFrozen(active: Boolean) {
         if (frozen == active) {
             return

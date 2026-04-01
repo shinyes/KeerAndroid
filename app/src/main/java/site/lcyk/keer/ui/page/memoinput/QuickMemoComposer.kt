@@ -13,8 +13,11 @@ import android.os.Build
 import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
+import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
 import androidx.compose.animation.AnimatedVisibility
@@ -76,7 +79,6 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.skydoves.sandwich.suspendOnSuccess
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -110,6 +112,7 @@ private val quickComposerDefaultMinEditorHeight = 132.dp
 private val quickComposerBottomBarHeight = 60.dp
 private val quickComposerFallbackLineHeight = 20.dp
 private const val quickComposerMinEditorLines = 4
+private const val quickComposerDeferredWarmupDelayMillis = 120L
 private val quickComposerShape = RoundedCornerShape(16.dp)
 
 data class QuickMemoSubmitRequest(
@@ -139,6 +142,7 @@ fun QuickMemoComposer(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val friends by userStateViewModel.friends.collectAsState()
+    val persistedDraft by inputViewModel.draft.collectAsState(initial = "")
 
     var initialContent by remember { mutableStateOf("") }
     var initialTags by remember { mutableStateOf(emptyList<String>()) }
@@ -376,18 +380,30 @@ fun QuickMemoComposer(
         }
     }
 
-    fun uploadResource(uri: Uri) = coroutineScope.launch {
-        inputViewModel.upload(uri, memoIdentifier = null).suspendOnSuccess {
+    fun uploadResources(uris: List<Uri>) = coroutineScope.launch {
+        var uploadedAny = false
+        uris.forEach { uri ->
+            inputViewModel.upload(uri, memoIdentifier = null).suspendOnSuccess {
+                uploadedAny = true
+            }.suspendOnErrorMessage { message ->
+                snackbarState.showSnackbar(message)
+            }
+        }
+        if (uploadedAny) {
             delay(120)
             focusRequester.requestFocus()
             keyboardController?.show()
-        }.suspendOnErrorMessage { message ->
-            snackbarState.showSnackbar(message)
         }
     }
 
-    val pickImage = rememberLauncherForActivityResult(OpenDocument()) { uri ->
-        uri?.let(::uploadResource)
+    fun uploadResource(uri: Uri) {
+        uploadResources(listOf(uri))
+    }
+
+    val pickMedia = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { uris ->
+        if (uris.isNotEmpty()) {
+            uploadResources(uris)
+        }
     }
 
     var photoImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -584,7 +600,7 @@ fun QuickMemoComposer(
                             text = toggleTodoItemInText(text)
                         },
                         onPickImage = {
-                            pickImage.launch(arrayOf("image/*", "video/*"))
+                            pickMedia.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
                         },
                         onPickAttachment = {
                             pickAttachment.launch(arrayOf("*/*"))
@@ -676,22 +692,20 @@ fun QuickMemoComposer(
         inputViewModel.uploadTasks.clear()
         selectedTags = normalizedForcedTags
         selectedCollaborators = emptyList()
-        memosViewModel.loadTags()
-        userStateViewModel.refreshFriends()
-        startLocationPrefetch(force = true)
-        val draft = if (persistDraft) {
-            inputViewModel.draft.first().orEmpty()
-        } else {
-            ""
-        }
+        val draft = if (persistDraft) persistedDraft.orEmpty() else ""
         text = TextFieldValue(draft, TextRange(draft.length))
         initialContent = text.text
         initialTags = normalizedForcedTags
         initialCollaborators = emptyList()
         withFrameNanos { }
-        withFrameNanos { }
         focusRequester.requestFocus()
         keyboardController?.show()
+        launch {
+            delay(quickComposerDeferredWarmupDelayMillis)
+            memosViewModel.loadTags()
+            userStateViewModel.refreshFriends()
+            startLocationPrefetch(force = true)
+        }
     }
 }
 

@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -100,12 +101,10 @@ class SyncingRepository(
     }
 
     override fun observeMemos(): Flow<List<MemoEntity>> {
-        return memoDao.observeAllMemos(accountKey).map { memos ->
-            memos.map { item ->
-                item.memo.copy().also {
-                    it.resources = item.resources
-                    it.tags = item.tags.map { tag -> tag.name }
-                }
+        return flow {
+            val projector = MemoListProjector()
+            memoDao.observeAllMemos(accountKey).collect { memoItems ->
+                emit(projector.project(memoItems))
             }
         }.flowOn(Dispatchers.Default)
     }
@@ -124,7 +123,7 @@ class SyncingRepository(
 
     override suspend fun listMemos(): ApiResponse<List<MemoEntity>> {
         return try {
-            val memos = memoDao.getAllMemoItems(accountKey).map(::toMemoEntity)
+            val memos = memoDao.getAllMemoItems(accountKey).map(::projectMemoWithRelations)
             ApiResponse.Success(memos)
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
@@ -134,7 +133,7 @@ class SyncingRepository(
     override suspend fun listArchivedMemos(): ApiResponse<List<MemoEntity>> {
         return try {
             val memos = memoDao.getArchivedMemoItems(accountKey)
-                .map(::toMemoEntity)
+                .map(::projectMemoWithRelations)
                 .filterNot { it.isDeleted }
             ApiResponse.Success(memos)
         } catch (e: Exception) {
@@ -1897,13 +1896,6 @@ class SyncingRepository(
         return memo.copy().also {
             it.resources = resources
             it.tags = tags
-        }
-    }
-
-    private fun toMemoEntity(item: site.lcyk.keer.data.local.entity.MemoWithResources): MemoEntity {
-        return item.memo.copy().also { memo ->
-            memo.resources = item.resources
-            memo.tags = item.tags.map { tag -> tag.name }
         }
     }
 

@@ -31,11 +31,11 @@ fun buildResolvedMemoQuoteMap(
         memos.forEach { memo ->
             val descriptor = memo.resolveMemoQuoteDescriptor() ?: return@forEach
             val quotedMemo = transientMemoLookup(descriptor.source)
-                ?: when (descriptor.sourceKind) {
-                    MemoQuoteSourceKind.LOCAL -> byIdentifier[descriptor.source]
-                    MemoQuoteSourceKind.REMOTE -> byRemoteId[descriptor.source]
-                }
-                ?: resolveMemoFromQuoteDescriptor(descriptor, memos)
+                ?: resolveMemoFromQuoteDescriptor(
+                    descriptor = descriptor,
+                    byIdentifier = byIdentifier,
+                    byRemoteId = byRemoteId,
+                )
             val preview = quotedMemo?.toMemoQuotePreview() ?: memo.storedMemoQuotePreviewOrNull()
             put(
                 memo.identifier,

@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
+import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
 import androidx.compose.foundation.layout.imePadding
@@ -253,17 +254,29 @@ fun GroupMemoInputPage(
         navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
     }
 
-    fun uploadResource(uri: Uri) = coroutineScope.launch {
-        inputViewModel.upload(uri, memoIdentifier = null).suspendOnSuccess {
+    fun uploadResources(uris: List<Uri>) = coroutineScope.launch {
+        var uploadedAny = false
+        uris.forEach { uri ->
+            inputViewModel.upload(uri, memoIdentifier = null).suspendOnSuccess {
+                uploadedAny = true
+            }.suspendOnErrorMessage { message ->
+                snackbarState.showSnackbar(message)
+            }
+        }
+        if (uploadedAny) {
             delay(300)
             focusRequester.requestFocus()
-        }.suspendOnErrorMessage { message ->
-            snackbarState.showSnackbar(message)
         }
     }
 
-    val pickImage = rememberLauncherForActivityResult(PickVisualMedia()) { uri ->
-        uri?.let { uploadResource(it) }
+    fun uploadResource(uri: Uri) {
+        uploadResources(listOf(uri))
+    }
+
+    val pickMedia = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { uris ->
+        if (uris.isNotEmpty()) {
+            uploadResources(uris)
+        }
     }
 
     var photoImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -346,7 +359,7 @@ fun GroupMemoInputPage(
                     text = toggleTodoItemInText(text)
                 },
                 onPickImage = {
-                    pickImage.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
+                    pickMedia.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
                 },
                 onPickAttachment = {
                     pickAttachment.launch(arrayOf("*/*"))

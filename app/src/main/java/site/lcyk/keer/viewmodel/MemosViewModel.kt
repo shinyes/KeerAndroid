@@ -48,7 +48,6 @@ import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.data.model.buildDailyUsageMatrixFromDates
 import site.lcyk.keer.data.model.buildHeatmapTimeline
 import site.lcyk.keer.data.model.isExploreEntryVisible
-import site.lcyk.keer.data.model.toMemo
 import site.lcyk.keer.data.repository.JoinedGroupRepository
 import site.lcyk.keer.data.repository.UserGeneralSettingsRepository
 import site.lcyk.keer.data.service.AccountService
@@ -57,10 +56,9 @@ import site.lcyk.keer.data.service.OfflineGroupStore
 import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.util.buildResolvedMemoQuoteMap
+import site.lcyk.keer.util.ResolvedMemoQuoteProjector
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.resolveMemoGroupExploreEntryId
-import site.lcyk.keer.util.toMemoEntityForCard
 import site.lcyk.keer.widget.WidgetUpdater
 import java.time.LocalDate
 import java.time.OffsetDateTime
@@ -100,6 +98,9 @@ class MemosViewModel @Inject constructor(
     private val feedProjectionStore = FeedProjectionStore(
         scope = viewModelScope,
         idleCommitDelayMillis = SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS,
+    )
+    private val resolvedQuoteProjector = ResolvedMemoQuoteProjector(
+        transientMemoLookup = ::getMemoForDetail,
     )
     private val drawerProjectionStore = DrawerProjectionStore(
         scope = viewModelScope,
@@ -192,13 +193,18 @@ class MemosViewModel @Inject constructor(
                 if (accountKey.isBlank()) {
                     flowOf(emptyList())
                 } else {
+                    val projector = HomeMemoListProjector()
                     combine(
                         projectionMemos,
                         offlineGroupStore.observeAllCachedGroupMemos(accountKey),
                         offlineGroupStore.observePinnedGroupMemoKeys(accountKey),
                     ) { localMemos, cachedGroupMemos, pinnedGroupMemoKeys ->
-                        buildHomeMemoItems(
-                            account = account,
+                        projector.project(
+                            currentUserId = (account as? Account.KeerV2)
+                                ?.info
+                                ?.id
+                                ?.toString()
+                                ?.let(::normalizeCollaboratorId),
                             accountKey = accountKey,
                             localMemos = localMemos,
                             cachedGroupMemos = cachedGroupMemos,
@@ -251,10 +257,7 @@ class MemosViewModel @Inject constructor(
             .mapLatest { (latestMemos, _) ->
                 withContext(Dispatchers.Default) {
                     measureFeedSection("resolved_quotes", latestMemos.size) {
-                        buildResolvedMemoQuoteMap(
-                            latestMemos,
-                            transientMemoLookup = ::getMemoForDetail,
-                        )
+                        resolvedQuoteProjector.project(latestMemos)
                     }
                 }
             }
@@ -360,10 +363,10 @@ class MemosViewModel @Inject constructor(
         domains: Set<SyncDomain> = setOf(SyncDomain.MEMOS),
         bypassCoalesce: Boolean = false,
     ) = withContext(viewModelScope.coroutineContext) {
-        if (syncAfterLoad && trigger == SyncTrigger.MANUAL) {
+        if (syncAfterLoad) {
             memoService.requestSync(
-                trigger = SyncTrigger.MANUAL,
-                force = true,
+                trigger = trigger,
+                force = trigger == SyncTrigger.MANUAL,
                 domains = domains,
                 bypassCoalesce = bypassCoalesce,
             )
@@ -377,9 +380,6 @@ class MemosViewModel @Inject constructor(
         bypassCoalesce: Boolean = false,
     ) = withContext(viewModelScope.coroutineContext) {
         if (domains.isEmpty()) {
-            return@withContext
-        }
-        if (!force && trigger != SyncTrigger.MANUAL) {
             return@withContext
         }
         memoService.requestSync(
@@ -500,6 +500,10 @@ class MemosViewModel @Inject constructor(
 
     fun observeScopeFrozen(scope: MemoUiScope) = uiInteractionGate.observeScopeFrozen(scope)
 
+    fun preloadDrawerState() {
+        drawerProjectionStore.preloadVisibleState()
+    }
+
     fun cacheMemoForDetail(memo: MemoEntity) {
         transientDetailMemos[memo.identifier] = memo
         if (transientDetailMemos.size > MAX_TRANSIENT_DETAIL_MEMO_COUNT) {
@@ -539,56 +543,6 @@ class MemosViewModel @Inject constructor(
             today = LocalDate.now(),
             emptyFallback = DailyUsageStat.initialMatrix,
         )
-    }
-
-    private fun buildHomeMemoItems(
-        account: Account?,
-        accountKey: String,
-        localMemos: List<MemoEntity>,
-        cachedGroupMemos: List<Pair<site.lcyk.keer.data.model.CachedMemoItem, String>>,
-        pinnedGroupMemoKeys: Set<String>,
-    ): List<HomeMemoItem> {
-        val currentUserId = (account as? Account.KeerV2)
-            ?.info
-            ?.id
-            ?.toString()
-            ?.let(::normalizeCollaboratorId)
-        val personalItems = localMemos.map { memo -> HomeMemoItem(memo = memo) }
-        val groupItems = if (currentUserId.isNullOrBlank()) {
-            emptyList()
-        } else {
-            cachedGroupMemos.mapNotNull { (cachedMemo, groupId) ->
-                val creatorId = normalizeCollaboratorId(cachedMemo.creatorId.orEmpty())
-                if (creatorId != currentUserId) {
-                    return@mapNotNull null
-                }
-                val resolvedMemo = cachedMemo.toMemo().let { memo ->
-                    val pinned = groupMemoKey(groupId, memo.remoteId) in pinnedGroupMemoKeys
-                    if (memo.pinned == pinned) memo else memo.copy(pinned = pinned)
-                }
-                val syncedAt = resolvedMemo.updatedAt ?: resolvedMemo.date
-                HomeMemoItem(
-                    memo = resolvedMemo.toMemoEntityForCard(
-                        identifier = "group:$groupId:${resolvedMemo.remoteId}",
-                        accountKey = accountKey,
-                        needsSync = false,
-                        lastModified = syncedAt,
-                        lastSyncedAt = syncedAt,
-                    ),
-                    groupId = groupId,
-                )
-            }
-        }
-        return (personalItems + groupItems)
-            .distinctBy { item -> item.memo.identifier }
-            .sortedWith(
-                compareByDescending<HomeMemoItem> { it.memo.pinned }
-                    .thenByDescending { it.memo.date },
-            )
-    }
-
-    private fun groupMemoKey(groupId: String, memoRemoteId: String): String {
-        return "$groupId|$memoRemoteId"
     }
 
     private inline fun <T> measureFeedSection(

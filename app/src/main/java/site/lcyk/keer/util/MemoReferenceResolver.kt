@@ -50,9 +50,37 @@ fun resolveMemoFromQuoteDescriptor(
     descriptor: MemoQuoteDescriptor,
     memos: List<MemoEntity>,
 ): MemoEntity? {
+    val byIdentifier = memos.associateBy { memo -> memo.identifier }
+    val byRemoteId = memos
+        .asSequence()
+        .mapNotNull { memo ->
+            memo.remoteId
+                ?.trim()
+                ?.takeIf(String::isNotEmpty)
+                ?.let { remoteId -> remoteId to memo }
+        }
+        .toMap()
+    return resolveMemoFromQuoteDescriptor(
+        descriptor = descriptor,
+        byIdentifier = byIdentifier,
+        byRemoteId = byRemoteId,
+    )
+}
+
+fun resolveMemoFromQuoteDescriptor(
+    descriptor: MemoQuoteDescriptor,
+    byIdentifier: Map<String, MemoEntity>,
+    byRemoteId: Map<String, MemoEntity>,
+): MemoEntity? {
     return when (descriptor.sourceKind) {
-        MemoQuoteSourceKind.LOCAL -> resolveMemoByIdentifier(descriptor.source, memos)
-        MemoQuoteSourceKind.REMOTE -> resolveMemoByRemoteId(descriptor.source, memos)
+        MemoQuoteSourceKind.LOCAL -> {
+            byIdentifier[descriptor.source]
+                ?: extractRemoteIdFromIdentifier(descriptor.source)?.let(byRemoteId::get)
+        }
+        MemoQuoteSourceKind.REMOTE -> {
+            byRemoteId[descriptor.source]
+                ?: byIdentifier["$EXPLORE_MEMO_PREFIX${descriptor.source}"]
+        }
     }
 }
 

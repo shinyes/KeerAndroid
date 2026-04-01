@@ -79,6 +79,9 @@ fun MemosPage(
         }
             .distinctUntilChanged()
             .collect { hidden ->
+            if (!hidden) {
+                memosViewModel.preloadDrawerState()
+            }
             memosViewModel.setInteractionActive(MemoUiScope.DRAWER, UiInteractionType.DRAWER_HIDDEN, hidden)
         }
     }

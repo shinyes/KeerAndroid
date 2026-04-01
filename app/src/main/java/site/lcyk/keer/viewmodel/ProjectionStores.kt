@@ -40,6 +40,10 @@ class DrawerProjectionStore(
         store.updateLiveState(state)
     }
 
+    fun preloadVisibleState() {
+        store.preloadLatestVisibleState()
+    }
+
     fun setFrozen(active: Boolean) {
         store.setFrozen(active)
     }

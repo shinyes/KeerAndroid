@@ -9,9 +9,12 @@ import com.skydoves.sandwich.onSuccess
 import com.skydoves.sandwich.retrofit.statusCode
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -794,9 +797,21 @@ class KeerV2Repository(
             .url(streamUrl)
             .header("Accept", "text/event-stream")
             .build()
+        val call = streamHttpClient.newCall(request)
+        val cancellationHandle = currentCoroutineContext().job.invokeOnCompletion { cause ->
+            if (cause is CancellationException) {
+                call.cancel()
+            }
+        }
         val response = try {
-            streamHttpClient.newCall(request).execute()
+            call.execute()
         } catch (e: Exception) {
+            cancellationHandle.dispose()
+            if (call.isCanceled()) {
+                return ApiResponse.Failure.Exception(
+                    CancellationException("Sync stream cancelled", e)
+                )
+            }
             return ApiResponse.Failure.Exception(e)
         }
         return try {
@@ -895,7 +910,14 @@ class KeerV2Repository(
 
                 body.charStream().buffered().use { reader ->
                     while (true) {
-                        val line = reader.readLine() ?: break
+                        val line = try {
+                            reader.readLine()
+                        } catch (e: Exception) {
+                            if (call.isCanceled()) {
+                                throw CancellationException("Sync stream cancelled", e)
+                            }
+                            throw e
+                        } ?: break
                         if (line.isEmpty()) {
                             when (val flush = flushEvent()) {
                                 is ApiResponse.Success -> Unit
@@ -929,8 +951,12 @@ class KeerV2Repository(
                 }
                 ApiResponse.Success(currentCursor)
             }
+        } catch (e: CancellationException) {
+            ApiResponse.Failure.Exception(e)
         } catch (e: Exception) {
             ApiResponse.Failure.Exception(e)
+        } finally {
+            cancellationHandle.dispose()
         }
     }
 

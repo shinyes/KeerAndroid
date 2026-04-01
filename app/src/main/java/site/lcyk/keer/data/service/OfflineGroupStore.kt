@@ -316,76 +316,85 @@ class OfflineGroupStore @Inject constructor(
     suspend fun replaceLocalGroupId(accountKey: String, localGroupId: String, remoteGroup: MemoGroup) {
         val normalizedAccountKey = accountKey.trim()
         val normalizedLocalGroupId = localGroupId.trim()
-        if (normalizedAccountKey.isEmpty() || normalizedLocalGroupId.isEmpty()) {
+        val normalizedRemoteGroupId = remoteGroup.id.trim()
+        if (normalizedAccountKey.isEmpty() || normalizedLocalGroupId.isEmpty() || normalizedRemoteGroupId.isEmpty()) {
             return
         }
 
         database.withTransaction {
-            val groups = mergeGroup(
-                getGroups(normalizedAccountKey).filterNot { group -> group.id == normalizedLocalGroupId },
-                remoteGroup,
-            )
-            val pendingMemos = getPendingGroupMemos(normalizedAccountKey).map { memo ->
-                if (memo.groupId == normalizedLocalGroupId) memo.copy(groupId = remoteGroup.id) else memo
-            }
-            val pendingOperations = getPendingGroupOperations(normalizedAccountKey).map { operation ->
-                if (operation.groupId == normalizedLocalGroupId) operation.copy(groupId = remoteGroup.id) else operation
-            }
-            val pinned = dao.getPinnedGroupMemos(normalizedAccountKey).map { entity ->
-                if (entity.groupId == normalizedLocalGroupId) entity.copy(groupId = remoteGroup.id) else entity
-            }.distinctBy { entity -> Triple(entity.accountKey, entity.groupId, entity.memoRemoteId) }
-            val cachedGroupMemos = collectAllCachedGroupMemoEntities(normalizedAccountKey).map { entity ->
-                if (entity.groupId == normalizedLocalGroupId) entity.copy(groupId = remoteGroup.id) else entity
-            }.distinctBy { entity -> Triple(entity.accountKey, entity.groupId, entity.remoteId) }
-            val cachedGroupTags = dao.getCachedGroupTags(normalizedAccountKey).map { entity ->
-                if (entity.groupId == normalizedLocalGroupId) {
-                    val decoded = entity.toModel(json)
-                    entity.copy(
-                        groupId = remoteGroup.id,
-                        tagsJson = json.encodeToString(
-                            CachedGroupTagSet.serializer(),
-                            decoded.copy(groupId = remoteGroup.id),
-                        ),
+            if (normalizedLocalGroupId == normalizedRemoteGroupId) {
+                dao.upsertGroup(remoteGroup.toEntity(normalizedAccountKey))
+                dao.deleteGroupMembersByGroup(normalizedAccountKey, normalizedRemoteGroupId)
+                if (remoteGroup.members.isNotEmpty()) {
+                    dao.upsertGroupMembers(
+                        remoteGroup.members.map { member -> member.toEntity(normalizedAccountKey, normalizedRemoteGroupId) }
                     )
-                } else {
-                    entity
                 }
+                return@withTransaction
             }
-            val aliases = (getGroupAliases(normalizedAccountKey)
-                .filterNot { alias ->
-                    alias.localId == normalizedLocalGroupId || alias.remoteId == remoteGroup.id
-                } + GroupIdAlias(
-                localId = normalizedLocalGroupId,
-                remoteId = remoteGroup.id,
-            )).distinctBy { alias -> alias.localId to alias.remoteId }
 
-            dao.deleteGroupsByAccount(normalizedAccountKey)
-            dao.deleteGroupMembersByAccount(normalizedAccountKey)
-            dao.deletePendingGroupMemosByAccount(normalizedAccountKey)
-            dao.deletePendingGroupOperationsByAccount(normalizedAccountKey)
-            dao.deletePinnedGroupMemosByAccount(normalizedAccountKey)
-            dao.deleteCachedGroupMemosByAccount(normalizedAccountKey)
-            dao.deleteCachedGroupTagsByAccount(normalizedAccountKey)
-            dao.deleteGroupAliasesByAccount(normalizedAccountKey)
+            val impactedGroupIds = listOf(normalizedLocalGroupId, normalizedRemoteGroupId).distinct()
 
-            if (groups.isNotEmpty()) {
-                dao.upsertGroups(groups.map { group -> group.toEntity(normalizedAccountKey) })
+            dao.deleteGroupsByIds(normalizedAccountKey, impactedGroupIds)
+            dao.deleteGroupMembersByGroups(normalizedAccountKey, impactedGroupIds)
+            dao.upsertGroup(remoteGroup.toEntity(normalizedAccountKey))
+            if (remoteGroup.members.isNotEmpty()) {
                 dao.upsertGroupMembers(
-                    groups.flatMap { group ->
-                        group.members.map { member -> member.toEntity(normalizedAccountKey, group.id) }
-                    }
+                    remoteGroup.members.map { member -> member.toEntity(normalizedAccountKey, normalizedRemoteGroupId) }
                 )
             }
-            pendingMemos.forEach { memo -> dao.upsertPendingGroupMemo(memo.toEntity(normalizedAccountKey, json, stringListSerializer)) }
-            pendingOperations.forEach { operation -> dao.upsertPendingGroupOperation(operation.toEntity(normalizedAccountKey)) }
-            pinned.forEach { entity -> dao.upsertPinnedGroupMemo(entity) }
-            if (cachedGroupMemos.isNotEmpty()) {
-                dao.upsertCachedGroupMemos(cachedGroupMemos)
+
+            dao.reassignPendingGroupOperations(
+                accountKey = normalizedAccountKey,
+                oldGroupId = normalizedLocalGroupId,
+                newGroupId = normalizedRemoteGroupId,
+            )
+            dao.copyPendingGroupMemosToGroup(
+                accountKey = normalizedAccountKey,
+                oldGroupId = normalizedLocalGroupId,
+                newGroupId = normalizedRemoteGroupId,
+            )
+            dao.copyPinnedGroupMemosToGroup(
+                accountKey = normalizedAccountKey,
+                oldGroupId = normalizedLocalGroupId,
+                newGroupId = normalizedRemoteGroupId,
+            )
+            dao.copyCachedGroupMemosToGroup(
+                accountKey = normalizedAccountKey,
+                oldGroupId = normalizedLocalGroupId,
+                newGroupId = normalizedRemoteGroupId,
+            )
+
+            dao.deletePendingGroupMemosByGroup(normalizedAccountKey, normalizedLocalGroupId)
+            dao.deletePinnedGroupMemosByGroup(normalizedAccountKey, normalizedLocalGroupId)
+            dao.deleteCachedGroupMemosByGroup(normalizedAccountKey, normalizedLocalGroupId)
+
+            dao.getCachedGroupTag(normalizedAccountKey, normalizedLocalGroupId)?.let { localTagEntity ->
+                dao.upsertCachedGroupTag(
+                    localTagEntity.copy(
+                        groupId = normalizedRemoteGroupId,
+                        tagsJson = json.encodeToString(
+                            CachedGroupTagSet.serializer(),
+                            localTagEntity.toModel(json).copy(groupId = normalizedRemoteGroupId),
+                        ),
+                    )
+                )
             }
-            cachedGroupTags.forEach { entity -> dao.upsertCachedGroupTag(entity) }
-            if (aliases.isNotEmpty()) {
-                dao.upsertGroupAliases(aliases.map { alias -> alias.toEntity(normalizedAccountKey) })
-            }
+            dao.deleteCachedGroupTagsByGroup(normalizedAccountKey, normalizedLocalGroupId)
+
+            dao.deleteGroupAliasesForReplacement(
+                accountKey = normalizedAccountKey,
+                localGroupId = normalizedLocalGroupId,
+                remoteGroupId = normalizedRemoteGroupId,
+            )
+            dao.upsertGroupAliases(
+                listOf(
+                    GroupIdAlias(
+                        localId = normalizedLocalGroupId,
+                        remoteId = normalizedRemoteGroupId,
+                    ).toEntity(normalizedAccountKey)
+                )
+            )
         }
     }
 
@@ -402,17 +411,9 @@ class OfflineGroupStore @Inject constructor(
             dao.deleteCachedGroupMemosByGroups(normalizedAccountKey, linkedIds)
             dao.deleteCachedGroupTagsByGroups(normalizedAccountKey, linkedIds)
             dao.deletePinnedGroupMemosByGroups(normalizedAccountKey, linkedIds)
+            dao.deletePendingGroupMemosByGroups(normalizedAccountKey, linkedIds)
+            dao.deletePendingGroupOperationsByGroups(normalizedAccountKey, linkedIds)
             dao.deleteGroupAliasesByGroupIds(normalizedAccountKey, linkedIds)
-
-            val pendingMemos = getPendingGroupMemos(normalizedAccountKey)
-                .filterNot { memo -> memo.groupId in linkedIds }
-            val pendingOperations = getPendingGroupOperations(normalizedAccountKey)
-                .filterNot { operation -> operation.groupId in linkedIds }
-
-            dao.deletePendingGroupMemosByAccount(normalizedAccountKey)
-            dao.deletePendingGroupOperationsByAccount(normalizedAccountKey)
-            pendingMemos.forEach { memo -> dao.upsertPendingGroupMemo(memo.toEntity(normalizedAccountKey, json, stringListSerializer)) }
-            pendingOperations.forEach { operation -> dao.upsertPendingGroupOperation(operation.toEntity(normalizedAccountKey)) }
         }
     }
 
@@ -436,12 +437,6 @@ class OfflineGroupStore @Inject constructor(
         }
     }
 
-    private suspend fun collectAllCachedGroupMemoEntities(accountKey: String): List<OfflineCachedGroupMemoEntity> {
-        return dao.getGroups(accountKey).flatMap { group ->
-            dao.getCachedGroupMemos(accountKey, group.groupId)
-        }
-    }
-
     private suspend fun linkedGroupIds(accountKey: String, groupId: String): List<String> {
         if (groupId.isBlank()) {
             return emptyList()
@@ -460,14 +455,6 @@ class OfflineGroupStore @Inject constructor(
         return runCatching {
             json.decodeFromString(CachedMemoItem.serializer(), raw)
         }.getOrNull()
-    }
-
-    private fun mergeGroup(groups: List<MemoGroup>, target: MemoGroup): List<MemoGroup> {
-        val withoutTarget = groups.filterNot { group -> group.id == target.id }
-        return (withoutTarget + target).sortedWith(
-            compareByDescending<MemoGroup> { it.updatedAtEpochMillis }
-                .thenByDescending { it.createdAtEpochMillis }
-        )
     }
 
     private fun OfflineGroupEntity.toModel(

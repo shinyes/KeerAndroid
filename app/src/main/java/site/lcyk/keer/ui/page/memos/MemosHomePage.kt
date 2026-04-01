@@ -115,6 +115,7 @@ fun MemosHomePage(
                         if (drawerState != null) {
                             IconButton(onClick = {
                                 onMenuButtonOpenRequested?.invoke()
+                                memosViewModel.preloadDrawerState()
                                 scope.launch { drawerState.open() }
                             }) {
                                 Icon(Icons.Filled.Menu, contentDescription = R.string.menu.string)
