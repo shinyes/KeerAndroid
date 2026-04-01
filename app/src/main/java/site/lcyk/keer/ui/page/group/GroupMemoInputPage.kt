@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.NavHostController
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.ResourceEntity
@@ -75,6 +76,7 @@ import site.lcyk.keer.viewmodel.executeMemoEditorSubmitWorkflow
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 
 private const val NEW_GROUP_MEMO_EDITOR_SEED = "__new__"
+private const val groupMemoEditorDeferredPostFocusWorkDelayMillis = 180L
 
 @Composable
 fun GroupMemoInputPage(
@@ -261,6 +263,8 @@ fun GroupMemoInputPage(
         selectedCollaborators = fieldsState.selectedCollaborators
         editorBaseline = fieldsState.baseline
     }
+    var pendingDisposeCleanup by remember { mutableStateOf<site.lcyk.keer.viewmodel.MemoEditorWorkflowCleanupState?>(null) }
+    var clearPersistedEditorContentOnDispose by remember { mutableStateOf(false) }
     var resetPendingLocationPermissionRequest: () -> Unit = {}
     val applyWorkflowCleanup: (site.lcyk.keer.viewmodel.MemoEditorWorkflowCleanupState) -> Unit = { cleanup ->
         if (cleanup.clearUploads) {
@@ -271,6 +275,15 @@ fun GroupMemoInputPage(
         }
         if (cleanup.resetPendingLocationPermission) {
             resetPendingLocationPermissionRequest()
+        }
+    }
+    fun scheduleDisposeCleanup(
+        cleanup: site.lcyk.keer.viewmodel.MemoEditorWorkflowCleanupState,
+        clearPersistedEditorContent: Boolean = false,
+    ) {
+        pendingDisposeCleanup = cleanup
+        if (clearPersistedEditorContent) {
+            clearPersistedEditorContentOnDispose = true
         }
     }
 
@@ -295,8 +308,10 @@ fun GroupMemoInputPage(
         if (workflowState.dismiss.shouldShowDiscardConfirmation) {
             showExitConfirmation = true
         } else if (workflowState.dismiss.shouldDismiss) {
-            applyWorkflowCleanup(workflowState.cleanup)
-            inputViewModel.clearPersistedEditorContent(editorSessionKey)
+            scheduleDisposeCleanup(
+                cleanup = workflowState.cleanup,
+                clearPersistedEditorContent = true,
+            )
             navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
         }
     }
@@ -330,8 +345,10 @@ fun GroupMemoInputPage(
             site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Skipped -> Unit
             is site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Succeeded -> {
                 applyFieldsState(submitResult.workflowState.completion.fields)
-                applyWorkflowCleanup(submitResult.workflowState.cleanup)
-                inputViewModel.clearPersistedEditorContent(editorSessionKey)
+                scheduleDisposeCleanup(
+                    cleanup = submitResult.workflowState.cleanup,
+                    clearPersistedEditorContent = true,
+                )
                 navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
             }
         }
@@ -485,8 +502,10 @@ fun GroupMemoInputPage(
                     clearUploadTasks = true,
                 )
                 applyFieldsState(workflowState.completion.fields)
-                applyWorkflowCleanup(workflowState.cleanup)
-                inputViewModel.clearPersistedEditorContent(editorSessionKey)
+                scheduleDisposeCleanup(
+                    cleanup = workflowState.cleanup,
+                    clearPersistedEditorContent = true,
+                )
                 navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
             },
             onDismiss = {
@@ -503,11 +522,16 @@ fun GroupMemoInputPage(
 
     LaunchedEffect(groupId) {
         coroutineScope.launch {
+            delay(groupMemoEditorDeferredPostFocusWorkDelayMillis)
             userStateViewModel.refreshFriends()
         }
-        groupViewModel.loadGroupTags(groupId)
+        coroutineScope.launch {
+            groupViewModel.loadGroupTags(groupId)
+        }
         if (isEditMode) {
-            groupViewModel.loadGroupMemos(groupId, forceSync = false)
+            coroutineScope.launch {
+                groupViewModel.loadGroupMemos(groupId, forceSync = false)
+            }
         }
     }
 
@@ -620,7 +644,12 @@ fun GroupMemoInputPage(
 
     DisposableEffect(Unit) {
         onDispose {
-            inputViewModel.clearUploadTasks()
+            pendingDisposeCleanup?.let(applyWorkflowCleanup)
+            if (clearPersistedEditorContentOnDispose) {
+                inputViewModel.clearPersistedEditorContent(editorSessionKey)
+            } else {
+                inputViewModel.clearUploadTasks()
+            }
         }
     }
 }

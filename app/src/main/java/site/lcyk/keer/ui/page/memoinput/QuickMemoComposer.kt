@@ -104,6 +104,9 @@ private val quickComposerDefaultMinEditorHeight = 132.dp
 private val quickComposerBottomBarHeight = 60.dp
 private val quickComposerFallbackLineHeight = 20.dp
 private const val quickComposerKeyboardHideDelayMillis = 120L
+private const val quickComposerDeferredPostFocusWorkDelayMillis = 180L
+private const val quickComposerDeferredLocationPrefetchDelayMillis = 240L
+private const val quickComposerDeferredHideCleanupDelayMillis = 140L
 private const val quickComposerMinEditorLines = 4
 private val quickComposerShape = RoundedCornerShape(16.dp)
 
@@ -230,6 +233,8 @@ fun QuickMemoComposer(
     }
     val validMimeTypePrefixes = remember { setOf("text/") }
     var shouldHideKeyboardAfterDismiss by remember { mutableStateOf(false) }
+    var pendingHideCleanup by remember { mutableStateOf<MemoEditorWorkflowCleanupState?>(null) }
+    var clearPersistedEditorContentAfterHide by remember { mutableStateOf(false) }
     val applyFieldsState: (site.lcyk.keer.viewmodel.MemoEditorFieldsState) -> Unit = { fieldsState ->
         text = TextFieldValue(fieldsState.content, TextRange(fieldsState.content.length))
         selectedTags = fieldsState.selectedTags
@@ -266,6 +271,15 @@ fun QuickMemoComposer(
                 keyboardController?.hide()
                 shouldHideKeyboardAfterDismiss = false
             }
+        }
+    }
+    fun scheduleHideCleanup(
+        cleanup: MemoEditorWorkflowCleanupState,
+        clearPersistedEditorContent: Boolean = false,
+    ) {
+        pendingHideCleanup = cleanup
+        if (clearPersistedEditorContent) {
+            clearPersistedEditorContentAfterHide = true
         }
     }
 
@@ -339,8 +353,10 @@ fun QuickMemoComposer(
             )
             applyFieldsState(workflowState.completion.fields)
             workflowState.completion.draftPersistenceValue?.let(inputViewModel::updateDraft)
-            applyWorkflowCleanup(workflowState.cleanup)
-            inputViewModel.clearPersistedEditorContent(editorSessionKey)
+            scheduleHideCleanup(
+                cleanup = workflowState.cleanup,
+                clearPersistedEditorContent = true,
+            )
             onDismissRequest()
             return
         }
@@ -368,8 +384,10 @@ fun QuickMemoComposer(
             showExitConfirmation = true
         } else if (workflowState.dismiss.shouldDismiss) {
             workflowState.dismiss.draftPersistenceValue?.let(inputViewModel::updateDraft)
-            applyWorkflowCleanup(workflowState.cleanup)
-            inputViewModel.clearPersistedEditorContent(editorSessionKey)
+            scheduleHideCleanup(
+                cleanup = workflowState.cleanup,
+                clearPersistedEditorContent = true,
+            )
             onDismissRequest()
         }
     }
@@ -433,8 +451,10 @@ fun QuickMemoComposer(
             is site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Succeeded -> {
                 applyFieldsState(submitResult.workflowState.completion.fields)
                 submitResult.workflowState.completion.draftPersistenceValue?.let(inputViewModel::updateDraft)
-                applyWorkflowCleanup(submitResult.workflowState.cleanup)
-                inputViewModel.clearPersistedEditorContent(editorSessionKey)
+                scheduleHideCleanup(
+                    cleanup = submitResult.workflowState.cleanup,
+                    clearPersistedEditorContent = true,
+                )
                 onDismissRequest()
             }
         }
@@ -697,20 +717,24 @@ fun QuickMemoComposer(
             showTagSelector = false
             showCollaboratorSelector = false
             showExitConfirmation = false
-            applyWorkflowCleanup(
-                MemoEditorWorkflowCleanupState(
-                    stopLocationTracking = true,
-                    clearPrefetchedLocation = true,
-                    resetPendingLocationPermission = true,
-                )
+            val cleanup = pendingHideCleanup ?: MemoEditorWorkflowCleanupState(
+                stopLocationTracking = true,
+                clearPrefetchedLocation = true,
+                resetPendingLocationPermission = true,
             )
-            if (shouldHideKeyboardAfterDismiss) {
-                delay(quickComposerKeyboardHideDelayMillis)
-                keyboardController?.hide()
-                shouldHideKeyboardAfterDismiss = false
-            } else {
-                keyboardController?.hide()
+            if (pendingHideCleanup != null || shouldHideKeyboardAfterDismiss) {
+                delay(maxOf(
+                    quickComposerKeyboardHideDelayMillis,
+                    quickComposerDeferredHideCleanupDelayMillis,
+                ))
             }
+            applyWorkflowCleanup(cleanup)
+            if (clearPersistedEditorContentAfterHide) {
+                inputViewModel.clearPersistedEditorContent(editorSessionKey)
+            }
+            pendingHideCleanup = null
+            clearPersistedEditorContentAfterHide = false
+            shouldHideKeyboardAfterDismiss = false
             return@LaunchedEffect
         }
 
@@ -729,16 +753,21 @@ fun QuickMemoComposer(
         )
         applyWorkflowCleanup(restoreWorkflowState.cleanup)
         memosViewModel.loadTags()
-        coroutineScope.launch {
-            userStateViewModel.refreshFriends()
-        }
+        pendingHideCleanup = null
+        clearPersistedEditorContentAfterHide = false
         applyFieldsState(restoreWorkflowState.fields)
         withFrameNanos { }
         withFrameNanos { }
         focusRequester.requestFocus()
         keyboardController?.show()
-        delay(quickComposerKeyboardHideDelayMillis)
-        startLocationPrefetch(force = true)
+        coroutineScope.launch {
+            delay(quickComposerDeferredPostFocusWorkDelayMillis)
+            userStateViewModel.refreshFriends()
+        }
+        coroutineScope.launch {
+            delay(quickComposerDeferredLocationPrefetchDelayMillis)
+            startLocationPrefetch(force = true)
+        }
     }
 
     LaunchedEffect(

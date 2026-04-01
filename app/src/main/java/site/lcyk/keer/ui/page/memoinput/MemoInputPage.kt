@@ -64,6 +64,7 @@ import site.lcyk.keer.viewmodel.executeMemoEditorSubmitWorkflow
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 
 private const val NEW_MEMO_EDITOR_SEED = "__new__"
+private const val memoEditorDeferredPostFocusWorkDelayMillis = 180L
 
 @Composable
 fun MemoInputPage(
@@ -228,6 +229,8 @@ fun MemoInputPage(
         selectedCollaborators = fieldsState.selectedCollaborators
         editorBaseline = fieldsState.baseline
     }
+    var pendingDisposeCleanup by remember { mutableStateOf<site.lcyk.keer.viewmodel.MemoEditorWorkflowCleanupState?>(null) }
+    var clearPersistedEditorContentOnDispose by remember { mutableStateOf(false) }
     var resetPendingLocationPermissionRequest: () -> Unit = {}
     val applyWorkflowCleanup: (site.lcyk.keer.viewmodel.MemoEditorWorkflowCleanupState) -> Unit = { cleanup ->
         if (cleanup.clearUploads) {
@@ -250,6 +253,15 @@ fun MemoInputPage(
             coroutineScope.launch {
                 memosViewModel.refreshLocalSnapshot()
             }
+        }
+    }
+    fun scheduleDisposeCleanup(
+        cleanup: site.lcyk.keer.viewmodel.MemoEditorWorkflowCleanupState,
+        clearPersistedEditorContent: Boolean = false,
+    ) {
+        pendingDisposeCleanup = cleanup
+        if (clearPersistedEditorContent) {
+            clearPersistedEditorContentOnDispose = true
         }
     }
     val quotePreviewContent: (@Composable () -> Unit)? = if (quoteDescriptorForSubmit == null) {
@@ -361,8 +373,10 @@ fun MemoInputPage(
                 site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Skipped -> Unit
                 is site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Succeeded -> {
                     applyFieldsState(submitResult.workflowState.completion.fields)
-                    applyWorkflowCleanup(submitResult.workflowState.cleanup)
-                    viewModel.clearPersistedEditorContent(editorSessionKey)
+                    scheduleDisposeCleanup(
+                        cleanup = submitResult.workflowState.cleanup,
+                        clearPersistedEditorContent = true,
+                    )
                     navController.popBackStack()
                 }
             }
@@ -420,9 +434,11 @@ fun MemoInputPage(
             site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Skipped -> Unit
             is site.lcyk.keer.viewmodel.MemoEditorSubmitWorkflowResult.Succeeded -> {
                 applyFieldsState(submitResult.workflowState.completion.fields)
-                applyWorkflowCleanup(submitResult.workflowState.cleanup)
+                scheduleDisposeCleanup(
+                    cleanup = submitResult.workflowState.cleanup,
+                    clearPersistedEditorContent = true,
+                )
                 submitResult.workflowState.completion.draftPersistenceValue?.let(viewModel::updateDraft)
-                viewModel.clearPersistedEditorContent(editorSessionKey)
                 navController.popBackStack()
             }
         }
@@ -453,8 +469,10 @@ fun MemoInputPage(
             showExitConfirmation = true
         } else if (workflowState.dismiss.shouldDismiss) {
             workflowState.dismiss.draftPersistenceValue?.let(viewModel::updateDraft)
-            applyWorkflowCleanup(workflowState.cleanup)
-            viewModel.clearPersistedEditorContent(editorSessionKey)
+            scheduleDisposeCleanup(
+                cleanup = workflowState.cleanup,
+                clearPersistedEditorContent = true,
+            )
             navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
         }
     }
@@ -614,9 +632,11 @@ fun MemoInputPage(
                     clearUploadTasks = true,
                 )
                 applyFieldsState(workflowState.completion.fields)
-                applyWorkflowCleanup(workflowState.cleanup)
                 workflowState.completion.draftPersistenceValue?.let(viewModel::updateDraft)
-                viewModel.clearPersistedEditorContent(editorSessionKey)
+                scheduleDisposeCleanup(
+                    cleanup = workflowState.cleanup,
+                    clearPersistedEditorContent = true,
+                )
                 navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
             },
             onDismiss = {
@@ -633,9 +653,6 @@ fun MemoInputPage(
 
     LaunchedEffect(memoIdentifier, quoteSourceMemoIdentifier, displayMemo?.identifier, displayMemo?.lastModified) {
         memosViewModel.loadTags()
-        coroutineScope.launch {
-            userStateViewModel.refreshFriends()
-        }
         when {
             !memoIdentifier.isNullOrBlank() -> {
                 val targetMemo = displayMemo ?: return@LaunchedEffect
@@ -697,7 +714,11 @@ fun MemoInputPage(
         withFrameNanos { }
         focusRequester.requestFocus()
         coroutineScope.launch {
-            delay(120)
+            delay(memoEditorDeferredPostFocusWorkDelayMillis)
+            userStateViewModel.refreshFriends()
+        }
+        coroutineScope.launch {
+            delay(memoEditorDeferredPostFocusWorkDelayMillis + 40L)
             startLocationPrefetch(force = true)
         }
     }
@@ -722,8 +743,14 @@ fun MemoInputPage(
 
     DisposableEffect(Unit) {
         onDispose {
-            stopLocationTracking?.invoke()
-            if (memoIdentifier.isNullOrBlank()) {
+            val cleanupOnDispose = pendingDisposeCleanup
+            if (cleanupOnDispose?.stopLocationTracking != true) {
+                stopLocationTracking?.invoke()
+            }
+            cleanupOnDispose?.let(applyWorkflowCleanup)
+            if (clearPersistedEditorContentOnDispose) {
+                viewModel.clearPersistedEditorContent(editorSessionKey)
+            } else if (memoIdentifier.isNullOrBlank()) {
                 buildMemoEditorDismissWorkflowState(
                     isDirty = false,
                     persistDraft = true,
