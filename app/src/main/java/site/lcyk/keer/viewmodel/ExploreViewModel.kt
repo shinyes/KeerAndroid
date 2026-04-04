@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -37,6 +38,7 @@ import site.lcyk.keer.ext.string
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.ResolvedMemoQuoteProjector
+import site.lcyk.keer.util.canManageCollaborativeMemo
 
 data class ExploreMemoItem(
     val memo: Memo,
@@ -167,6 +169,10 @@ class ExploreViewModel @Inject constructor(
         if (normalizedContent.isEmpty()) {
             return@withContext false
         }
+        if (!canManageExploreItem(item)) {
+            _mutationErrorMessage.value = R.string.memo_error_manage_denied.string
+            return@withContext false
+        }
         val normalizedTags = normalizeTagList(tags)
         val response = if (item.groupId.isNullOrBlank()) {
             remoteRepository.updateMemo(
@@ -200,6 +206,10 @@ class ExploreViewModel @Inject constructor(
             _mutationErrorMessage.value = R.string.current_account_no_remote_memo_operations.string
             return@withContext false
         }
+        if (!canManageExploreItem(item)) {
+            _mutationErrorMessage.value = R.string.memo_error_manage_denied.string
+            return@withContext false
+        }
         val response = if (item.groupId.isNullOrBlank()) {
             remoteRepository.deleteMemo(item.memo.remoteId)
         } else {
@@ -231,6 +241,17 @@ class ExploreViewModel @Inject constructor(
         if (refreshResponse !is ApiResponse.Success) {
             _mutationErrorMessage.value = refreshResponse.getErrorMessage()
         }
+    }
+
+    private suspend fun canManageExploreItem(item: ExploreMemoItem): Boolean {
+        val currentUserId = normalizeCollaboratorId(
+            when (val account = accountService.currentAccount.first()) {
+                is site.lcyk.keer.data.model.Account.KeerV2 -> account.info.id.toString()
+                is site.lcyk.keer.data.model.Account.Local -> "local"
+                null -> ""
+            }
+        )
+        return canManageCollaborativeMemo(item.memo, currentUserId)
     }
 
     private fun enqueueExploreRefresh(groupId: String?) {

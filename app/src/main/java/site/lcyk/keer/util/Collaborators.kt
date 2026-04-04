@@ -1,5 +1,7 @@
 package site.lcyk.keer.util
 
+import site.lcyk.keer.data.model.Memo
+
 const val COLLABORATOR_TAG_PREFIX = "collab/"
 
 fun normalizeCollaboratorId(raw: String): String {
@@ -58,4 +60,18 @@ fun buildCollaboratorFilterExpression(userId: String): String {
         return ""
     }
     return "\"${tag.replace("\"", "\\\"")}\" in tags"
+}
+
+fun canManageCollaborativeMemo(memo: Memo, currentUserId: String): Boolean {
+    val normalizedCurrentUserId = normalizeCollaboratorId(currentUserId)
+    if (normalizedCurrentUserId.isEmpty()) {
+        return false
+    }
+    val creatorId = normalizeCollaboratorId(memo.creator?.identifier.orEmpty())
+    if (creatorId == normalizedCurrentUserId) {
+        return true
+    }
+    return extractCollaboratorIds(memo.tags).any { collaboratorId ->
+        normalizeCollaboratorId(collaboratorId) == normalizedCurrentUserId
+    }
 }

@@ -159,6 +159,7 @@
     <string name="group_error_invalid_update_request">群組更新請求無效</string>
     <string name="group_error_account_not_support_group_memos">目前帳戶不支援群組 memo</string>
     <string name="group_error_missing_read_target">無法判定最新的對方訊息，暫時不能標記為已讀。</string>
+    <string name="memo_error_manage_denied">你沒有修改這則 memo 的權限。</string>
     <string name="group_id">群組 ID</string>
     <string name="group_creator_id">發起人 ID</string>
     <string name="group_creator_name">發起人名稱</string>

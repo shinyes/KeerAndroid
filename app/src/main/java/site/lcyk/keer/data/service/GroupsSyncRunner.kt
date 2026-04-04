@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import site.lcyk.keer.data.model.PendingGroupMemo
 import site.lcyk.keer.data.model.PendingGroupOperationType
+import site.lcyk.keer.data.model.isLocalGroupId
 import site.lcyk.keer.data.model.toCachedMemoItem
 import site.lcyk.keer.data.repository.SyncPullDomain
 import site.lcyk.keer.data.repository.SyncPullResult
@@ -188,12 +189,22 @@ class GroupsSyncRunner @Inject constructor(
                 }
 
                 PendingGroupOperationType.DELETE_OR_LEAVE -> {
+                    if (isLocalGroupId(operation.groupId)) {
+                        offlineGroupStore.removeGroupReferences(accountKey, operation.groupId)
+                        removePendingOperation(accountKey, operation.operationId)
+                        continue
+                    }
                     when (val response = remoteRepository.deleteOrLeaveGroup(operation.groupId)) {
                         is ApiResponse.Success -> {
                             offlineGroupStore.removeGroupReferences(accountKey, operation.groupId)
                             removePendingOperation(accountKey, operation.operationId)
                         }
                         is ApiResponse.Failure.Error -> {
+                            if (response.statusCode.code == 404) {
+                                offlineGroupStore.removeGroupReferences(accountKey, operation.groupId)
+                                removePendingOperation(accountKey, operation.operationId)
+                                continue
+                            }
                             return ApiResponse.exception(
                                 IllegalStateException("Group delete/leave sync failed: HTTP ${response.statusCode}")
                             )
@@ -215,13 +226,29 @@ class GroupsSyncRunner @Inject constructor(
                         removePendingOperation(accountKey, operation.operationId)
                         continue
                     }
-                    val cachedTags = offlineGroupStore.getCachedGroupTags(accountKey, operation.groupId)
-                    offlineGroupStore.upsertCachedGroupTags(
-                        accountKey,
-                        operation.groupId,
-                        normalizeTags(cachedTags + tag)
-                    )
-                    removePendingOperation(accountKey, operation.operationId)
+                    when (val response = remoteRepository.addGroupTag(operation.groupId, tag)) {
+                        is ApiResponse.Success -> {
+                            offlineGroupStore.upsertCachedGroupTags(
+                                accountKey,
+                                operation.groupId,
+                                normalizeTags(response.data)
+                            )
+                            removePendingOperation(accountKey, operation.operationId)
+                        }
+                        is ApiResponse.Failure.Error -> {
+                            return ApiResponse.exception(
+                                IllegalStateException("Group tag sync failed: HTTP ${response.statusCode}")
+                            )
+                        }
+                        is ApiResponse.Failure.Exception -> {
+                            return ApiResponse.exception(
+                                IllegalStateException(
+                                    response.throwable.message ?: "Group tag sync failed",
+                                    response.throwable
+                                )
+                            )
+                        }
+                    }
                 }
             }
         }

@@ -2,6 +2,7 @@ package site.lcyk.keer.ui.page.group
 
 import android.content.ActivityNotFoundException
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -96,12 +97,18 @@ fun GroupMemoInputPage(
     val friends by userStateViewModel.friends.collectAsState()
     val groupMemos by groupViewModel.memos.collectAsState()
     val accountKey = currentAccount?.accountKey().orEmpty()
+    val currentUserId = when (val account = currentAccount) {
+        is site.lcyk.keer.data.model.Account.KeerV2 -> account.info.id.toString()
+        is site.lcyk.keer.data.model.Account.Local -> "local"
+        null -> ""
+    }
 
     var initialContent by remember { mutableStateOf("") }
     var initialTags by remember { mutableStateOf(emptyList<String>()) }
     var initialCollaborators by remember { mutableStateOf(emptyList<String>()) }
     var initialResourceIdentifiers by remember { mutableStateOf(emptyList<String>()) }
     var currentMemo by remember { mutableStateOf<site.lcyk.keer.data.local.entity.MemoEntity?>(null) }
+    var loadedEditableMemo by remember { mutableStateOf<Memo?>(null) }
 
     var text by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue("", TextRange(0)))
@@ -201,6 +208,11 @@ fun GroupMemoInputPage(
     fun submit() = coroutineScope.launch {
         if (inputViewModel.hasActiveUpload()) {
             snackbarState.showSnackbar(R.string.upload_in_progress_wait.string)
+            return@launch
+        }
+        val editableMemo = loadedEditableMemo
+        if (isEditMode && (editableMemo == null || !groupViewModel.canManageGroupMemo(editableMemo, currentUserId))) {
+            snackbarState.showSnackbar(R.string.memo_error_manage_denied.string)
             return@launch
         }
 
@@ -465,12 +477,23 @@ fun GroupMemoInputPage(
         inputViewModel.uploadResources.clear()
         inputViewModel.uploadTasks.clear()
         currentMemo = null
+        loadedEditableMemo = null
         userStateViewModel.refreshFriends()
         groupViewModel.loadGroupTags(groupId)
         if (isEditMode) {
             groupViewModel.loadGroupMemos(groupId, forceSync = false)
             val targetMemo = groupViewModel.findGroupMemo(groupId, memoId.orEmpty())
             if (targetMemo != null) {
+                if (!groupViewModel.canManageGroupMemo(targetMemo, currentUserId)) {
+                    Toast.makeText(
+                        navController.context,
+                        R.string.memo_error_manage_denied.string,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    navController.popBackStackIfLifecycleIsResumed(lifecycleOwner)
+                    return@LaunchedEffect
+                }
+                loadedEditableMemo = targetMemo
                 val memoEntity = targetMemo.toEditableGroupMemoEntity(groupId = groupId)
                 currentMemo = memoEntity
                 val collaborators = extractCollaboratorIds(targetMemo.tags)
@@ -505,6 +528,7 @@ fun GroupMemoInputPage(
                 selectedCollaborators = collaborators
             } else {
                 currentMemo = null
+                loadedEditableMemo = null
                 initialContent = ""
                 initialTags = emptyList()
                 initialCollaborators = emptyList()
@@ -515,6 +539,7 @@ fun GroupMemoInputPage(
             }
         } else {
             currentMemo = null
+            loadedEditableMemo = null
             initialContent = ""
             initialTags = emptyList()
             initialCollaborators = emptyList()

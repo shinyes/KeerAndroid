@@ -3,6 +3,8 @@ package site.lcyk.keer.data.model
 import java.time.Instant
 import kotlinx.serialization.Serializable
 
+const val LOCAL_GROUP_PREFIX = "local-group:"
+
 @Serializable
 enum class PendingGroupOperationType {
     CREATE,
@@ -69,6 +71,10 @@ data class GroupIdAlias(
     val remoteId: String,
     val updatedAtEpochMillis: Long = System.currentTimeMillis(),
 )
+
+fun isLocalGroupId(groupId: String): Boolean {
+    return groupId.trim().startsWith(LOCAL_GROUP_PREFIX)
+}
 
 fun CachedMemoItem.toMemo(): Memo {
     val resolvedVisibility = MemoVisibility.entries.firstOrNull { it.name == visibility }

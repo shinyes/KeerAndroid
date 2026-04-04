@@ -58,6 +58,7 @@ import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
 import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
+import site.lcyk.keer.util.canManageCollaborativeMemo
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.toMemoEntityForCard
@@ -460,15 +461,5 @@ private fun ExploreMemoCardActionButton(
 }
 
 private fun canManageExploreMemo(memo: Memo, currentUserId: String): Boolean {
-    val normalizedCurrentUserID = normalizeCollaboratorId(currentUserId)
-    if (normalizedCurrentUserID.isEmpty()) {
-        return false
-    }
-    val creatorID = normalizeCollaboratorId(memo.creator?.identifier.orEmpty())
-    if (creatorID == normalizedCurrentUserID) {
-        return true
-    }
-    return extractCollaboratorIds(memo.tags).any { collaboratorID ->
-        normalizeCollaboratorId(collaboratorID) == normalizedCurrentUserID
-    }
+    return canManageCollaborativeMemo(memo, currentUserId)
 }

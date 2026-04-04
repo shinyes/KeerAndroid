@@ -42,6 +42,7 @@ import site.lcyk.keer.data.service.SyncTrigger
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.util.ResolvedMemoQuoteProjector
+import site.lcyk.keer.util.canManageCollaborativeMemo
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
@@ -261,17 +262,7 @@ class GroupChatViewModel @Inject constructor(
     }
 
     fun canManageGroupMemo(memo: Memo, currentUserId: String): Boolean {
-        val normalizedCurrentUserID = normalizeCollaboratorId(currentUserId)
-        if (normalizedCurrentUserID.isEmpty()) {
-            return false
-        }
-        val creatorID = normalizeCollaboratorId(memo.creator?.identifier.orEmpty())
-        if (creatorID == normalizedCurrentUserID) {
-            return true
-        }
-        return extractCollaboratorIds(memo.tags).any { collaboratorID ->
-            normalizeCollaboratorId(collaboratorID) == normalizedCurrentUserID
-        }
+        return canManageCollaborativeMemo(memo, currentUserId)
     }
 
     suspend fun updateGroupMemo(
@@ -285,6 +276,9 @@ class GroupChatViewModel @Inject constructor(
         val normalizedContent = content.trim()
         val normalizedTags = normalizeTagList(tags)
         if (normalizedRemoteID.isEmpty() || (normalizedContent.isEmpty() && resourceIdentifiers.isNullOrEmpty())) {
+            return@withContext false
+        }
+        if (requireManageableGroupMemo(groupId, normalizedRemoteID) == null) {
             return@withContext false
         }
 
@@ -380,6 +374,9 @@ class GroupChatViewModel @Inject constructor(
     suspend fun deleteGroupMemo(groupId: String, memoRemoteId: String): Boolean = withContext(viewModelScope.coroutineContext) {
         val normalizedRemoteID = memoRemoteId.trim()
         if (normalizedRemoteID.isEmpty()) {
+            return@withContext false
+        }
+        if (requireManageableGroupMemo(groupId, normalizedRemoteID) == null) {
             return@withContext false
         }
 
@@ -724,6 +721,29 @@ class GroupChatViewModel @Inject constructor(
 
     private suspend fun readCurrentAccountKey(): String? {
         return accountLocalSettingsStore.observeCurrentAccountKey().first()
+    }
+
+    private suspend fun requireManageableGroupMemo(groupId: String, memoRemoteId: String): Memo? {
+        val targetMemo = findGroupMemo(groupId, memoRemoteId)
+        if (targetMemo == null) {
+            _errorMessage.value = R.string.group_error_invalid_update_request.string
+            return null
+        }
+        if (!canManageGroupMemo(targetMemo, resolveCurrentUserId())) {
+            _errorMessage.value = R.string.memo_error_manage_denied.string
+            return null
+        }
+        return targetMemo
+    }
+
+    private suspend fun resolveCurrentUserId(): String {
+        return normalizeCollaboratorId(
+            when (val account = accountService.currentAccount.first()) {
+                is Account.KeerV2 -> account.info.id.toString()
+                is Account.Local -> "local"
+                null -> ""
+            }
+        )
     }
 
     private fun parseRemoteNumericId(remoteId: String): Long? {

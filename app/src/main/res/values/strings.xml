@@ -162,6 +162,7 @@
     <string name="group_error_invalid_update_request">Invalid group update request</string>
     <string name="group_error_account_not_support_group_memos">Current account does not support group memos</string>
     <string name="group_error_missing_read_target">Unable to determine the latest incoming message for read status.</string>
+    <string name="memo_error_manage_denied">You do not have permission to modify this memo.</string>
     <string name="group_id">Group ID</string>
     <string name="group_creator_id">Creator ID</string>
     <string name="group_creator_name">Creator name</string>

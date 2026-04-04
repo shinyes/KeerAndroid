@@ -592,13 +592,17 @@ private fun GroupChatList(
                 MemosCard(
                     memo = adaptedMemo,
                     onClick = onOpenMemoDetail,
-                    editGesture = editGesture,
+                    editGesture = if (manageable) editGesture else MemoEditGesture.NONE,
                     previewMode = true,
                     autoPreviewPrefetch = false,
                     showSyncStatus = true,
                     authorAvatarUrl = memo.creator?.avatarUrl,
                     authorName = memo.creator?.name,
-                    onRequestEdit = { onEditMemo(memo) },
+                    onRequestEdit = if (manageable) {
+                        { onEditMemo(memo) }
+                    } else {
+                        null
+                    },
                     actionButton = { memoEntity ->
                         GroupMemoCardActionButton(
                             memo = memoEntity,

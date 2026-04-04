@@ -161,6 +161,7 @@
     <string name="group_error_invalid_update_request">群组更新请求无效</string>
     <string name="group_error_account_not_support_group_memos">当前账号不支持群组 memo</string>
     <string name="group_error_missing_read_target">无法确定最新的对方消息，暂时不能标记已读。</string>
+    <string name="memo_error_manage_denied">你没有修改这条 memo 的权限。</string>
     <string name="group_id">群组 ID</string>
     <string name="group_creator_id">发起人 ID</string>
     <string name="group_creator_name">发起人名称</string>

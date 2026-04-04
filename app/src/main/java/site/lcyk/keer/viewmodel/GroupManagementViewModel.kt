@@ -16,10 +16,12 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import site.lcyk.keer.R
 import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.data.model.LOCAL_GROUP_PREFIX
 import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.PendingGroupOperation
 import site.lcyk.keer.data.model.PendingGroupOperationType
 import site.lcyk.keer.data.model.SyncDomain
+import site.lcyk.keer.data.model.isLocalGroupId
 import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.service.AccountService
 import site.lcyk.keer.data.service.MemoService
@@ -153,7 +155,22 @@ class GroupManagementViewModel @Inject constructor(
         }
 
         val accountKey = readCurrentAccountKey() ?: return@withContext false
-        offlineGroupStore.removeGroupReferences(accountKey, normalizedGroupId)
+        if (isLocalGroupId(normalizedGroupId)) {
+            offlineGroupStore.removeGroupReferences(accountKey, normalizedGroupId)
+            _groups.value = readStoredGroups()
+            _errorMessage.value = null
+            return@withContext true
+        }
+        val alreadyPendingDelete = offlineGroupStore.getPendingGroupOperations(accountKey)
+            .any { operation ->
+                operation.type == PendingGroupOperationType.DELETE_OR_LEAVE &&
+                    operation.groupId == normalizedGroupId
+            }
+        if (alreadyPendingDelete) {
+            _groups.value = readStoredGroups()
+            _errorMessage.value = null
+            return@withContext true
+        }
         offlineGroupStore.enqueuePendingGroupOperation(
             accountKey,
             PendingGroupOperation(
@@ -224,7 +241,4 @@ class GroupManagementViewModel @Inject constructor(
         )
     }
 
-    companion object {
-        private const val LOCAL_GROUP_PREFIX = "local-group:"
-    }
 }
