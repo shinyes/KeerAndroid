@@ -13,9 +13,11 @@ import android.os.Build
 import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
-import androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments
+import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
 import androidx.compose.animation.AnimatedVisibility
@@ -119,7 +121,6 @@ private val quickComposerFallbackLineHeight = 20.dp
 private const val quickComposerMinEditorLines = 4
 private const val quickComposerDeferredWarmupDelayMillis = 120L
 private val quickComposerShape = RoundedCornerShape(16.dp)
-private val quickComposerMediaMimeTypes = arrayOf("image/*", "video/*")
 
 data class QuickMemoSubmitRequest(
     val content: String,
@@ -424,7 +425,7 @@ fun QuickMemoComposer(
         uploadResources(listOf(uri))
     }
 
-    val pickMedia = rememberLauncherForActivityResult(OpenMultipleDocuments()) { uris ->
+    val pickMedia = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { uris ->
         if (uris.isNotEmpty()) {
             uploadResources(uris)
         }
@@ -623,9 +624,9 @@ fun QuickMemoComposer(
                         onToggleTodoItem = {
                             text = toggleTodoItemInText(text)
                         },
-                onPickImage = {
-                    pickMedia.launch(quickComposerMediaMimeTypes)
-                },
+                        onPickImage = {
+                            pickMedia.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
+                        },
                         onPickAttachment = {
                             pickAttachment.launch(arrayOf("*/*"))
                         },

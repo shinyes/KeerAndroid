@@ -5,9 +5,11 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
-import androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments
+import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
+import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -82,7 +84,6 @@ fun GroupMemoInputPage(
     groupViewModel: GroupChatViewModel = hiltViewModel(),
     inputViewModel: MemoInputViewModel = hiltViewModel()
 ) {
-    val mediaMimeTypes = remember { arrayOf("image/*", "video/*") }
     val focusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
     val snackbarState = remember { SnackbarHostState() }
@@ -284,7 +285,7 @@ fun GroupMemoInputPage(
         uploadResources(listOf(uri))
     }
 
-    val pickMedia = rememberLauncherForActivityResult(OpenMultipleDocuments()) { uris ->
+    val pickMedia = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { uris ->
         if (uris.isNotEmpty()) {
             uploadResources(uris)
         }
@@ -370,7 +371,7 @@ fun GroupMemoInputPage(
                     text = toggleTodoItemInText(text)
                 },
                 onPickImage = {
-                    pickMedia.launch(mediaMimeTypes)
+                    pickMedia.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
                 },
                 onPickAttachment = {
                     pickAttachment.launch(arrayOf("*/*"))
