@@ -63,6 +63,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -78,7 +79,10 @@ import androidx.compose.ui.unit.isSpecified
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.skydoves.sandwich.suspendOnSuccess
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -86,14 +90,17 @@ import site.lcyk.keer.KeerFileProvider
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ext.suspendOnErrorMessage
+import site.lcyk.keer.util.buildQuickMemoDraftState
 import site.lcyk.keer.util.isCollaboratorTag
 import site.lcyk.keer.util.isQuoteTag
+import site.lcyk.keer.util.mergeQuickMemoDraftTags
 import site.lcyk.keer.util.mergeTagsWithCollaboratorsAndQuote
 import site.lcyk.keer.util.normalizeCollaboratorId
 import site.lcyk.keer.util.normalizeTagList
 import site.lcyk.keer.util.normalizeTagName
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
+import site.lcyk.keer.viewmodel.LoadedQuickMemoDraft
 import site.lcyk.keer.viewmodel.MemoInputViewModel
 import kotlin.coroutines.resume
 
@@ -123,6 +130,7 @@ data class QuickMemoSubmitRequest(
     val longitude: Double?,
 )
 
+@OptIn(FlowPreview::class)
 @Composable
 fun QuickMemoComposer(
     visible: Boolean,
@@ -142,7 +150,6 @@ fun QuickMemoComposer(
     val memosViewModel = LocalMemos.current
     val userStateViewModel = LocalUserState.current
     val friends by userStateViewModel.friends.collectAsState()
-    val persistedDraft by inputViewModel.draft.collectAsState(initial = "")
 
     var initialContent by remember { mutableStateOf("") }
     var initialTags by remember { mutableStateOf(emptyList<String>()) }
@@ -157,6 +164,7 @@ fun QuickMemoComposer(
     var showExitConfirmation by remember { mutableStateOf(false) }
     var prefetchedLocation by remember { mutableStateOf<Location?>(null) }
     var isLocationPrefetching by remember { mutableStateOf(false) }
+    var isRestoringQuickDraft by remember { mutableStateOf(false) }
     var stopLocationTracking by remember { mutableStateOf<(() -> Unit)?>(null) }
     val locationPermissions = remember {
         arrayOf(
@@ -174,6 +182,33 @@ fun QuickMemoComposer(
             .distinct()
     }
     val validMimeTypePrefixes = remember { setOf("text/") }
+
+    fun currentQuickDraftState() = buildQuickMemoDraftState(
+        text = text.text,
+        selectedTags = selectedTags,
+        forcedTags = normalizedForcedTags,
+        selectedCollaborators = selectedCollaborators,
+        resources = inputViewModel.uploadResources.toList(),
+    )
+
+    fun clearComposerFields(clearUploads: Boolean) {
+        text = TextFieldValue("", TextRange(0))
+        selectedTags = emptyList()
+        selectedCollaborators = emptyList()
+        if (clearUploads) {
+            inputViewModel.uploadResources.clear()
+            inputViewModel.uploadTasks.clear()
+        }
+    }
+
+    fun finishDismiss() {
+        stopLocationTracking?.invoke()
+        stopLocationTracking = null
+        prefetchedLocation = null
+        pendingSubmitAfterLocationPermission = false
+        keyboardController?.hide()
+        onDismissRequest()
+    }
 
     fun startLocationPrefetch(force: Boolean = false) {
         if (!enableLocation) {
@@ -233,20 +268,16 @@ fun QuickMemoComposer(
 
     fun dismissComposer(forceDiscard: Boolean = false) {
         if (forceDiscard) {
-            text = TextFieldValue("", TextRange(0))
-            selectedTags = emptyList()
-            selectedCollaborators = emptyList()
-            inputViewModel.uploadResources.clear()
-            inputViewModel.uploadTasks.clear()
-            if (persistDraft) {
-                inputViewModel.updateDraft("")
+            coroutineScope.launch {
+                val draftResources = inputViewModel.uploadResources.toList()
+                if (persistDraft) {
+                    inputViewModel.discardQuickDraft(draftResources)
+                } else {
+                    inputViewModel.deleteDraftResources(draftResources)
+                }
+                clearComposerFields(clearUploads = true)
+                finishDismiss()
             }
-            stopLocationTracking?.invoke()
-            stopLocationTracking = null
-            prefetchedLocation = null
-            pendingSubmitAfterLocationPermission = false
-            keyboardController?.hide()
-            onDismissRequest()
             return
         }
 
@@ -257,19 +288,22 @@ fun QuickMemoComposer(
             return
         }
 
-        if (
+        if (!persistDraft && (
             text.text != initialContent ||
             normalizedSelectedTags != initialTags ||
             normalizedSelectedCollaborators != initialCollaborators ||
             inputViewModel.uploadResources.isNotEmpty()
-        ) {
+        )) {
             showExitConfirmation = true
         } else {
             if (persistDraft) {
-                inputViewModel.updateDraft(text.text)
+                coroutineScope.launch {
+                    inputViewModel.persistQuickDraft(currentQuickDraftState())
+                    finishDismiss()
+                }
+            } else {
+                finishDismiss()
             }
-            keyboardController?.hide()
-            onDismissRequest()
         }
     }
 
@@ -316,21 +350,12 @@ fun QuickMemoComposer(
         )
 
         suspend fun clearComposerStateAfterSuccess() {
-            text = TextFieldValue("", TextRange(0))
-            selectedTags = emptyList()
-            selectedCollaborators = emptyList()
-            inputViewModel.uploadResources.clear()
-            inputViewModel.uploadTasks.clear()
             if (persistDraft) {
-                inputViewModel.updateDraft("")
+                inputViewModel.clearQuickDraftNow()
             }
-            stopLocationTracking?.invoke()
-            stopLocationTracking = null
-            prefetchedLocation = null
-            pendingSubmitAfterLocationPermission = false
+            clearComposerFields(clearUploads = true)
             memosViewModel.refreshLocalSnapshot()
-            keyboardController?.hide()
-            onDismissRequest()
+            finishDismiss()
         }
 
         val submitOverride = onSubmitRequest
@@ -663,7 +688,14 @@ fun QuickMemoComposer(
         SaveChangesDialog(
             onSave = {
                 showExitConfirmation = false
-                attemptSubmit()
+                if (persistDraft) {
+                    coroutineScope.launch {
+                        inputViewModel.persistQuickDraft(currentQuickDraftState())
+                        finishDismiss()
+                    }
+                } else {
+                    attemptSubmit()
+                }
             },
             onDiscard = {
                 showExitConfirmation = false
@@ -675,12 +707,13 @@ fun QuickMemoComposer(
         )
     }
 
-    LaunchedEffect(visible) {
+    LaunchedEffect(visible, persistDraft, normalizedForcedTags) {
         if (!visible) {
             showTagSelector = false
             showCollaboratorSelector = false
             showExitConfirmation = false
             pendingSubmitAfterLocationPermission = false
+            isRestoringQuickDraft = false
             stopLocationTracking?.invoke()
             stopLocationTracking = null
             prefetchedLocation = null
@@ -688,15 +721,34 @@ fun QuickMemoComposer(
             return@LaunchedEffect
         }
 
-        inputViewModel.uploadResources.clear()
+        showTagSelector = false
+        showCollaboratorSelector = false
+        showExitConfirmation = false
         inputViewModel.uploadTasks.clear()
-        selectedTags = normalizedForcedTags
-        selectedCollaborators = emptyList()
-        val draft = if (persistDraft) persistedDraft.orEmpty() else ""
+        isRestoringQuickDraft = true
+        val restored = if (persistDraft) {
+            inputViewModel.loadQuickMemoDraft()
+        } else {
+            LoadedQuickMemoDraft()
+        }
+        inputViewModel.uploadResources.clear()
+        inputViewModel.uploadResources.addAll(restored.resources)
+        selectedTags = if (persistDraft) {
+            mergeQuickMemoDraftTags(restored.draft, normalizedForcedTags)
+        } else {
+            normalizedForcedTags
+        }
+        selectedCollaborators = if (persistDraft) {
+            restored.draft.selectedCollaborators
+        } else {
+            emptyList()
+        }
+        val draft = if (persistDraft) restored.draft.text else ""
         text = TextFieldValue(draft, TextRange(draft.length))
         initialContent = text.text
-        initialTags = normalizedForcedTags
-        initialCollaborators = emptyList()
+        initialTags = normalizeTagList(selectedTags)
+        initialCollaborators = selectedCollaborators
+        isRestoringQuickDraft = false
         withFrameNanos { }
         focusRequester.requestFocus()
         keyboardController?.show()
@@ -705,6 +757,16 @@ fun QuickMemoComposer(
             memosViewModel.loadTags()
             userStateViewModel.refreshFriends()
             startLocationPrefetch(force = true)
+        }
+        if (persistDraft) {
+            snapshotFlow { currentQuickDraftState() }
+                .distinctUntilChanged()
+                .debounce(240L)
+                .collect { draftState ->
+                    if (!isRestoringQuickDraft) {
+                        inputViewModel.persistQuickDraft(draftState)
+                    }
+                }
         }
     }
 }

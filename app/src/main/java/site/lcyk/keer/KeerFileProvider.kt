@@ -10,11 +10,13 @@ class KeerFileProvider: FileProvider(
     R.xml.file_paths
 ) {
     companion object {
+        private const val CAPTURE_IMAGE_SUFFIX = ".captureimage"
+
         fun getImageUri(context: Context): Uri {
             val directory = File(context.cacheDir, "images")
             directory.mkdirs()
 
-            val file = File.createTempFile("capture_picture_", ".jpg", directory)
+            val file = File.createTempFile("capture_picture_", CAPTURE_IMAGE_SUFFIX, directory)
             val authority = context.packageName + ".fileprovider"
             return getUriForFile(context, authority, file)
         }
@@ -35,6 +37,10 @@ class KeerFileProvider: FileProvider(
     }
 
     override fun getType(uri: Uri): String? {
+        val path = uri.path.orEmpty()
+        if (path.endsWith(CAPTURE_IMAGE_SUFFIX, ignoreCase = true)) {
+            return "image/*"
+        }
         val fromProvider = super.getType(uri)
         if (!fromProvider.isNullOrBlank()) {
             return fromProvider

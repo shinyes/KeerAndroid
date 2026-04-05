@@ -642,6 +642,14 @@ class SyncingRepository(
             ?: memoDao.getResourceByRemoteId(identifier, accountKey)
     }
 
+    override suspend fun getResourcesByIdentifiers(identifiers: List<String>): List<ResourceEntity> = withContext(Dispatchers.IO) {
+        if (identifiers.isEmpty()) {
+            emptyList()
+        } else {
+            memoDao.getResourcesByIdentifiers(identifiers, accountKey)
+        }
+    }
+
     override suspend fun updateResourceThumbnail(identifier: String, thumbnailUri: String): ApiResponse<Unit> =
         withContext(Dispatchers.IO) {
             try {

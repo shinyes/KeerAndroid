@@ -150,6 +150,15 @@ interface MemoDao {
         """
         SELECT * FROM resources
         WHERE accountKey = :accountKey
+          AND (identifier IN (:identifiers) OR remoteId IN (:identifiers))
+        """
+    )
+    suspend fun getResourcesByIdentifiers(identifiers: List<String>, accountKey: String): List<ResourceEntity>
+
+    @Query(
+        """
+        SELECT * FROM resources
+        WHERE accountKey = :accountKey
           AND remoteId = :remoteId
         ORDER BY date DESC, identifier ASC
         """

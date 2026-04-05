@@ -3,8 +3,6 @@ package site.lcyk.keer.viewmodel
 import android.app.Application
 import android.content.Context
 import android.net.Uri
-import android.provider.OpenableColumns
-import android.webkit.MimeTypeMap
 import androidx.compose.runtime.mutableStateListOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -19,13 +17,18 @@ import kotlinx.coroutines.withContext
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.MemoVisibility
+import site.lcyk.keer.data.model.QuickMemoDraftState
 import site.lcyk.keer.data.service.AccountLocalSettingsStore
 import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.ext.getErrorMessage
+import site.lcyk.keer.util.UploadMediaMetadataResolver
+import site.lcyk.keer.util.normalizeQuickMemoDraftState
 import site.lcyk.keer.util.normalizeTagList
+import site.lcyk.keer.util.resolveQuickMemoDraftResources
 import site.lcyk.keer.widget.WidgetUpdater
 import timber.log.Timber
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import java.io.File
 import java.util.UUID
 import javax.inject.Inject
 
@@ -44,6 +47,11 @@ data class UploadTaskState(
     val errorMessage: String? = null
 )
 
+data class LoadedQuickMemoDraft(
+    val draft: QuickMemoDraftState = QuickMemoDraftState(),
+    val resources: List<ResourceEntity> = emptyList(),
+)
+
 @HiltViewModel
 class MemoInputViewModel @Inject constructor(
     @ApplicationContext application: Context,
@@ -52,6 +60,7 @@ class MemoInputViewModel @Inject constructor(
 ) : AndroidViewModel(application as Application) {
     private val context = application
     val draft = accountLocalSettingsStore.observeCurrentUserSettings().map { settings -> settings?.draft }
+    val quickDraft = accountLocalSettingsStore.observeCurrentQuickMemoDraft()
     var uploadResources = mutableStateListOf<ResourceEntity>()
     var uploadTasks = mutableStateListOf<UploadTaskState>()
 
@@ -105,12 +114,92 @@ class MemoInputViewModel @Inject constructor(
         }
     }
 
+    fun updateQuickDraft(draft: QuickMemoDraftState) {
+        viewModelScope.launch(Dispatchers.IO) {
+            persistQuickDraft(draft)
+        }
+    }
+
+    fun clearQuickDraft() {
+        viewModelScope.launch(Dispatchers.IO) {
+            accountLocalSettingsStore.clearCurrentQuickMemoDraft()
+        }
+    }
+
+    suspend fun persistQuickDraft(draft: QuickMemoDraftState) = withContext(Dispatchers.IO) {
+        val normalizedDraft = normalizeQuickMemoDraftState(draft)
+        if (normalizedDraft.isEmpty()) {
+            accountLocalSettingsStore.clearCurrentQuickMemoDraft()
+        } else {
+            accountLocalSettingsStore.updateCurrentQuickMemoDraft { normalizedDraft }
+        }
+    }
+
+    suspend fun clearQuickDraftNow() = withContext(Dispatchers.IO) {
+        accountLocalSettingsStore.clearCurrentQuickMemoDraft()
+    }
+
+    suspend fun loadQuickMemoDraft(): LoadedQuickMemoDraft = withContext(Dispatchers.IO) {
+        val storedDraft = normalizeQuickMemoDraftState(accountLocalSettingsStore.currentQuickMemoDraft())
+        if (storedDraft.resourceIdentifiers.isEmpty()) {
+            if (storedDraft.isEmpty()) {
+                return@withContext LoadedQuickMemoDraft()
+            }
+            return@withContext LoadedQuickMemoDraft(draft = storedDraft)
+        }
+
+        val repository = memoService.getRepository()
+        val availableResources = repository.getResourcesByIdentifiers(storedDraft.resourceIdentifiers)
+            .asSequence()
+            .filter { resource -> resource.memoId.isNullOrBlank() }
+            .filter(::hasUsableDraftSource)
+            .distinctBy { resource -> resource.identifier }
+            .toList()
+        val restoredResources = resolveQuickMemoDraftResources(
+            resourceIdentifiers = storedDraft.resourceIdentifiers,
+            resources = availableResources,
+        )
+        val sanitizedDraft = storedDraft.copy(resourceIdentifiers = restoredResources.resourceIdentifiers)
+        if (sanitizedDraft != storedDraft) {
+            persistQuickDraft(sanitizedDraft)
+        }
+        LoadedQuickMemoDraft(
+            draft = sanitizedDraft,
+            resources = restoredResources.resources,
+        )
+    }
+
+    suspend fun deleteDraftResources(resources: List<ResourceEntity>) = withContext(Dispatchers.IO) {
+        val repository = memoService.getRepository()
+        resources
+            .asSequence()
+            .filter { resource -> resource.memoId.isNullOrBlank() }
+            .map { resource -> resource.identifier.trim() }
+            .filter { identifier -> identifier.isNotEmpty() }
+            .distinct()
+            .forEach { identifier ->
+                when (val response = repository.deleteResource(identifier)) {
+                    is ApiResponse.Success -> Unit
+                    is ApiResponse.Failure.Error -> {
+                        Timber.w("Failed to delete draft resource %s", identifier)
+                    }
+
+                    is ApiResponse.Failure.Exception -> {
+                        Timber.w(response.throwable, "Failed to delete draft resource %s", identifier)
+                    }
+                }
+            }
+    }
+
+    suspend fun discardQuickDraft(resources: List<ResourceEntity>) = withContext(Dispatchers.IO) {
+        deleteDraftResources(resources)
+        accountLocalSettingsStore.clearCurrentQuickMemoDraft()
+    }
+
     suspend fun upload(uri: Uri, memoIdentifier: String?): ApiResponse<ResourceEntity> = withContext(Dispatchers.IO) {
-        val mimeType = context.contentResolver.getType(uri)
-        val extension = mimeType?.let { MimeTypeMap.getSingleton().getExtensionFromMimeType(it) }
-        val filename = queryDisplayName(uri)
-            ?: ("attachment_${UUID.randomUUID()}" + if (extension.isNullOrBlank()) "" else ".$extension")
-        val size = queryFileSize(uri)
+        val metadata = UploadMediaMetadataResolver.resolve(context.contentResolver, uri)
+        val filename = metadata.filename
+        val size = metadata.sizeBytes
         val taskId = UUID.randomUUID().toString()
         addOrUpdateUploadTask(
             UploadTaskState(
@@ -126,7 +215,7 @@ class MemoInputViewModel @Inject constructor(
             val repository = memoService.getRepository()
             val response = repository.createResource(
                 filename = filename,
-                type = mimeType?.toMediaTypeOrNull(),
+                type = metadata.mimeType?.toMediaTypeOrNull(),
                 sourceUri = uri,
                 memoIdentifier = memoIdentifier
             ) { uploadedBytes, totalBytes ->
@@ -180,44 +269,6 @@ class MemoInputViewModel @Inject constructor(
         removeUploadTask(taskId)
     }
 
-    private fun queryDisplayName(uri: Uri): String? {
-        return try {
-            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                if (!cursor.moveToFirst()) {
-                    return@use null
-                }
-                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (index == -1) {
-                    null
-                } else {
-                    cursor.getString(index)
-                }
-            }
-        } catch (e: Exception) {
-            Timber.w(e, "Failed to query file name for URI: %s", uri)
-            null
-        }
-    }
-
-    private fun queryFileSize(uri: Uri): Long {
-        return try {
-            context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
-                if (!cursor.moveToFirst()) {
-                    return@use -1L
-                }
-                val index = cursor.getColumnIndex(OpenableColumns.SIZE)
-                if (index == -1) {
-                    -1L
-                } else {
-                    cursor.getLong(index)
-                }
-            } ?: -1L
-        } catch (e: Exception) {
-            Timber.w(e, "Failed to query file size for URI: %s", uri)
-            -1L
-        }
-    }
-
     fun deleteResource(resourceIdentifier: String) = viewModelScope.launch {
         memoService.getRepository().deleteResource(resourceIdentifier).suspendOnSuccess {
             uploadResources.removeIf { it.identifier == resourceIdentifier }
@@ -248,6 +299,33 @@ class MemoInputViewModel @Inject constructor(
     private fun removeUploadTask(taskId: String) {
         viewModelScope.launch(Dispatchers.Main.immediate) {
             uploadTasks.removeAll { it.id == taskId }
+        }
+    }
+
+    private fun hasUsableDraftSource(resource: ResourceEntity): Boolean {
+        val candidateUris = listOfNotNull(resource.localUri, resource.uri)
+            .mapNotNull { rawUri ->
+                runCatching { Uri.parse(rawUri) }
+                    .onFailure { throwable ->
+                        Timber.w(throwable, "Failed to parse draft resource uri: %s", rawUri)
+                    }
+                    .getOrNull()
+            }
+        if (candidateUris.isEmpty()) {
+            return false
+        }
+        return candidateUris.any { uri ->
+            when (uri.scheme?.lowercase()) {
+                "file" -> uri.path?.let(::File)?.exists() == true
+                "content" -> {
+                    runCatching {
+                        context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { true } ?: false
+                    }.getOrDefault(false)
+                }
+
+                "http", "https" -> true
+                else -> uri.toString().isNotBlank()
+            }
         }
     }
 }

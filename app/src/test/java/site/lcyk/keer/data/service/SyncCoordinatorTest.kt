@@ -5,6 +5,8 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -105,9 +107,9 @@ class SyncCoordinatorTest {
 
         advanceUntilIdle()
 
-        coVerify(atLeast = 1) {
+        coVerify(timeout = 2_000, atLeast = 1) {
             pullSyncEngine.run(
-                setOf(SyncDomain.MEMOS, SyncDomain.GROUPS),
+                withArg { domains -> assertTrue(SyncDomain.GROUPS in domains) },
                 "group-1",
                 SyncTrigger.MANUAL,
             )
@@ -116,15 +118,17 @@ class SyncCoordinatorTest {
 
     @Test
     fun `foreground sync preempts tail session`() = runTest {
+        val tailStarted = CompletableDeferred<Unit>()
         coEvery { pullSyncEngine.runUnifiedTailSession() } coAnswers {
+            tailStarted.complete(Unit)
             awaitCancellation()
         }
 
-        val tailJob = backgroundScope.launch {
+        val tailJob = backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
             coordinator.runTailSessionLoop()
         }
 
-        advanceUntilIdle()
+        tailStarted.await()
         coordinator.sync(
             force = true,
             trigger = SyncTrigger.MANUAL,

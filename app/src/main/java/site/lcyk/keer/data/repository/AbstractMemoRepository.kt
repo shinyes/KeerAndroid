@@ -74,6 +74,12 @@ abstract class AbstractMemoRepository {
         return null
     }
 
+    open suspend fun getResourcesByIdentifiers(identifiers: List<String>): List<ResourceEntity> {
+        return identifiers
+            .mapNotNull { identifier -> getResourceById(identifier) }
+            .distinctBy { resource -> resource.identifier }
+    }
+
         open suspend fun updateResourceThumbnail(identifier: String, thumbnailUri: String): ApiResponse<Unit> {
             return ApiResponse.Success(Unit)
         }

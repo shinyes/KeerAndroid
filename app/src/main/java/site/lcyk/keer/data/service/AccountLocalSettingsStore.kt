@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.data.model.QuickMemoDraftState
 import site.lcyk.keer.data.model.Settings
 import site.lcyk.keer.data.model.UserData
 import site.lcyk.keer.data.model.UserGeneralSettings
@@ -51,6 +52,12 @@ class AccountLocalSettingsStore @Inject constructor(
     fun observeCurrentGeneralSettings(): Flow<UserGeneralSettings> {
         return observeCurrentUserSettings().map { settings ->
             settings?.generalSettings ?: UserGeneralSettings()
+        }
+    }
+
+    fun observeCurrentQuickMemoDraft(): Flow<QuickMemoDraftState> {
+        return observeCurrentUserSettings().map { settings ->
+            settings?.quickMemoDraft ?: QuickMemoDraftState()
         }
     }
 
@@ -103,6 +110,10 @@ class AccountLocalSettingsStore @Inject constructor(
         return settingsDataStore.data.first().currentUserSettingsOrNull()
     }
 
+    suspend fun currentQuickMemoDraft(): QuickMemoDraftState {
+        return currentUserSettings()?.quickMemoDraft ?: QuickMemoDraftState()
+    }
+
     suspend fun currentGeneralSettings(): UserGeneralSettings {
         return currentUserSettings()?.generalSettings ?: UserGeneralSettings()
     }
@@ -119,6 +130,16 @@ class AccountLocalSettingsStore @Inject constructor(
                 user.copy(settings = transform(user.settings))
             }
         }
+    }
+
+    suspend fun updateCurrentQuickMemoDraft(transform: (QuickMemoDraftState) -> QuickMemoDraftState) {
+        updateCurrentUserSettings { settings ->
+            settings.copy(quickMemoDraft = transform(settings.quickMemoDraft))
+        }
+    }
+
+    suspend fun clearCurrentQuickMemoDraft() {
+        updateCurrentQuickMemoDraft { QuickMemoDraftState() }
     }
 
     suspend fun updateCurrentGeneralSettings(value: UserGeneralSettings) {
