@@ -13,11 +13,9 @@ import android.os.Build
 import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts.CaptureVideo
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
-import androidx.activity.result.contract.ActivityResultContracts.PickMultipleVisualMedia
-import androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia
+import androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments
 import androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions
 import androidx.activity.result.contract.ActivityResultContracts.TakePicture
 import androidx.compose.foundation.layout.imePadding
@@ -85,6 +83,7 @@ fun MemoInputPage(
     memoIdentifier: String? = null,
     quoteSourceMemoIdentifier: String? = null
 ) {
+    val mediaMimeTypes = remember { arrayOf("image/*", "video/*") }
     val focusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
     val snackbarState = remember { SnackbarHostState() }
@@ -355,7 +354,7 @@ fun MemoInputPage(
         uploadResources(listOf(uri))
     }
 
-    val pickMedia = rememberLauncherForActivityResult(PickMultipleVisualMedia()) { uris ->
+    val pickMedia = rememberLauncherForActivityResult(OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) {
             uploadResources(uris)
         }
@@ -469,7 +468,7 @@ fun MemoInputPage(
                     text = toggleTodoItemInText(text)
                 },
                 onPickImage = {
-                    pickMedia.launch(PickVisualMediaRequest(PickVisualMedia.ImageAndVideo))
+                    pickMedia.launch(mediaMimeTypes)
                 },
                 onPickAttachment = {
                     pickAttachment.launch(arrayOf("*/*"))
