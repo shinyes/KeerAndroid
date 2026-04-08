@@ -7,12 +7,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import site.lcyk.keer.R
 import site.lcyk.keer.data.local.FileStorage
 import site.lcyk.keer.data.local.dao.MemoDao
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
+import site.lcyk.keer.data.local.entity.toGeoMemoPoint
 import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.data.model.GeoMemoPoint
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.User
 import site.lcyk.keer.ext.string
@@ -42,6 +45,11 @@ class LocalDatabaseRepository(
 
     override fun observeResources(): Flow<List<ResourceEntity>> {
         return memoDao.observeAllResources(accountKey)
+    }
+
+    override fun observeMemoGeoPoints(): Flow<List<GeoMemoPoint>> {
+        return memoDao.observeAllMemoGeoPoints(accountKey)
+            .map { points -> points.map { point -> point.toGeoMemoPoint() } }
     }
 
     override fun observeTags(): Flow<List<String>> {

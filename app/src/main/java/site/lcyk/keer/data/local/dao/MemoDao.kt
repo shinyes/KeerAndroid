@@ -10,6 +10,7 @@ import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
 import site.lcyk.keer.data.local.entity.MemoTagCrossRef
 import site.lcyk.keer.data.local.entity.MemoEntity
+import site.lcyk.keer.data.local.entity.MemoGeoPointEntity
 import site.lcyk.keer.data.local.entity.MemoWithResources
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.local.entity.TagEntity
@@ -46,6 +47,20 @@ interface MemoDao {
         ORDER BY pinned DESC, date DESC
     """)
     fun observeAllMemos(accountKey: String): Flow<List<MemoWithResources>>
+
+    @Query(
+        """
+        SELECT identifier, remoteId, latitude, longitude, date
+        FROM memos
+        WHERE accountKey = :accountKey
+          AND archived = 0
+          AND isDeleted = 0
+          AND latitude IS NOT NULL
+          AND longitude IS NOT NULL
+        ORDER BY date DESC
+    """
+    )
+    fun observeAllMemoGeoPoints(accountKey: String): Flow<List<MemoGeoPointEntity>>
 
     @Query("SELECT * FROM memos WHERE accountKey = :accountKey")
     suspend fun getAllMemosForSync(accountKey: String): List<MemoEntity>

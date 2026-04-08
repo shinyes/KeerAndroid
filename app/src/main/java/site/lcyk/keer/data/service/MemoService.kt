@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
+import site.lcyk.keer.data.model.GeoMemoPoint
 import site.lcyk.keer.data.model.SyncDomain
 import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.data.repository.AbstractMemoRepository
@@ -43,6 +44,12 @@ class MemoService @Inject constructor(
             accountService.getRepository().observeResources()
         }
         .stateIn(serviceScope, SharingStarted.WhileSubscribed(5_000L), emptyList<ResourceEntity>())
+
+    val geoPoints = accountService.currentAccount
+        .flatMapLatest {
+            accountService.getRepository().observeMemoGeoPoints()
+        }
+        .stateIn(serviceScope, SharingStarted.WhileSubscribed(5_000L), emptyList<GeoMemoPoint>())
 
     val tags = accountService.currentAccount
         .flatMapLatest {

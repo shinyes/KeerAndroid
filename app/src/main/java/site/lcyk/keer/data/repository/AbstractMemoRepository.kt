@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
+import site.lcyk.keer.data.model.GeoMemoPoint
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.data.model.User
@@ -57,6 +58,8 @@ abstract class AbstractMemoRepository {
     abstract suspend fun getCurrentUser(): ApiResponse<User>
 
     open fun observeMemos(): Flow<List<MemoEntity>> = emptyFlow()
+
+    open fun observeMemoGeoPoints(): Flow<List<GeoMemoPoint>> = emptyFlow()
 
     open fun observeResources(): Flow<List<ResourceEntity>> = emptyFlow()
 

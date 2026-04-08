@@ -30,8 +30,10 @@ import site.lcyk.keer.data.local.KeerDatabase
 import site.lcyk.keer.data.local.dao.MemoDao
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
+import site.lcyk.keer.data.local.entity.toGeoMemoPoint
 import site.lcyk.keer.data.constant.KeerException
 import site.lcyk.keer.data.model.Account
+import site.lcyk.keer.data.model.GeoMemoPoint
 import site.lcyk.keer.data.model.Memo
 import site.lcyk.keer.data.model.MemoVisibility
 import site.lcyk.keer.data.model.Resource
@@ -111,6 +113,11 @@ class SyncingRepository(
 
     override fun observeResources(): Flow<List<ResourceEntity>> {
         return memoDao.observeAllResources(accountKey)
+    }
+
+    override fun observeMemoGeoPoints(): Flow<List<GeoMemoPoint>> {
+        return memoDao.observeAllMemoGeoPoints(accountKey)
+            .map { points -> points.map { point -> point.toGeoMemoPoint() } }
     }
 
     override fun observeTags(): Flow<List<String>> {

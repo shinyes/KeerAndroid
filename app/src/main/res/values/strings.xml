@@ -302,6 +302,13 @@
     <string name="quoted_memo_unavailable">Quoted content is unavailable.</string>
     <string name="quoted_memo_empty">Empty memo</string>
     <string name="quoted_memo_media_only">Media-only memo</string>
+    <string name="global_heatmap_title">Global Heatmap</string>
+    <string name="global_heatmap_reset">Reset view</string>
+    <string name="global_heatmap_basemap_loading">Loading basemap</string>
+    <string name="global_heatmap_points_summary">%1$d geo-tagged memos</string>
+    <string name="global_heatmap_empty">No memo locations yet. Add location to a memo and it will appear here.</string>
+    <string name="global_heatmap_hotspot_title">Heat hotspot</string>
+    <string name="global_heatmap_hotspot_count">%1$d memos in this region</string>
 </resources>
 
 

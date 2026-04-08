@@ -49,6 +49,10 @@ fun NavHostController.navigateToSearchPage() {
     navigateSingleTop(RouteName.SEARCH)
 }
 
+fun NavHostController.navigateToGlobalHeatmapPage() {
+    navigateSingleTop(RouteName.GLOBAL_HEATMAP)
+}
+
 fun NavHostController.navigateToAccountPage(accountKey: String) {
     navigateSingleTop("${RouteName.ACCOUNT}?accountKey=${Uri.encode(accountKey)}")
 }

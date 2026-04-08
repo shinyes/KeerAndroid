@@ -17,6 +17,7 @@ object RouteName {
     const val MEMO_DETAIL = "memo-detail"
     const val RESOURCE = "resource"
     const val EXPLORE = "explore"
+    const val GLOBAL_HEATMAP = "global-heatmap"
     const val ACCOUNT = "account"
     const val DEBUG_LOGS = "debug-logs"
     const val FRIENDS = "friends"

@@ -91,6 +91,13 @@ fun MemosNavigation(
             }
         }
 
+        composable(RouteName.GLOBAL_HEATMAP) {
+            GlobalHeatmapPage(
+                drawerState = drawerState,
+                onMenuButtonOpenRequested = onMenuButtonOpenRequested,
+            )
+        }
+
         composable(RouteName.SEARCH) {
             SearchPage(navController = navController)
         }

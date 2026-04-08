@@ -20,12 +20,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -70,8 +71,9 @@ import site.lcyk.keer.data.model.isTagVisibleInDrawer
 import site.lcyk.keer.data.model.orderTagsForDrawer
 import site.lcyk.keer.ext.getErrorMessage
 import site.lcyk.keer.ext.string
-import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
 import site.lcyk.keer.ui.page.common.navigateToColumnPage
+import site.lcyk.keer.ui.page.common.navigateToGlobalHeatmapPage
+import site.lcyk.keer.ui.page.common.navigateToGroupChatPage
 import site.lcyk.keer.ui.page.common.navigateToMemosPage
 import site.lcyk.keer.ui.page.common.navigateToTagPage
 import site.lcyk.keer.ui.page.common.navigateToTopLevel
@@ -176,10 +178,8 @@ fun SideDrawer(
     val statsText = remember(drawerUiState.matrix, drawerUiState.tags, statsDays) {
         formatDrawerStatsText(
             memoCount = drawerUiState.matrix.sumOf { it.count },
-            tagCount = drawerUiState.tags.size,
             days = statsDays,
             memoLabel = R.string.memo.string,
-            tagLabel = R.string.tag.string,
             dayLabel = R.string.day.string,
         )
     }
@@ -219,6 +219,25 @@ fun SideDrawer(
                     IconButton(
                         onClick = {
                             scope.launch {
+                                memosNavController.navigateToGlobalHeatmapPage()
+                                onDrawerItemCloseRequested?.invoke()
+                                drawerState?.close()
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Public,
+                            contentDescription = R.string.global_heatmap_title.string,
+                            tint = if (isSelected(RouteName.GLOBAL_HEATMAP)) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        )
+                    }
+                    IconButton(
+                        onClick = {
+                            scope.launch {
                                 memosNavController.navigateToTopLevel(RouteName.SETTINGS)
                                 onDrawerItemCloseRequested?.invoke()
                                 drawerState?.close()
@@ -243,14 +262,14 @@ fun SideDrawer(
                 }
                 Text(
                     text = statsText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
-                    overflow = TextOverflow.Clip,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .padding(horizontal = 88.dp)
+                        .padding(horizontal = 108.dp)
                         .fillMaxWidth(),
                 )
             }

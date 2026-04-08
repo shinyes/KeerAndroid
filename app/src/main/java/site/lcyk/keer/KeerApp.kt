@@ -3,6 +3,7 @@ package site.lcyk.keer
 import android.app.Application
 import androidx.work.Configuration
 import dagger.hilt.android.HiltAndroidApp
+import site.lcyk.keer.data.map.AmapMapRuntime
 import site.lcyk.keer.data.service.DebugLogManager
 import site.lcyk.keer.data.service.DebugLogTree
 import site.lcyk.keer.data.work.SyncInitializer
@@ -33,6 +34,11 @@ class KeerApp: Application(), Configuration.Provider {
         if (Timber.forest().none { it is DebugLogTree }) {
             Timber.plant(DebugLogTree(debugLogManager))
         }
+
+        AmapMapRuntime.initialize(
+            applicationContext = this,
+            apiKey = BuildConfig.AMAP_API_KEY,
+        )
         
         // Initialize continuous stream sync
         SyncInitializer.initialize(syncInitializer)

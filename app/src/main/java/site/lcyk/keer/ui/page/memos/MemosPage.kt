@@ -22,9 +22,11 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.window.core.layout.WindowSizeClass
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.ui.component.SideDrawer
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.MemoUiScope
@@ -41,6 +43,9 @@ fun MemosPage(
     val scope = rememberCoroutineScope()
     val memosNavController = rememberNavController()
     val density = LocalDensity.current
+    val navBackStackEntry = memosNavController.currentBackStackEntryAsState().value
+    val currentRoute = navBackStackEntry?.destination?.route
+    val drawerGesturesEnabled = currentRoute != RouteName.GLOBAL_HEATMAP
 
     DisposableEffect(drawerState, isExpanded) {
         if (!isExpanded) {
@@ -111,6 +116,7 @@ fun MemosPage(
     } else {
         ModalNavigationDrawer(
             drawerState = drawerState,
+            gesturesEnabled = drawerGesturesEnabled,
             drawerContent = {
                 ModalDrawerSheet {
                     SideDrawer(
