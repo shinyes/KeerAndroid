@@ -11,10 +11,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.net.toUri
 import com.skydoves.sandwich.ApiResponse
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.local.FileStorage
@@ -604,40 +606,42 @@ private suspend fun generateThumbnailIfNeeded(
     )
 
     var thumbnailUri: Uri? = null
-    generationModes.forEach { mode ->
-        if (thumbnailUri != null) {
-            return@forEach
-        }
-        val thumbnailFilename = buildGeneratedThumbnailFilename(
-            resource = resource,
-            mode = mode,
-        )
-        logPreviewTrace(resource, "thumb_generate_try", "mode=${mode.name} filename=$thumbnailFilename")
-        thumbnailUri = when (mode) {
-            ThumbnailGenerationMode.IMAGE -> {
-                fileStorage.saveImageThumbnailFromUri(
-                    accountKey = accountKey,
-                    sourceUri = downloadedUri,
-                    filename = thumbnailFilename,
-                )
+    withContext(Dispatchers.IO) {
+        generationModes.forEach { mode ->
+            if (thumbnailUri != null) {
+                return@forEach
             }
-            ThumbnailGenerationMode.VIDEO -> {
-                fileStorage.saveVideoThumbnailFromUri(
-                    accountKey = accountKey,
-                    sourceUri = downloadedUri,
-                    filename = thumbnailFilename,
-                )
+            val thumbnailFilename = buildGeneratedThumbnailFilename(
+                resource = resource,
+                mode = mode,
+            )
+            logPreviewTrace(resource, "thumb_generate_try", "mode=${mode.name} filename=$thumbnailFilename")
+            thumbnailUri = when (mode) {
+                ThumbnailGenerationMode.IMAGE -> {
+                    fileStorage.saveImageThumbnailFromUri(
+                        accountKey = accountKey,
+                        sourceUri = downloadedUri,
+                        filename = thumbnailFilename,
+                    )
+                }
+                ThumbnailGenerationMode.VIDEO -> {
+                    fileStorage.saveVideoThumbnailFromUri(
+                        accountKey = accountKey,
+                        sourceUri = downloadedUri,
+                        filename = thumbnailFilename,
+                    )
+                }
             }
+            logPreviewTrace(
+                resource = resource,
+                stage = if (thumbnailUri != null) {
+                    "thumb_generate_try_success"
+                } else {
+                    "thumb_generate_try_failed"
+                },
+                detail = "mode=${mode.name}",
+            )
         }
-        logPreviewTrace(
-            resource = resource,
-            stage = if (thumbnailUri != null) {
-                "thumb_generate_try_success"
-            } else {
-                "thumb_generate_try_failed"
-            },
-            detail = "mode=${mode.name}",
-        )
     }
 
     thumbnailUri?.let { generatedThumb ->

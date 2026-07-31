@@ -17,6 +17,8 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,11 +45,21 @@ fun Heatmap(
     val listState = remember(columns.size) {
         LazyListState(firstVisibleItemIndex = latestHeatmapColumnIndex(columns.size))
     }
-    val visibleIndices = listState.layoutInfo.visibleItemsInfo
-        .map { item -> item.index }
-        .toSet()
-    val firstVisibleIndex = listState.firstVisibleItemIndex
-    val firstVisibleScrollOffset = listState.firstVisibleItemScrollOffset
+    // Read scroll-snapshot state through derivedStateOf so recomposition only happens when
+    // the visible window actually changes (e.g. columns entering/exiting the viewport),
+    // instead of on every scroll frame.
+    val visibleState by remember {
+        derivedStateOf {
+            Triple(
+                listState.layoutInfo.visibleItemsInfo
+                    .map { item -> item.index }
+                    .toSet(),
+                listState.firstVisibleItemIndex,
+                listState.firstVisibleItemScrollOffset,
+            )
+        }
+    }
+    val (visibleIndices, firstVisibleIndex, firstVisibleScrollOffset) = visibleState
 
     LazyRow(
         state = listState,

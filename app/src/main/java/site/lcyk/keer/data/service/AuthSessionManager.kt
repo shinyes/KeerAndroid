@@ -5,6 +5,7 @@ import com.skydoves.sandwich.retrofit.adapters.ApiResponseCallAdapterFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -60,6 +61,10 @@ class AuthSessionManager @Inject constructor(
         parsedAccounts.firstOrNull { account -> account.accountKey() == settings.currentUser }
             ?: parsedAccounts.firstOrNull()
     }
+        // authStateVersion bumps on every token save/delete (e.g. automatic 401 refresh);
+        // re-emitting the same account identity only re-runs expensive side effects
+        // (global reset, Room re-queries, sync-session restarts), so dedupe by account key.
+        .distinctUntilChangedBy { account -> account?.accountKey() }
 
     fun createKeerV2Client(host: String, accountKey: String? = null): KeerV2ClientBundle {
         val client = okHttpClient.newBuilder().apply {

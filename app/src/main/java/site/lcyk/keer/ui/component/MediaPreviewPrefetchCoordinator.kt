@@ -4,9 +4,11 @@ import android.content.Context
 import android.net.Uri
 import androidx.core.net.toUri
 import com.skydoves.sandwich.ApiResponse
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
@@ -74,15 +76,17 @@ internal object MediaPreviewPrefetchCoordinator {
         coroutineScope {
             resources.distinctBy(ResourceEntity::identifier).forEach { resource ->
                 launch {
-                    prefetchSingleResource(
-                        context = context,
-                        okHttpClient = okHttpClient,
-                        currentAccountKey = currentAccountKey,
-                        resource = resource,
-                        cacheResourceFile = cacheResourceFile,
-                        cacheResourceThumbnail = cacheResourceThumbnail,
-                        updateResourceThumbnail = updateResourceThumbnail,
-                    )
+                    withContext(Dispatchers.Default) {
+                        prefetchSingleResource(
+                            context = context,
+                            okHttpClient = okHttpClient,
+                            currentAccountKey = currentAccountKey,
+                            resource = resource,
+                            cacheResourceFile = cacheResourceFile,
+                            cacheResourceThumbnail = cacheResourceThumbnail,
+                            updateResourceThumbnail = updateResourceThumbnail,
+                        )
+                    }
                 }
             }
         }
@@ -227,6 +231,13 @@ internal object MediaPreviewPrefetchCoordinator {
             }
 
             if (ensureResult.source == PreviewEnsureSource.REMOTE_THUMB && !ensureResult.previewReady) {
+                markLifecycleCooldown(
+                    resource = resource,
+                    nowMillis = System.currentTimeMillis(),
+                    cooldownMillis = REMOTE_THUMBNAIL_FAILURE_COOLDOWN_MILLIS,
+                )
+            }
+            if (ensureResult.mainFallbackAttempted && !ensureResult.previewReady) {
                 markLifecycleCooldown(
                     resource = resource,
                     nowMillis = System.currentTimeMillis(),
@@ -467,18 +478,25 @@ internal object MediaPreviewPrefetchCoordinator {
         return lifecycleStateMutex.withLock {
             val state = lifecycleStates[resolveResourceLifecycleKey(resource)] ?: return@withLock MainFallbackLifecycleDecision.ALLOWED
             when {
-                state.mainFetchedOnce -> MainFallbackLifecycleDecision.SKIPPED_ONCE
+                // mainFetchedOnce only suppresses re-fetching while a usable local preview still
+                // exists; if the preview was evicted from storage, allow a retry.
+                state.mainFetchedOnce && hasUsableLocalPreview(resource) ->
+                    MainFallbackLifecycleDecision.SKIPPED_ONCE
                 nowMillis < state.cooldownUntilMillis -> MainFallbackLifecycleDecision.COOLDOWN
                 else -> MainFallbackLifecycleDecision.ALLOWED
             }
         }
     }
 
+    private fun hasUsableLocalPreview(resource: ResourceEntity): Boolean {
+        return !resolveUsableThumbnailLocalUri(resource.thumbnailLocalUri).isNullOrBlank() ||
+            hasResolvableLocalMainUri(resource.localUri)
+    }
+
     private suspend fun markLifecycleReady(resource: ResourceEntity) {
         lifecycleStateMutex.withLock {
             val key = resolveResourceLifecycleKey(resource)
             val state = lifecycleStates.getOrPut(key) { ResourcePrefetchLifecycleState() }
-            state.ready = true
             state.cooldownUntilMillis = 0L
             trimLifecycleStateIfNeeded()
         }
@@ -572,8 +590,11 @@ internal object MediaPreviewPrefetchCoordinator {
 
     private const val PREFETCH_WINDOW_AHEAD = 10
     private const val PREFETCH_WINDOW_BEHIND = 4
+    // The decrypt permit is held across the whole ensure (network download included), so it is
+    // the effective network bound. Both are set to 4 so the pipeline actually uses 4 slots;
+    // writes remain throttled by the write semaphore below.
     private const val PREFETCH_NETWORK_CONCURRENCY = 4
-    private const val PREFETCH_DECRYPT_CONCURRENCY = 2
+    private const val PREFETCH_DECRYPT_CONCURRENCY = 4
     private const val PREFETCH_WRITE_CONCURRENCY = 2
     private const val REMOTE_THUMBNAIL_FAILURE_COOLDOWN_MILLIS = 30_000L
     private const val MAX_LIFECYCLE_STATE_ENTRIES = 6_000
@@ -585,7 +606,6 @@ internal object MediaPreviewPrefetchCoordinator {
     )
 
     private data class ResourcePrefetchLifecycleState(
-        var ready: Boolean = false,
         var mainFetchedOnce: Boolean = false,
         var cooldownUntilMillis: Long = 0L,
     )

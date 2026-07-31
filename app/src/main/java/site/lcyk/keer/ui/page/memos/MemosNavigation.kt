@@ -1,6 +1,9 @@
 package site.lcyk.keer.ui.page.memos
 
 import android.net.Uri
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.material3.DrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -38,7 +41,13 @@ fun MemosNavigation(
 
     NavHost(
         navController = navController,
-        startDestination = startDestination
+        startDestination = startDestination,
+        // Override the default long crossfade with a short fade so drawer-page switches
+        // don't draw two full pages simultaneously for ~700ms.
+        enterTransition = { fadeIn(animationSpec = tween(150)) },
+        exitTransition = { fadeOut(animationSpec = tween(150)) },
+        popEnterTransition = { fadeIn(animationSpec = tween(150)) },
+        popExitTransition = { fadeOut(animationSpec = tween(150)) },
     ) {
         composable(
             RouteName.MEMOS,

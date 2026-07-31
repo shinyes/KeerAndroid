@@ -28,8 +28,6 @@ import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -494,9 +492,6 @@ class MemosViewModel @Inject constructor(
     fun setInteractionActive(scope: MemoUiScope, type: UiInteractionType, active: Boolean) {
         uiInteractionGate.setActive(scope, type, active)
         }
-
-        suspend fun getCurrentAccountKey(): String? =
-            runBlocking { accountService.currentAccount.first()?.accountKey() }
 
     fun observeScopeFrozen(scope: MemoUiScope) = uiInteractionGate.observeScopeFrozen(scope)
 

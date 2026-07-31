@@ -31,10 +31,11 @@ internal fun buildMemoRenderVersionKey(
             "${memo.date.toEpochMilli()}|${memo.content.hashCode()}"
         }
     }
-    val memoVersionMillis = when (memo) {
-        is MemoEntity -> memo.lastModified.toEpochMilli()
-        else -> memo.date.toEpochMilli()
-    }
+    // memoVersionMillis anchors the key to a stable memo identity (creation date) rather than
+    // lastModified, which also flips on pin/archive/needsSync and would otherwise invalidate
+    // the preview cache on every non-content change. Render-relevant changes are captured by
+    // contentHash and resourceSignature.
+    val memoVersionMillis = memo.date.toEpochMilli()
     return MemoRenderVersionKey(
         memoId = memoId,
         memoVersionMillis = memoVersionMillis,
@@ -117,4 +118,4 @@ private fun estimatePreviewSnapshotBytes(
     return keyBytes + textBytes + flagsBytes + objectOverheadBytes
 }
 
-private const val MEMO_RENDER_CACHE_MAX_BYTES = 256 * 1024 * 1024
+private const val MEMO_RENDER_CACHE_MAX_BYTES = 64 * 1024 * 1024

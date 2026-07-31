@@ -7,10 +7,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalContext
 import com.skydoves.sandwich.ApiResponse
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.firstOrNull
@@ -114,21 +115,24 @@ internal fun resolveFallbackPrefetchVisibleIndices(
     return (normalizedAnchor until endExclusive).toList()
 }
 
-@OptIn(FlowPreview::class)
+@OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 internal suspend fun collectPrefetchVisibleWindows(
     visibleIndicesFlow: Flow<List<Int>>,
     prefetchPaused: Boolean,
     onPrefetchVisibleWindow: suspend (List<Int>, PrefetchWindow) -> Unit,
 ) {
     var previousAnchorIndex: Int? = null
+    // conflate (instead of collectLatest) keeps the most recent visible window without
+    // cancelling an in-flight prefetch mid-download/decrypt when the window shifts rapidly.
     visibleIndicesFlow
         .distinctUntilChanged()
         .debounce(PREFETCH_VISIBLE_DEBOUNCE_MS)
-        .collectLatest { visibleIndices ->
+        .conflate()
+        .collect { visibleIndices ->
             if (visibleIndices.isEmpty() || prefetchPaused) {
-                return@collectLatest
+                return@collect
             }
-            val currentAnchorIndex = visibleIndices.minOrNull() ?: return@collectLatest
+            val currentAnchorIndex = visibleIndices.minOrNull() ?: return@collect
             val direction = resolvePrefetchDirection(
                 previousAnchorIndex = previousAnchorIndex,
                 currentAnchorIndex = currentAnchorIndex,

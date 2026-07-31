@@ -46,6 +46,8 @@ import site.lcyk.keer.data.service.MemoTransferStage
 import site.lcyk.keer.data.service.MemoTransferService
 import site.lcyk.keer.data.repository.UserGeneralSettingsRepository
 import site.lcyk.keer.ext.string
+import site.lcyk.keer.ui.component.MediaPreviewRuntimeCache
+import site.lcyk.keer.ui.component.MemoRenderCache
 import okhttp3.OkHttpClient
 import javax.inject.Inject
 
@@ -72,7 +74,7 @@ class UserStateViewModel @Inject constructor(
     var currentUser: User? by mutableStateOf(null)
         private set
 
-    var host: String = ""
+    var host: String by mutableStateOf("")
         private set
     val okHttpClient: OkHttpClient get() = accountService.httpClient
     val collaboratorProfiles = userDirectoryRepository.collaboratorProfiles
@@ -105,6 +107,9 @@ class UserStateViewModel @Inject constructor(
                     else -> ""
                 }
                 userDirectoryRepository.reset()
+                // Reclaim the previous account's process-wide media/markdown caches on switch.
+                MediaPreviewRuntimeCache.clear()
+                MemoRenderCache.clear()
                 if (it != null) {
                     userGeneralSettingsRepository.refreshCurrentGeneralSettings(
                         reason = "account_changed",

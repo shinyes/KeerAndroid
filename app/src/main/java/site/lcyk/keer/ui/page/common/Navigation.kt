@@ -141,7 +141,13 @@ fun Navigation() {
                     TagMemoPage(tag = tag, navController = navController)
                 }
 
-                composable("${RouteName.MEMO_DETAIL}?memoId={memoId}") { entry ->
+                // Full-screen detail uses a lighter fade-only transition instead of the
+                // global slide+fade, since detail↔list toggling is frequent.
+                composable(
+                    "${RouteName.MEMO_DETAIL}?memoId={memoId}",
+                    enterTransition = { fadeIn() },
+                    exitTransition = { fadeOut() },
+                ) { entry ->
                     val memoId = entry.arguments?.getString("memoId")
                     if (memoId != null) {
                         MemoDetailPage(navController = navController, memoIdentifier = Uri.decode(memoId))

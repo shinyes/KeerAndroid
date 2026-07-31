@@ -12,7 +12,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextDecoration
@@ -22,6 +26,8 @@ import site.lcyk.keer.R
 import site.lcyk.keer.data.model.MemoRepresentable
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.viewmodel.LocalUserState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.ceil
 
 @Composable
@@ -39,15 +45,28 @@ fun MemoContent(
     val renderVersionKey = remember(memo) {
         buildMemoRenderVersionKey(memo)
     }
-    val (text, previewed) = remember(renderVersionKey, memo.content, previewMode) {
+    // A preview cache hit is a cheap synchronized LRU lookup that can stay in composition.
+    // A cache miss parses the whole Markdown document, so it is warmed off the main thread
+    // and the result is applied on the next recomposition via previewWarmVersion.
+    var previewWarmVersion by remember(renderVersionKey, memo.content, previewMode) {
+        mutableStateOf(0)
+    }
+    LaunchedEffect(renderVersionKey, memo.content, previewMode) {
+        if (previewMode && MemoRenderCache.getPreview(renderVersionKey) == null) {
+            withContext(Dispatchers.Default) {
+                resolveMemoPreviewSnapshot(
+                    markdownText = memo.content,
+                    versionKey = renderVersionKey,
+                )
+            }
+            previewWarmVersion++
+        }
+    }
+    val (text, previewed) = remember(renderVersionKey, memo.content, previewMode, previewWarmVersion) {
         if (previewMode) {
-            resolveMemoPreviewSnapshot(
-                markdownText = memo.content,
-                versionKey = renderVersionKey,
-            )
-                .let { snapshot ->
-                    snapshot.text to snapshot.previewed
-                }
+            MemoRenderCache.getPreview(renderVersionKey)
+                ?.let { snapshot -> snapshot.text to snapshot.previewed }
+                ?: Pair("", false)
         } else {
             Pair(memo.content, false)
         }

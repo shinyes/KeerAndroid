@@ -40,9 +40,15 @@ fun rememberMemoMediaImageLoader(): ImageLoader {
     }
 }
 
+private fun resolveAuthorizedMemoryCacheBytes(): Long {
+    val maxHeapBytes = Runtime.getRuntime().maxMemory().coerceAtLeast(1L)
+    val preferredBytes = (maxHeapBytes * 8L) / 100L
+    return preferredBytes.coerceIn(AUTHORIZED_MIN_CACHE_BYTES, AUTHORIZED_MAX_CACHE_BYTES)
+}
+
 private fun resolveMemoMediaMemoryCacheBytes(): Long {
     val maxHeapBytes = Runtime.getRuntime().maxMemory().coerceAtLeast(1L)
-    val preferredBytes = (maxHeapBytes * 24L) / 100L
+    val preferredBytes = (maxHeapBytes * 16L) / 100L
     return preferredBytes.coerceIn(MEMO_MEDIA_MIN_CACHE_BYTES, MEMO_MEDIA_MAX_CACHE_BYTES)
 }
 
@@ -104,6 +110,11 @@ private fun buildAuthorizedImageLoader(
         .components {
             add(OkHttpNetworkFetcherFactory(callFactory = { okHttpClient }))
         }
+        .memoryCache {
+            MemoryCache.Builder()
+                .maxSizeBytes(resolveAuthorizedMemoryCacheBytes())
+                .build()
+        }
         .build()
 }
 
@@ -124,5 +135,7 @@ private fun buildMemoMediaImageLoader(
         .build()
 }
 
-private const val MEMO_MEDIA_MIN_CACHE_BYTES = 48L * 1024L * 1024L
-private const val MEMO_MEDIA_MAX_CACHE_BYTES = 224L * 1024L * 1024L
+private const val AUTHORIZED_MIN_CACHE_BYTES = 16L * 1024L * 1024L
+private const val AUTHORIZED_MAX_CACHE_BYTES = 64L * 1024L * 1024L
+private const val MEMO_MEDIA_MIN_CACHE_BYTES = 32L * 1024L * 1024L
+private const val MEMO_MEDIA_MAX_CACHE_BYTES = 160L * 1024L * 1024L

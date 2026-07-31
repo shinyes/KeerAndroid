@@ -1,6 +1,8 @@
 package site.lcyk.keer
 
 import android.app.Application
+import android.os.Handler
+import android.os.Looper
 import androidx.work.Configuration
 import dagger.hilt.android.HiltAndroidApp
 import site.lcyk.keer.data.map.AmapMapRuntime
@@ -21,14 +23,19 @@ class KeerApp: Application(), Configuration.Provider {
     companion object {
         lateinit var INSTANCE: KeerApp
             private set
+
+        private const val SYNC_INITIALIZATION_DELAY_MILLIS = 1_500L
     }
 
     override fun onCreate() {
         super.onCreate()
         INSTANCE = this
-        
-        // Initialize Timber logging
-        if (Timber.forest().none { it is Timber.DebugTree }) {
+
+        // Initialize Timber logging. Only plant the logcat DebugTree for debug builds so
+        // release doesn't pay string-formatting costs on every Timber call (e.g. per-resource
+        // preview trace). The in-app DebugLogTree stays planted — it is gated by the app
+        // debug-log setting and powers the Debug Log page.
+        if (BuildConfig.DEBUG && Timber.forest().none { it is Timber.DebugTree }) {
             Timber.plant(Timber.DebugTree())
         }
         if (Timber.forest().none { it is DebugLogTree }) {
@@ -39,10 +46,15 @@ class KeerApp: Application(), Configuration.Provider {
             applicationContext = this,
             apiKey = BuildConfig.AMAP_API_KEY,
         )
-        
-        // Initialize continuous stream sync
+
+        // Register the singleton immediately (needed by SyncInitializer.getInstance()), but
+        // defer starting the continuous stream-sync session until after the first frame so
+        // cold-start UI doesn't compete with the sync loop for CPU/network/IO.
         SyncInitializer.initialize(syncInitializer)
-        syncInitializer.initialize()
+        Handler(Looper.getMainLooper()).postDelayed(
+            { syncInitializer.initialize() },
+            SYNC_INITIALIZATION_DELAY_MILLIS,
+        )
     }
     
     override val workManagerConfiguration: Configuration

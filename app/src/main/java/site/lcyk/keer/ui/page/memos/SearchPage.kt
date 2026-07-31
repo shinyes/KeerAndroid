@@ -43,6 +43,13 @@ fun SearchPage(navController: NavHostController) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val focusRequester = remember { FocusRequester() }
     val listState = rememberMemoListState(aggressiveCache = false)
+    // Debounce keystrokes so the full-text scan over all memo contents (which runs on
+    // Dispatchers.Default inside MemosList) is not re-triggered on every character.
+    var debouncedQuery by remember { mutableStateOf("") }
+    LaunchedEffect(searchText.text) {
+        delay(250)
+        debouncedQuery = searchText.text
+    }
 
     Scaffold(
         topBar = {
@@ -75,7 +82,7 @@ fun SearchPage(navController: NavHostController) {
             MemosList(
                 contentPadding = innerPadding,
                 lazyListState = listState,
-                searchString = searchText.text,
+                searchString = debouncedQuery,
                 onTagClick = { tag ->
                     navController.navigateToTagPage(tag)
                 }
