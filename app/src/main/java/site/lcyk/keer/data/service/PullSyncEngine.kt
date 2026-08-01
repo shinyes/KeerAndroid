@@ -21,7 +21,8 @@ class PullSyncEngine @Inject constructor(
 ) {
     suspend fun runUnifiedTailSession(): ApiResponse<Unit> {
         return runStreamSession(
-            domains = FULL_STREAM_DOMAINS,
+            // 全域统一由 mapStreamDomains 推导，避免与 FULL_STREAM_DOMAINS 重复维护。
+            domains = mapStreamDomains(SyncDomain.entries.toSet()),
             groupScopes = emptyList(),
             mode = SyncStreamMode.TAIL,
             limit = TAIL_STREAM_PAGE_SIZE,
@@ -93,6 +94,9 @@ class PullSyncEngine @Inject constructor(
             val memoRepository = accountService.getRepository()
 
             var currentCursor = resolveInitialStreamCursor(accountKey)
+            // 初次全量（游标为 0）时服务端默认反向拉取（新→旧）：每批返回的是"已处理下界"，
+            // 不能作为增量游标持久化；只有结束时 bootstrap_end 携带的增量游标（反向起点）才写入。
+            val descending = currentCursor == "0"
             val streamResult = remoteRepository.streamSyncBootstrap(
                 resumeCursor = currentCursor,
                 domains = domains,
@@ -113,10 +117,9 @@ class PullSyncEngine @Inject constructor(
                 }
 
                 val nextCursor = chunk.nextCursor.trim()
-                if (nextCursor.isNotEmpty() && nextCursor != currentCursor) {
+                if (!descending && nextCursor.isNotEmpty() && nextCursor != currentCursor) {
                     currentCursor = nextCursor
-                    accountLocalSettingsStore.writeStreamSyncCursor(accountKey, currentCursor)
-                    accountLocalSettingsStore.writeProfileSyncCursor(accountKey, currentCursor)
+                    persistStreamCursor(accountKey, currentCursor)
                 }
                 ApiResponse.Success(Unit)
             }
@@ -124,8 +127,7 @@ class PullSyncEngine @Inject constructor(
                 is ApiResponse.Success -> {
                     val finalCursor = streamResult.data.trim()
                     if (finalCursor.isNotEmpty() && finalCursor != currentCursor) {
-                        accountLocalSettingsStore.writeStreamSyncCursor(accountKey, finalCursor)
-                        accountLocalSettingsStore.writeProfileSyncCursor(accountKey, finalCursor)
+                        persistStreamCursor(accountKey, finalCursor)
                     }
                     ApiResponse.Success(Unit)
                 }
@@ -232,18 +234,12 @@ class PullSyncEngine @Inject constructor(
         return fallbackCursor?.toString() ?: "0"
     }
 
+    private suspend fun persistStreamCursor(accountKey: String, cursor: String) {
+        accountLocalSettingsStore.writeStreamSyncCursor(accountKey, cursor)
+        accountLocalSettingsStore.writeProfileSyncCursor(accountKey, cursor)
+    }
+
     private companion object {
-        private val FULL_STREAM_DOMAINS = setOf(
-            SyncPullDomain.MEMOS,
-            SyncPullDomain.USERS,
-            SyncPullDomain.FRIENDSHIPS,
-            SyncPullDomain.GROUPS,
-            SyncPullDomain.GROUP_MESSAGES,
-            SyncPullDomain.ATTACHMENTS,
-            SyncPullDomain.SETTINGS,
-            SyncPullDomain.SETTINGS_ENCRYPTION,
-            SyncPullDomain.GROUP_KEYS,
-        )
         private const val MANUAL_STREAM_PAGE_SIZE = 180
         private const val TAIL_STREAM_PAGE_SIZE = 240
     }

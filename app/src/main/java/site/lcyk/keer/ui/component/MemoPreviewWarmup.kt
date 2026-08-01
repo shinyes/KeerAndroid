@@ -110,7 +110,7 @@ internal fun memoPreviewCacheSizeForTest(): Int {
     return MemoRenderCache.size()
 }
 
-internal const val MEMO_PREVIEW_WARMUP_COUNT = 12
+internal const val MEMO_PREVIEW_WARMUP_COUNT = 24
 internal const val MEMO_PREVIEW_WARMUP_DELAY_MS = 140L
 private const val MEMO_PREVIEW_WARMUP_BATCH_SIZE = 3
 private const val MEMO_PREVIEW_WARMUP_FRAME_BUDGET_DELAY_MS = 16L

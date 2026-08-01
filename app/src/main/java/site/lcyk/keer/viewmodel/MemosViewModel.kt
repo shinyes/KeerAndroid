@@ -181,7 +181,14 @@ class MemosViewModel @Inject constructor(
 
     private val projectionMemos: StateFlow<List<MemoEntity>> =
         memoService.memos
-            .debounce(PROJECTION_MEMO_DEBOUNCE_MILLIS)
+            // 同步进行时拉长 debounce，降低初次全量同步期间"每页写入→全链重算"的频率。
+            .debounce { _ ->
+                if (syncStatus.value.syncing) {
+                    SYNCING_PROJECTION_DEBOUNCE_MILLIS
+                } else {
+                    PROJECTION_MEMO_DEBOUNCE_MILLIS
+                }
+            }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     private val liveHomeMemos: StateFlow<List<HomeMemoItem>> =
@@ -563,6 +570,7 @@ class MemosViewModel @Inject constructor(
         private const val MAX_TRANSIENT_DETAIL_MEMO_COUNT = 200
         private const val FEED_PROFILE_LOG_THRESHOLD_MILLIS = 12L
         private const val PROJECTION_MEMO_DEBOUNCE_MILLIS = 64L
+        private const val SYNCING_PROJECTION_DEBOUNCE_MILLIS = 256L
         private const val SNAPSHOT_IDLE_COMMIT_DELAY_MILLIS = 300L
         private const val FEED_PROFILE_TAG = "FeedProfile"
         private val FOREGROUND_SYNC_BLOCKING_INTERACTIONS = setOf(

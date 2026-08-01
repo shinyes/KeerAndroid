@@ -894,15 +894,25 @@ class SyncingRepository(
             operationMutex.withLock {
                 runCatching {
                     database.withTransaction {
-                        patch.upserts.forEach { remoteResource ->
-                            val remoteId = remoteResource.remoteId.trim()
-                            if (remoteId.isEmpty()) {
-                                return@forEach
-                            }
-                            val existingCopies = memoDao.getResourcesByRemoteId(remoteId, accountKey)
-                            if (existingCopies.isEmpty()) {
-                                memoDao.insertResource(
-                                    ResourceEntity(
+                        if (patch.upserts.isNotEmpty()) {
+                            val upsertRemoteIds = patch.upserts
+                                .asSequence()
+                                .map { remoteResource -> remoteResource.remoteId.trim() }
+                                .filter(String::isNotEmpty)
+                                .toList()
+                            // 一次性批量查询现有副本，避免对每个附件各查一次库。
+                            val existingByRemoteId = memoDao
+                                .getResourcesByIdentifiers(upsertRemoteIds, accountKey)
+                                .groupBy { resource -> resource.remoteId }
+                            val toInsert = mutableListOf<ResourceEntity>()
+                            patch.upserts.forEach { remoteResource ->
+                                val remoteId = remoteResource.remoteId.trim()
+                                if (remoteId.isEmpty()) {
+                                    return@forEach
+                                }
+                                val existingCopies = existingByRemoteId[remoteId].orEmpty()
+                                if (existingCopies.isEmpty()) {
+                                    toInsert += ResourceEntity(
                                         identifier = "$remoteId|resource",
                                         remoteId = remoteId,
                                         accountKey = accountKey,
@@ -916,36 +926,35 @@ class SyncingRepository(
                                         thumbnailLocalUri = null,
                                         memoId = null,
                                     )
-                                )
-                                return@forEach
+                                } else {
+                                    existingCopies.forEach { existing ->
+                                        toInsert += existing.copy(
+                                            date = remoteResource.date,
+                                            filename = remoteResource.filename,
+                                            uri = remoteResource.uri,
+                                            mimeType = remoteResource.mimeType,
+                                            encryptionMetadata = remoteResource.encryptionMetadata,
+                                            thumbnailUri = remoteResource.thumbnailUri,
+                                        )
+                                    }
+                                }
                             }
-                            existingCopies.forEach { existing ->
-                                memoDao.insertResource(
-                                    existing.copy(
-                                        date = remoteResource.date,
-                                        filename = remoteResource.filename,
-                                        uri = remoteResource.uri,
-                                        mimeType = remoteResource.mimeType,
-                                        encryptionMetadata = remoteResource.encryptionMetadata,
-                                        thumbnailUri = remoteResource.thumbnailUri,
-                                    )
-                                )
+                            if (toInsert.isNotEmpty()) {
+                                memoDao.insertResources(toInsert)
                             }
                         }
 
-                        patch.deletes
+                        val deleteRemoteIds = patch.deletes
                             .asSequence()
                             .map(String::trim)
                             .filter(String::isNotEmpty)
                             .distinct()
-                            .forEach { remoteId ->
-                                val existingCopies = memoDao.getResourcesByRemoteId(remoteId, accountKey)
-                                if (existingCopies.isEmpty()) {
-                                    return@forEach
-                                }
-                                existingCopies.forEach { existing -> deleteLocalFile(existing) }
-                                memoDao.deleteResources(existingCopies)
-                            }
+                            .toList()
+                        if (deleteRemoteIds.isNotEmpty()) {
+                            val existingToDelete = memoDao.getResourcesByIdentifiers(deleteRemoteIds, accountKey)
+                            existingToDelete.forEach { existing -> deleteLocalFile(existing) }
+                            memoDao.deleteResources(existingToDelete)
+                        }
                     }
                     ApiResponse.Success(Unit)
                 }.getOrElse { throwable ->
@@ -2384,86 +2393,4 @@ class SyncingRepository(
         private const val THUMBNAIL_UPLOAD_LOG_TAG = "ThumbnailUpload"
     }
 
-}
-
-private fun MediaType?.isImageMimeType(): Boolean {
-    return this?.type.equals("image", ignoreCase = true)
-}
-
-private fun MediaType?.isVideoMimeType(): Boolean {
-    return this?.type.equals("video", ignoreCase = true)
-}
-
-private fun isHttpUrl(rawUrl: String): Boolean {
-    return rawUrl.startsWith("http://", ignoreCase = true) ||
-        rawUrl.startsWith("https://", ignoreCase = true)
-}
-
-private fun isSameHttpResource(leftRawUrl: String, rightRawUrl: String): Boolean {
-    val left = normalizeHttpResourceForCompare(leftRawUrl)
-    val right = normalizeHttpResourceForCompare(rightRawUrl)
-    return left != null && right != null && left == right
-}
-
-private fun normalizeHttpResourceForCompare(rawUrl: String): String? {
-    val trimmed = rawUrl.trim()
-    if (!isHttpUrl(trimmed)) {
-        return null
-    }
-    val parsed = runCatching { Uri.parse(trimmed) }.getOrNull() ?: return trimmed.lowercase()
-    val scheme = parsed.scheme?.lowercase().orEmpty()
-    val host = parsed.host?.lowercase().orEmpty()
-    if (scheme.isEmpty() || host.isEmpty()) {
-        return trimmed.lowercase()
-    }
-    val port = parsed.port.takeIf { it >= 0 }?.let { ":$it" }.orEmpty()
-    val path = parsed.encodedPath
-        ?.trim()
-        ?.ifEmpty { "/" }
-        ?.trimEnd('/')
-        ?.ifEmpty { "/" }
-        ?: "/"
-    return "$scheme://$host$port$path"
-}
-
-private fun renameTagWithPrefix(tag: String, oldPrefix: String, newPrefix: String): String {
-    return when {
-        tag == oldPrefix -> newPrefix
-        tag.startsWith("$oldPrefix/") -> "$newPrefix/${tag.removePrefix("$oldPrefix/")}"
-        else -> tag
-    }
-}
-
-private fun matchesTagOrDescendant(tag: String, rootTag: String): Boolean {
-    return tag == rootTag || tag.startsWith("$rootTag/")
-}
-
-internal class ThumbnailUploadTaskScheduler {
-    private val lock = Any()
-    private val pending = mutableSetOf<String>()
-    private val running = mutableSetOf<String>()
-
-    fun enqueue(resourceIdentifier: String): Boolean = synchronized(lock) {
-        pending += resourceIdentifier
-        if (resourceIdentifier in running) {
-            false
-        } else {
-            running += resourceIdentifier
-            true
-        }
-    }
-
-    fun takePending(resourceIdentifier: String): Boolean = synchronized(lock) {
-        pending.remove(resourceIdentifier)
-    }
-
-    fun finishAndShouldRestart(resourceIdentifier: String): Boolean = synchronized(lock) {
-        running -= resourceIdentifier
-        if (resourceIdentifier in pending) {
-            running += resourceIdentifier
-            true
-        } else {
-            false
-        }
-    }
 }

@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -22,9 +23,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
+import site.lcyk.keer.data.model.Account
 import site.lcyk.keer.data.model.SyncDomain
 import site.lcyk.keer.data.model.SyncStatus
 import site.lcyk.keer.ext.getErrorMessage
+import timber.log.Timber
 
 @Singleton
 class SyncCoordinator @Inject constructor(
@@ -41,6 +44,9 @@ class SyncCoordinator @Inject constructor(
     )
 
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // 维护"账号激活时保持 tail 会话"的独立作用域（曾由 StreamSyncSessionManager 承担）。
+    private val sessionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var activeSessionJob: Job? = null
     private val syncMutex = Mutex()
     private val pendingRequestMutex = Mutex()
     private val tailSessionMutex = Mutex()
@@ -76,6 +82,27 @@ class SyncCoordinator @Inject constructor(
                 accountService.getRepository().syncStatus.collect { repositoryStatus ->
                     repositoryStatusSnapshot = repositoryStatus
                     publishStatus()
+                }
+            }
+        }
+    }
+
+    fun startStreamSessions() {
+        sessionScope.launch {
+            accountService.currentAccount.collectLatest { account ->
+                activeSessionJob?.cancel()
+                activeSessionJob = null
+                if (account !is Account.KeerV2) {
+                    return@collectLatest
+                }
+                activeSessionJob = launch {
+                    try {
+                        runTailSessionLoop()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (throwable: Throwable) {
+                        Timber.w(throwable, "Tail stream sync loop terminated unexpectedly")
+                    }
                 }
             }
         }

@@ -64,6 +64,13 @@ import site.lcyk.keer.viewmodel.MemoUiScope
 import site.lcyk.keer.viewmodel.UiInteractionType
 import timber.log.Timber
 
+private data class MemoListDerivedState(
+    val filteredMemos: List<site.lcyk.keer.data.local.entity.MemoEntity>,
+    val memoCardUiModels: List<MemoCardUiModel>,
+    val prefetchMemos: List<site.lcyk.keer.data.local.entity.MemoEntity>,
+    val collaboratorIdsToPrefetch: List<String>,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MemosList(
@@ -104,11 +111,19 @@ fun MemosList(
     val sourceMemos = memos ?: visibleMemos
     val sourceMemoSnapshot = remember(sourceMemos) { sourceMemos.toList() }
     val resolvedQuoteMap = visibleResolvedQuotes
-    val filteredMemos by produceState(
-        initialValue = sourceMemoSnapshot,
+    // 把过滤、UiModel 构建、预取列表、协作者 ID 合并为一次 Default 线程计算，
+    // 避免对全量列表反复遍历、并在主线程做 O(n) 派生。
+    val derivedState by produceState(
+        initialValue = MemoListDerivedState(
+            filteredMemos = sourceMemoSnapshot,
+            memoCardUiModels = emptyList(),
+            prefetchMemos = emptyList(),
+            collaboratorIdsToPrefetch = emptyList(),
+        ),
         sourceMemoSnapshot,
         tag,
         searchString,
+        resolvedQuoteMap,
     ) {
         value = withContext(Dispatchers.Default) {
             val normalizedTag = tag?.takeIf { it.isNotBlank() }
@@ -135,37 +150,33 @@ fun MemosList(
                 }
             }
 
-            buildList(pinned.size + normal.size) {
+            val filteredMemos = buildList(pinned.size + normal.size) {
                 addAll(pinned)
                 addAll(normal)
             }
-        }
-    }
-    val memoCardUiModels by produceState(
-        initialValue = emptyList<MemoCardUiModel>(),
-        filteredMemos,
-        resolvedQuoteMap,
-    ) {
-        value = withContext(Dispatchers.Default) {
-            filteredMemos.map { memo ->
+            val memoCardUiModels = filteredMemos.map { memo ->
                 MemoCardUiModel(
                     memo = memo,
                     resolvedQuote = resolvedQuoteMap[memo.identifier],
                 )
             }
+            val collaboratorIdsToPrefetch = filteredMemos
+                .asSequence()
+                .flatMap { memo -> extractCollaboratorIds(memo.tags).asSequence() }
+                .distinct()
+                .toList()
+            MemoListDerivedState(
+                filteredMemos = filteredMemos,
+                memoCardUiModels = memoCardUiModels,
+                prefetchMemos = memoCardUiModels.map { it.memo },
+                collaboratorIdsToPrefetch = collaboratorIdsToPrefetch,
+            )
         }
     }
-    val prefetchMemos = remember(memoCardUiModels) {
-        memoCardUiModels.map { it.memo }
-    }
-
-    val collaboratorIdsToPrefetch = remember(filteredMemos) {
-        filteredMemos
-            .asSequence()
-            .flatMap { memo -> extractCollaboratorIds(memo.tags).asSequence() }
-            .distinct()
-            .toList()
-    }
+    val filteredMemos = derivedState.filteredMemos
+    val memoCardUiModels = derivedState.memoCardUiModels
+    val prefetchMemos = derivedState.prefetchMemos
+    val collaboratorIdsToPrefetch = derivedState.collaboratorIdsToPrefetch
 
     LaunchedEffect(collaboratorIdsToPrefetch) {
         if (collaboratorIdsToPrefetch.isNotEmpty()) {

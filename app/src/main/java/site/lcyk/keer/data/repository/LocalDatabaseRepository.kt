@@ -539,23 +539,3 @@ class LocalDatabaseRepository(
     }
 
 }
-
-private fun MediaType?.isImageMimeType(): Boolean {
-    return this?.type.equals("image", ignoreCase = true)
-}
-
-private fun MediaType?.isVideoMimeType(): Boolean {
-    return this?.type.equals("video", ignoreCase = true)
-}
-
-private fun renameTagWithPrefix(tag: String, oldPrefix: String, newPrefix: String): String {
-    return when {
-        tag == oldPrefix -> newPrefix
-        tag.startsWith("$oldPrefix/") -> "$newPrefix/${tag.removePrefix("$oldPrefix/")}"
-        else -> tag
-    }
-}
-
-private fun matchesTagOrDescendant(tag: String, rootTag: String): Boolean {
-    return tag == rootTag || tag.startsWith("$rootTag/")
-}

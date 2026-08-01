@@ -8,7 +8,7 @@ import dagger.hilt.android.HiltAndroidApp
 import site.lcyk.keer.data.map.AmapMapRuntime
 import site.lcyk.keer.data.service.DebugLogManager
 import site.lcyk.keer.data.service.DebugLogTree
-import site.lcyk.keer.data.work.SyncInitializer
+import site.lcyk.keer.data.service.SyncCoordinator
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -18,7 +18,7 @@ class KeerApp: Application(), Configuration.Provider {
     lateinit var debugLogManager: DebugLogManager
 
     @Inject
-    lateinit var syncInitializer: SyncInitializer
+    lateinit var syncCoordinator: SyncCoordinator
 
     companion object {
         lateinit var INSTANCE: KeerApp
@@ -47,12 +47,10 @@ class KeerApp: Application(), Configuration.Provider {
             apiKey = BuildConfig.AMAP_API_KEY,
         )
 
-        // Register the singleton immediately (needed by SyncInitializer.getInstance()), but
-        // defer starting the continuous stream-sync session until after the first frame so
+        // Defer starting the continuous stream-sync session until after the first frame so
         // cold-start UI doesn't compete with the sync loop for CPU/network/IO.
-        SyncInitializer.initialize(syncInitializer)
         Handler(Looper.getMainLooper()).postDelayed(
-            { syncInitializer.initialize() },
+            { syncCoordinator.startStreamSessions() },
             SYNC_INITIALIZATION_DELAY_MILLIS,
         )
     }

@@ -28,14 +28,14 @@ class PullSyncEngineTest {
     )
 
     @Test
-    fun run_profileDomain_authBootstrap_runsAvatarSyncBeforeStreamSession() = runTest {
+    fun run_profileDomain_manual_runsAvatarSyncBeforeStreamSession() = runTest {
         coEvery { accountService.syncPendingAvatarIfNeeded() } returns ApiResponse.Success(Unit)
         coEvery { accountService.getRemoteRepository() } returns null
 
         val result = engine.run(
             domains = setOf(SyncDomain.PROFILE),
             groupId = null,
-            trigger = SyncTrigger.AUTH_BOOTSTRAP,
+            trigger = SyncTrigger.MANUAL,
         )
 
         assertTrue(result is ApiResponse.Success)
