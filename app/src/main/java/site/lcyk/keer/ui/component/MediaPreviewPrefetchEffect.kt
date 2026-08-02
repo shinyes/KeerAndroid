@@ -65,7 +65,9 @@ internal fun MediaPreviewPrefetchEffect(
         collectPrefetchVisibleWindows(
             visibleIndicesFlow = snapshotFlow {
                 if (listState.isScrollInProgress) {
-                    emptyList<Int>()
+                    // 滚动中也预取：以首屏锚点为基准预取前方窗口，让即将进入视口的图片
+                    // 提前下载/解密，避免滚动停下后才开始加载、出现空白等待。
+                    listOf(listState.firstVisibleItemIndex)
                 } else {
                     listState.layoutInfo.visibleItemsInfo.map { info -> info.index }
                 }

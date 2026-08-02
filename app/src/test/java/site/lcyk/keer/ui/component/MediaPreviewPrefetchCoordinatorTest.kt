@@ -4,11 +4,16 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.MemoVisibility
 import java.time.Instant
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class MediaPreviewPrefetchCoordinatorTest {
     @Test
     fun collectWindowResourcesForTest_appliesAheadBehindRangeAndFiltersMediaOnly() {
@@ -153,7 +158,9 @@ class MediaPreviewPrefetchCoordinatorTest {
             resourceIndex = 1,
             filename = "img.jpg",
             mimeType = "image/jpeg",
-        )
+        ).copy(localUri = "content://local/preview")
+        // SKIPPED_ONCE 要求 mainFetchedOnce 且仍有可用本地预览；给一个非 file 的 localUri，
+        // 使 hasUsableLocalPreview 成立，与实现逻辑一致。
         MediaPreviewPrefetchCoordinator.clearPrefetchStateForTest()
 
         assertEquals(

@@ -35,8 +35,8 @@ android {
         applicationId = "site.lcyk.keer"
         minSdk = 26
         targetSdk = 36
-        versionCode = 145
-        versionName = "4.1.13"
+        versionCode = 146
+        versionName = "4.1.14"
         buildConfigField "String", "AMAP_API_KEY", "\"${escapedAmapApiKey}\""
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

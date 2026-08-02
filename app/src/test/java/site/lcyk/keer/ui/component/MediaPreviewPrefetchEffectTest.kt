@@ -83,7 +83,7 @@ class MediaPreviewPrefetchEffectTest {
     }
 
     @Test
-    fun collectPrefetchVisibleWindows_collectLatestCancelsOutdatedPrefetch() = runTest {
+    fun collectPrefetchVisibleWindows_conflatesToLatestWithoutCancellingInFlight() = runTest {
         val emissions = MutableSharedFlow<List<Int>>(extraBufferCapacity = 8)
         val completed = mutableListOf<List<Int>>()
         val cancellationCount = AtomicInteger(0)
@@ -112,11 +112,17 @@ class MediaPreviewPrefetchEffectTest {
         advanceTimeBy(PREFETCH_VISIBLE_DEBOUNCE_MS + 1L)
         runCurrent()
 
+        // 实现用 conflate（而非 collectLatest）：不会取消 in-flight 预取，仅保留最新窗口。
+        // 因此第一个窗口会正常完成，最新窗口随后处理。
         advanceTimeBy(220L)
         runCurrent()
+        assertEquals(listOf(listOf(1)), completed)
+        assertEquals(0, cancellationCount.get())
 
-        assertEquals(listOf(listOf(2)), completed)
-        assertTrue(cancellationCount.get() >= 1)
+        advanceTimeBy(220L)
+        runCurrent()
+        assertEquals(listOf(listOf(1), listOf(2)), completed)
+        assertEquals(0, cancellationCount.get())
         job.cancel()
     }
 
