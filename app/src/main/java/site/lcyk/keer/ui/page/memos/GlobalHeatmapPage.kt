@@ -1,5 +1,6 @@
 package site.lcyk.keer.ui.page.memos
 
+import android.graphics.Bitmap
 import android.os.SystemClock
 import android.view.MotionEvent
 import androidx.compose.foundation.Canvas
@@ -45,8 +46,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -60,7 +64,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.ln
+import kotlin.math.max
 import kotlin.math.roundToInt
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.string
@@ -140,14 +146,9 @@ private fun OfflineHeatmapSurface(
     var viewportCommitJob by remember { mutableStateOf<Job?>(null) }
     val colorScheme = MaterialTheme.colorScheme
 
-    val renderedBuckets by remember(committedBuckets, interactiveViewport) {
-        derivedStateOf {
-            projectBucketsToScreen(
-                buckets = committedBuckets,
-                viewport = interactiveViewport,
-            )
-        }
-    }
+    // 分桶基于 interactiveViewport（与底图同一坐标系），screen 坐标可直接渲染，
+    // 避免拖动时分桶中心与投影中心不一致导致的错位/抖动。
+    val renderedBuckets = committedBuckets
     val basemapPalette = remember(colorScheme) {
         OfflineGlobalBasemapPalette(
             oceanTop = Color(0xFF0F223A),
@@ -176,14 +177,14 @@ private fun OfflineHeatmapSurface(
         interactiveViewport = uiState.viewport
     }
 
-    LaunchedEffect(uiState.normalizedPoints, uiState.viewport) {
-        committedBuckets = if (!uiState.viewport.hasSize()) {
+    LaunchedEffect(uiState.normalizedPoints, interactiveViewport) {
+        committedBuckets = if (!interactiveViewport.hasSize()) {
             emptyList()
         } else {
             withContext(Dispatchers.Default) {
                 buildGeoHeatBuckets(
                     points = uiState.normalizedPoints,
-                    viewport = uiState.viewport,
+                    viewport = interactiveViewport,
                 )
             }
         }
@@ -265,31 +266,82 @@ private fun GlobalHeatmapOverlay(
     buckets: List<GeoHeatBucket>,
     modifier: Modifier = Modifier,
 ) {
-    val orangeBand = Color(0xFFFF963C)
-    val redBand = Color(0xFFFF5637)
-    Canvas(modifier = modifier) {
-        buckets.forEach { bucket ->
-            val intensity = bucket.intensity.coerceIn(0.14f, 1f)
-            // 大半径柔和渐晕：相邻桶半透明渐晕叠加后自然融合成连续热力区，
-            // 边缘平滑、像水滴/熔岩一样连成一片（而非独立的气泡圆）。
-            val radius = (bucket.radiusPx * 2.6f).coerceAtLeast(26f)
-            val center = Offset(bucket.centerX, bucket.centerY)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colorStops = arrayOf(
-                        0.00f to redBand.copy(alpha = 0.34f + intensity * 0.14f),
-                        0.30f to orangeBand.copy(alpha = 0.28f + intensity * 0.13f),
-                        0.60f to orangeBand.copy(alpha = 0.14f + intensity * 0.08f),
-                        1.00f to Color.Transparent,
-                    ),
-                    center = center,
-                    radius = radius,
-                ),
-                radius = radius,
-                center = center,
+    var overlaySize by remember { mutableStateOf(IntSize.Zero) }
+    // 核密度估计（KDE）密度场：每个桶的高斯贡献累加到低分辨率网格，
+    // 形成连续平滑的热力区（绿→黄→红按密度映射），比离散圆叠加更美观。
+    val densityImage = remember(buckets, overlaySize) {
+        if (overlaySize == IntSize.Zero) {
+            null
+        } else {
+            buildHeatDensityImage(
+                buckets = buckets,
+                widthPx = overlaySize.width,
+                heightPx = overlaySize.height,
             )
         }
     }
+    Canvas(
+        modifier = modifier.onSizeChanged { size -> overlaySize = size },
+    ) {
+        val image = densityImage
+        if (image != null) {
+            drawImage(
+                image = image,
+                dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+            )
+        }
+    }
+}
+
+/**
+ * 把桶列表渲染为低分辨率密度场位图（KDE 高斯累加），按密度映射"绿→黄→红"。
+ */
+private fun buildHeatDensityImage(
+    buckets: List<GeoHeatBucket>,
+    widthPx: Int,
+    heightPx: Int,
+    downsample: Int = 4,
+): ImageBitmap {
+    val gw = max(1, widthPx / downsample)
+    val gh = max(1, heightPx / downsample)
+    val density = FloatArray(gw * gh)
+    val sigma = 2.4f
+    val radius = (sigma * 2.6f).toInt().coerceAtLeast(1)
+    for (bucket in buckets) {
+        val cx = (bucket.centerX / downsample).toInt()
+        val cy = (bucket.centerY / downsample).toInt()
+        val weight = bucket.memoCount.toFloat()
+        for (dy in -radius..radius) {
+            for (dx in -radius..radius) {
+                val d2 = dx * dx + dy * dy
+                if (d2 > radius * radius) continue
+                val gauss = exp(-d2 / (2f * sigma * sigma)) * weight
+                val gx = cx + dx
+                val gy = cy + dy
+                if (gx in 0 until gw && gy in 0 until gh) {
+                    density[gy * gw + gx] += gauss
+                }
+            }
+        }
+    }
+    val maxDensity = density.maxOrNull() ?: 0f
+    val bitmap = Bitmap.createBitmap(gw, gh, Bitmap.Config.ARGB_8888)
+    if (maxDensity <= 0f) {
+        return bitmap.asImageBitmap()
+    }
+    val pixels = IntArray(gw * gh)
+    for (i in density.indices) {
+        pixels[i] = heatColor((density[i] / maxDensity).coerceIn(0f, 1f))
+    }
+    bitmap.setPixels(pixels, 0, gw, 0, 0, gw, gh)
+    return bitmap.asImageBitmap()
+}
+
+private fun heatColor(t: Float): Int {
+    // 绿(0) → 黄(0.5) → 红(1)
+    val red = if (t < 0.5f) (t / 0.5f * 255f).toInt() else 255
+    val green = if (t < 0.5f) 255 else (255f * (1f - (t - 0.5f) / 0.5f)).toInt()
+    return android.graphics.Color.rgb(red, green, 0)
 }
 
 @Composable
