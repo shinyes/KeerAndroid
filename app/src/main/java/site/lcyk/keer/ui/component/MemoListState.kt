@@ -47,5 +47,5 @@ fun rememberMemoExtremeListState(
     )
 }
 
-private const val EXTREME_LIST_CACHE_AHEAD_DP = 800
-private const val EXTREME_LIST_CACHE_BEHIND_DP = 400
+private const val EXTREME_LIST_CACHE_AHEAD_DP = 300
+private const val EXTREME_LIST_CACHE_BEHIND_DP = 150

@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import com.skydoves.sandwich.ApiResponse
@@ -215,6 +216,8 @@ fun MemoImage(
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop,
+            placeholder = ColorPainter(MemoImagePlaceholderColor),
+            error = ColorPainter(MemoImagePlaceholderColor),
             onError = {
                 Timber.d("Failed to load memo image preview: %s", previewModel)
             }
@@ -520,3 +523,5 @@ private suspend fun resolveMemoImageResource(
 
     return null
 }
+
+private val MemoImagePlaceholderColor = Color(0xFFEEEEEE)

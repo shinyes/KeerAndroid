@@ -2387,7 +2387,7 @@ class SyncingRepository(
         private const val CURRENT_USER_REFRESH_INTERVAL_MILLIS = 5 * 60 * 1000L
         private const val PULL_SYNC_MEMO_PAGE_SIZE = 120
         private const val MAX_PULL_SYNC_PAGES_PER_SESSION = 20
-        private const val SYNC_APPLY_CHUNK_SIZE = 24
+        private const val SYNC_APPLY_CHUNK_SIZE = 64
         private const val THUMBNAIL_UPLOAD_MAX_RETRY_COUNT = 3
         private const val THUMBNAIL_UPLOAD_BASE_RETRY_DELAY_MILLIS = 800L
         private const val THUMBNAIL_UPLOAD_LOG_TAG = "ThumbnailUpload"

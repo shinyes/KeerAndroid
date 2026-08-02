@@ -634,19 +634,19 @@ class GroupChatViewModel @Inject constructor(
         return now - lastFetchAt >= interval
     }
 
-    private fun mergeGroupMemos(
+    private suspend fun mergeGroupMemos(
         groupId: String,
         remote: List<Memo>,
         pending: List<PendingGroupMemo>,
         pendingResources: Map<String, List<Resource>>,
         pinnedKeys: Set<String>
-    ): List<Memo> {
+    ): List<Memo> = withContext(Dispatchers.Default) {
         val pendingMemos = pending.map { pendingMemo ->
             pendingMemo.toMemo(
                 resources = pendingResources[pendingMemo.localId].orEmpty()
             )
         }
-        return (remote + pendingMemos)
+        (remote + pendingMemos)
             .distinctBy { it.remoteId }
             .map { memo ->
                 val pinned = groupMemoKey(groupId, memo.remoteId) in pinnedKeys

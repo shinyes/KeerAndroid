@@ -5,8 +5,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import coil3.ImageLoader
+import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import okio.Path.Companion.toOkioPath
 import okhttp3.OkHttpClient
 import site.lcyk.keer.viewmodel.LocalUserState
 
@@ -115,6 +117,12 @@ private fun buildAuthorizedImageLoader(
                 .maxSizeBytes(resolveAuthorizedMemoryCacheBytes())
                 .build()
         }
+        .diskCache {
+            DiskCache.Builder()
+                .directory(appContext.cacheDir.resolve(IMAGE_DISK_CACHE_DIR).toOkioPath())
+                .maxSizeBytes(IMAGE_DISK_CACHE_MAX_BYTES)
+                .build()
+        }
         .build()
 }
 
@@ -132,6 +140,12 @@ private fun buildMemoMediaImageLoader(
                 .maxSizeBytes(memoryCacheBytes)
                 .build()
         }
+        .diskCache {
+            DiskCache.Builder()
+                .directory(appContext.cacheDir.resolve(IMAGE_DISK_CACHE_DIR).toOkioPath())
+                .maxSizeBytes(IMAGE_DISK_CACHE_MAX_BYTES)
+                .build()
+        }
         .build()
 }
 
@@ -139,3 +153,5 @@ private const val AUTHORIZED_MIN_CACHE_BYTES = 16L * 1024L * 1024L
 private const val AUTHORIZED_MAX_CACHE_BYTES = 64L * 1024L * 1024L
 private const val MEMO_MEDIA_MIN_CACHE_BYTES = 32L * 1024L * 1024L
 private const val MEMO_MEDIA_MAX_CACHE_BYTES = 160L * 1024L * 1024L
+private const val IMAGE_DISK_CACHE_DIR = "coil_image_cache"
+private const val IMAGE_DISK_CACHE_MAX_BYTES = 512L * 1024L * 1024L
