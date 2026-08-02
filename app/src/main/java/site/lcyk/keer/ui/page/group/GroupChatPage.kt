@@ -189,9 +189,25 @@ fun GroupChatPage(
         viewModel.loadGroupTags(resolvedGroup.id, forceSync = false)
     }
 
-    val collaboratorIdsToPrefetch = remember(memos) {
-        memos
+    // 头像预取范围只取可见窗口附近，避免对全量消息做标签扫描。
+    val collaboratorWindow = remember(listState, memos) {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            if (layoutInfo.visibleItemsInfo.isEmpty() || memos.isEmpty()) {
+                emptyList<Int>()
+            } else {
+                val first = (layoutInfo.visibleItemsInfo.first().index - GROUP_PREFETCH_BEHIND)
+                    .coerceAtLeast(0)
+                val last = (layoutInfo.visibleItemsInfo.last().index + GROUP_PREFETCH_AHEAD)
+                    .coerceAtMost(memos.lastIndex)
+                (first..last).toList()
+            }
+        }
+    }
+    val collaboratorIdsToPrefetch = remember(collaboratorWindow.value, memos) {
+        collaboratorWindow.value
             .asSequence()
+            .mapNotNull { index -> memos.getOrNull(index) }
             .flatMap { memo -> extractCollaboratorIds(memo.tags).asSequence() }
             .distinct()
             .toList()
@@ -712,3 +728,6 @@ private fun GroupMemoCardActionButton(
     }
     MemoActionMenuButton(actions = actions)
 }
+
+private const val GROUP_PREFETCH_AHEAD = 6
+private const val GROUP_PREFETCH_BEHIND = 3

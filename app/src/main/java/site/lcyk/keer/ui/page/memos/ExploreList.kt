@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -104,9 +105,25 @@ fun ExploreList(
     val prefetchMemoEntities = remember(items, accountKey) {
         items.map { item -> item.memo.toExploreMemoEntity(accountKey) }
     }
-    val collaboratorIdsToPrefetch = remember(items) {
-        items
+    // 头像预取范围只取可见窗口附近，避免对全量列表做标签扫描。
+    val collaboratorWindow = remember(listState, items) {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            if (layoutInfo.visibleItemsInfo.isEmpty() || items.isEmpty()) {
+                emptyList<Int>()
+            } else {
+                val first = (layoutInfo.visibleItemsInfo.first().index - EXPLORE_PREFETCH_BEHIND)
+                    .coerceAtLeast(0)
+                val last = (layoutInfo.visibleItemsInfo.last().index + EXPLORE_PREFETCH_AHEAD)
+                    .coerceAtMost(items.lastIndex)
+                (first..last).toList()
+            }
+        }
+    }
+    val collaboratorIdsToPrefetch = remember(collaboratorWindow.value, items) {
+        collaboratorWindow.value
             .asSequence()
+            .mapNotNull { index -> items.getOrNull(index) }
             .flatMap { item -> extractCollaboratorIds(item.memo.tags).asSequence() }
             .distinct()
             .toList()
@@ -463,3 +480,6 @@ private fun ExploreMemoCardActionButton(
 private fun canManageExploreMemo(memo: Memo, currentUserId: String): Boolean {
     return canManageCollaborativeMemo(memo, currentUserId)
 }
+
+private const val EXPLORE_PREFETCH_AHEAD = 6
+private const val EXPLORE_PREFETCH_BEHIND = 3
