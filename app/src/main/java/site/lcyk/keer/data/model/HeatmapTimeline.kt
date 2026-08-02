@@ -22,44 +22,33 @@ data class HeatmapWeekColumn(
     val yearLabel: String?,
 )
 
+/**
+ * 稀疏活跃日统计：date -> count，仅含 count > 0 的日期。
+ * 相比旧的稠密矩阵（earliest..today 每天一条），大幅减少对象分配与内存占用。
+ */
+typealias DailyUsageMatrix = Map<LocalDate, Int>
+
 fun buildDailyUsageMatrixFromDates(
     dates: List<LocalDate>,
-    today: LocalDate = LocalDate.now(),
-    emptyFallback: List<DailyUsageStat> = DailyUsageStat.initialMatrix,
-): List<DailyUsageStat> {
-    if (dates.isEmpty()) return emptyFallback
-
-    val countMap = HashMap<LocalDate, Int>(dates.size * 2)
-    var earliest = dates.first()
+): DailyUsageMatrix {
+    if (dates.isEmpty()) return emptyMap()
+    val countMap = HashMap<LocalDate, Int>(dates.size)
     for (date in dates) {
         countMap[date] = (countMap[date] ?: 0) + 1
-        if (date.isBefore(earliest)) {
-            earliest = date
-        }
     }
-
-    if (earliest.isAfter(today)) {
-        earliest = today
-    }
-
-    val days = java.time.temporal.ChronoUnit.DAYS.between(earliest, today).toInt()
-    return (0..days).map { offset ->
-        val date = earliest.plusDays(offset.toLong())
-        DailyUsageStat(date = date, count = countMap[date] ?: 0)
-    }
+    return countMap
 }
 
 fun buildHeatmapTimeline(
-    matrix: List<DailyUsageStat>,
+    matrix: DailyUsageMatrix,
+    latest: LocalDate = LocalDate.now(),
     locale: Locale = Locale.getDefault(),
     firstDayOfWeek: DayOfWeek = WeekFields.of(locale).firstDayOfWeek,
 ): HeatmapTimeline {
     if (matrix.isEmpty()) return HeatmapTimeline.EMPTY
 
-    val startDate = matrix.first().date
-    val endDate = matrix.last().date
-    val statByDate = HashMap<LocalDate, DailyUsageStat>(matrix.size * 2)
-    matrix.forEach { stat -> statByDate[stat.date] = stat }
+    val startDate = matrix.keys.min()
+    val endDate = if (latest.isAfter(startDate)) latest else startDate
 
     val alignedStart = startDate.with(TemporalAdjusters.previousOrSame(firstDayOfWeek))
     val alignedEnd = endDate.with(TemporalAdjusters.nextOrSame(firstDayOfWeek.plus(6)))
@@ -74,7 +63,7 @@ fun buildHeatmapTimeline(
             if (date.isBefore(startDate) || date.isAfter(endDate)) {
                 null
             } else {
-                statByDate[date] ?: DailyUsageStat(date = date, count = 0)
+                DailyUsageStat(date = date, count = matrix[date] ?: 0)
             }
         }
 

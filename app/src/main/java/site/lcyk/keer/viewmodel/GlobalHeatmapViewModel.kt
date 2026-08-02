@@ -20,6 +20,8 @@ import site.lcyk.keer.data.model.GeoMemoPoint
 import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.util.defaultGlobalHeatmapViewport
 import site.lcyk.keer.util.GeoCoordinateTransformer
+import site.lcyk.keer.util.NormalizedMemoPoint
+import site.lcyk.keer.util.normalizeGeoPoints
 
 private data class GeoPointSignature(
     val identifier: String,
@@ -52,15 +54,24 @@ class GlobalHeatmapViewModel @Inject constructor(
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    // 一次性缓存 Web-Mercator 归一化坐标（viewport 无关），
+    // 拖拽/缩放时只做便宜线性投影，不再对每个点重算 sin/ln。
+    private val normalizedPoints = displayPoints
+        .mapLatest { points -> normalizeGeoPoints(points) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     val uiState: StateFlow<GlobalHeatmapUiState> = combine(
         viewportState,
         displayPoints,
         validGeoPoints,
+        normalizedPoints,
         AmapMapRuntime.state,
-    ) { viewport, points, rawPoints, mapRuntimeState ->
+    ) { viewport, points, rawPoints, normalized, mapRuntimeState ->
         GlobalHeatmapUiState(
             viewport = viewport,
             points = points,
+            normalizedPoints = normalized,
             memoPointCount = rawPoints.size,
             loading = false,
             mapAvailable = mapRuntimeState.available,

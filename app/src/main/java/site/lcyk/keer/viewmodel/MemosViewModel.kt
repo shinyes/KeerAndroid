@@ -40,7 +40,7 @@ import site.lcyk.keer.R
 import site.lcyk.keer.data.local.entity.MemoEntity
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.model.Account
-import site.lcyk.keer.data.model.DailyUsageStat
+import site.lcyk.keer.data.model.DailyUsageMatrix
 import site.lcyk.keer.data.model.HeatmapTimeline
 import site.lcyk.keer.data.model.MemoGroup
 import site.lcyk.keer.data.model.MemoVisibility
@@ -126,11 +126,11 @@ class MemosViewModel @Inject constructor(
             .distinctUntilChanged()
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    val visibleMatrix: StateFlow<List<DailyUsageStat>> =
+    val visibleMatrix: StateFlow<Map<LocalDate, Int>> =
         visibleFeedState
             .map { it.matrix }
             .distinctUntilChanged()
-            .stateIn(viewModelScope, SharingStarted.Eagerly, DailyUsageStat.initialMatrix)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     val visibleHomeMemos: StateFlow<List<HomeMemoItem>> =
         visibleFeedState
@@ -158,7 +158,7 @@ class MemosViewModel @Inject constructor(
     val tags: List<String>
         get() = visibleTags.value
 
-    val matrix: List<DailyUsageStat>
+    val matrix: Map<LocalDate, Int>
         get() = visibleMatrix.value
 
     val host: StateFlow<String?> =
@@ -558,16 +558,12 @@ class MemosViewModel @Inject constructor(
         return ManualSyncResult.Failed(message)
     }
 
-    private fun calculateMatrix(sourceMemos: List<MemoEntity>): List<DailyUsageStat> {
+    private fun calculateMatrix(sourceMemos: List<MemoEntity>): DailyUsageMatrix {
         val zoneOffset = OffsetDateTime.now().offset
         val dates = sourceMemos.map { memo ->
             memo.date.atZone(zoneOffset).toLocalDate()
         }
-        return buildDailyUsageMatrixFromDates(
-            dates = dates,
-            today = LocalDate.now(),
-            emptyFallback = DailyUsageStat.initialMatrix,
-        )
+        return buildDailyUsageMatrixFromDates(dates = dates)
     }
 
     private inline fun <T> measureFeedSection(
@@ -606,7 +602,7 @@ class MemosViewModel @Inject constructor(
 
 private data class DrawerBaseState(
     val tags: List<String>,
-    val matrix: List<DailyUsageStat>,
+    val matrix: Map<LocalDate, Int>,
     val heatmapTimeline: HeatmapTimeline,
     val groups: List<MemoGroup>,
     val generalSettings: site.lcyk.keer.data.model.UserGeneralSettings,

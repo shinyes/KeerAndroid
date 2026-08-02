@@ -2,6 +2,7 @@ package site.lcyk.keer.viewmodel
 
 import java.time.Instant
 import site.lcyk.keer.util.DisplayGeoMemoPoint
+import site.lcyk.keer.util.NormalizedMemoPoint
 
 data class GlobalHeatmapViewport(
     val widthPx: Int = 0,
@@ -40,6 +41,7 @@ data class GeoHeatHotspotHint(
 data class GlobalHeatmapUiState(
     val viewport: GlobalHeatmapViewport = GlobalHeatmapViewport(),
     val points: List<DisplayGeoMemoPoint> = emptyList(),
+    val normalizedPoints: List<NormalizedMemoPoint> = emptyList(),
     val memoPointCount: Int = 0,
     val loading: Boolean = true,
     val mapAvailable: Boolean = false,

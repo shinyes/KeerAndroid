@@ -77,6 +77,7 @@ import site.lcyk.keer.util.DEFAULT_GLOBAL_HEATMAP_ZOOM
 import site.lcyk.keer.util.ProjectedMemoPoint
 import site.lcyk.keer.util.buildGeoHeatBuckets
 import site.lcyk.keer.util.buildGeoHeatBucketsFromProjectedPoints
+import site.lcyk.keer.util.buildProjectedMemoPoints
 import site.lcyk.keer.util.defaultGlobalHeatmapViewport
 import site.lcyk.keer.util.panViewport
 import site.lcyk.keer.util.projectBucketsToScreen
@@ -148,6 +149,7 @@ private fun AmapHeatmapSurface(
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestPoints by rememberUpdatedState(uiState.points)
+    val latestNormalizedPoints by rememberUpdatedState(uiState.normalizedPoints)
     val latestViewport by rememberUpdatedState(uiState.viewport)
     var mapView by remember { mutableStateOf<MapView?>(null) }
     var amap by remember { mutableStateOf<AMap?>(null) }
@@ -171,24 +173,23 @@ private fun AmapHeatmapSurface(
         if (currentMapView.width <= 0 || currentMapView.height <= 0) {
             return
         }
-        val projection = map.projection ?: return
-        val projectedPoints = latestPoints.mapNotNull { point ->
-            projection.toScreenLocation(LatLng(point.latitude, point.longitude))?.let { screen ->
-                ProjectedMemoPoint(
-                    identifier = point.identifier,
-                    latitude = point.latitude,
-                    longitude = point.longitude,
-                    x = screen.x.toFloat(),
-                    y = screen.y.toFloat(),
-                    date = point.date,
-                )
-            }
-        }
-        val buckets = buildGeoHeatBucketsFromProjectedPoints(
-            points = projectedPoints,
+        val camera = map.cameraPosition ?: return
+        val viewport = GlobalHeatmapViewport(
             widthPx = currentMapView.width,
             heightPx = currentMapView.height,
-            zoom = map.cameraPosition.zoom.toDouble(),
+            centerLatitude = camera.target.latitude,
+            centerLongitude = camera.target.longitude,
+            zoom = camera.zoom.toDouble(),
+        )
+        // 统一用缓存的归一化坐标 + 便宜线性投影，不再每帧调 AMap toScreenLocation。
+        val buckets = buildGeoHeatBucketsFromProjectedPoints(
+            points = buildProjectedMemoPoints(
+                points = latestNormalizedPoints,
+                viewport = viewport,
+            ),
+            widthPx = currentMapView.width,
+            heightPx = currentMapView.height,
+            zoom = viewport.zoom,
         )
         committedBuckets = buckets
         renderedBuckets = buckets
@@ -419,13 +420,13 @@ private fun OfflineHeatmapSurface(
         interactiveViewport = uiState.viewport
     }
 
-    LaunchedEffect(uiState.points, uiState.viewport) {
+    LaunchedEffect(uiState.normalizedPoints, uiState.viewport) {
         committedBuckets = if (!uiState.viewport.hasSize()) {
             emptyList()
         } else {
             withContext(Dispatchers.Default) {
                 buildGeoHeatBuckets(
-                    points = uiState.points,
+                    points = uiState.normalizedPoints,
                     viewport = uiState.viewport,
                 )
             }
@@ -551,51 +552,27 @@ private fun GlobalHeatmapOverlay(
     buckets: List<GeoHeatBucket>,
     modifier: Modifier = Modifier,
 ) {
-    val blueBand = Color(0xFF4D6BFF)
-    val cyanBand = Color(0xFF37C9FF)
-    val greenBand = Color(0xFF4CDE72)
-    val yellowBand = Color(0xFFF0EA52)
     val orangeBand = Color(0xFFFF963C)
     val redBand = Color(0xFFFF5637)
     Canvas(modifier = modifier) {
-        buckets.sortedBy { it.intensity }.forEach { bucket ->
+        buckets.forEach { bucket ->
             val intensity = bucket.intensity.coerceIn(0.14f, 1f)
-            val radius = (bucket.radiusPx * (1.16f + intensity * 0.22f)).coerceAtLeast(18f)
+            // 大半径柔和渐晕：相邻桶半透明渐晕叠加后自然融合成连续热力区，
+            // 边缘平滑、像水滴/熔岩一样连成一片（而非独立的气泡圆）。
+            val radius = (bucket.radiusPx * 2.6f).coerceAtLeast(26f)
             val center = Offset(bucket.centerX, bucket.centerY)
             drawCircle(
                 brush = Brush.radialGradient(
                     colorStops = arrayOf(
-                        0.00f to redBand.copy(alpha = 0.20f + intensity * 0.08f),
-                        0.14f to orangeBand.copy(alpha = 0.24f + intensity * 0.10f),
-                        0.28f to yellowBand.copy(alpha = 0.26f + intensity * 0.10f),
-                        0.46f to greenBand.copy(alpha = 0.24f + intensity * 0.08f),
-                        0.68f to cyanBand.copy(alpha = 0.18f + intensity * 0.06f),
-                        0.86f to blueBand.copy(alpha = 0.12f + intensity * 0.05f),
+                        0.00f to redBand.copy(alpha = 0.34f + intensity * 0.14f),
+                        0.30f to orangeBand.copy(alpha = 0.28f + intensity * 0.13f),
+                        0.60f to orangeBand.copy(alpha = 0.14f + intensity * 0.08f),
                         1.00f to Color.Transparent,
                     ),
                     center = center,
-                    radius = radius * 1.58f,
+                    radius = radius,
                 ),
-                radius = radius * 1.58f,
-                center = center,
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colorStops = arrayOf(
-                        0.00f to redBand.copy(alpha = 0.16f + intensity * 0.08f),
-                        0.22f to orangeBand.copy(alpha = 0.16f + intensity * 0.08f),
-                        0.44f to yellowBand.copy(alpha = 0.10f + intensity * 0.05f),
-                        1.00f to Color.Transparent,
-                    ),
-                    center = center,
-                    radius = radius * 0.68f,
-                ),
-                radius = radius * 0.68f,
-                center = center,
-            )
-            drawCircle(
-                color = redBand.copy(alpha = 0.04f + intensity * 0.03f),
-                radius = radius * 0.18f,
+                radius = radius,
                 center = center,
             )
         }

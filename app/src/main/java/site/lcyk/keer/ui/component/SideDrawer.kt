@@ -177,7 +177,7 @@ fun SideDrawer(
     }
     val statsText = remember(drawerUiState.matrix, drawerUiState.tags, statsDays) {
         formatDrawerStatsText(
-            memoCount = drawerUiState.matrix.sumOf { it.count },
+            memoCount = drawerUiState.matrix.values.sum(),
             days = statsDays,
             memoLabel = R.string.memo.string,
             dayLabel = R.string.day.string,
@@ -768,9 +768,9 @@ fun SideDrawer(
 }
 
 internal fun resolveDrawerStatsActiveDays(
-    matrix: List<site.lcyk.keer.data.model.DailyUsageStat>,
+    matrix: site.lcyk.keer.data.model.DailyUsageMatrix,
 ): Long {
-    return matrix.count { stat -> stat.count > 0 }.toLong()
+    return matrix.size.toLong()
 }
 
 private val TagActionItemShape = RoundedCornerShape(12.dp)

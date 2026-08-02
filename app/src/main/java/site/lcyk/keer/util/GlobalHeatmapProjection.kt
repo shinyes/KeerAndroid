@@ -25,6 +25,36 @@ data class ProjectedMemoPoint(
     val date: Instant,
 )
 
+/**
+ * 缓存的 Web-Mercator 归一化坐标（viewport 无关）。
+ * 投影到屏幕只需一次便宜线性映射，避免每次拖拽/缩放对每个点重算 sin/ln。
+ */
+data class NormalizedMemoPoint(
+    val identifier: String,
+    val latitude: Double,
+    val longitude: Double,
+    val xNorm: Double,
+    val yNorm: Double,
+    val date: Instant,
+)
+
+fun normalizeGeoPoints(points: List<DisplayGeoMemoPoint>): List<NormalizedMemoPoint> {
+    if (points.isEmpty()) {
+        return emptyList()
+    }
+    return points.map { point ->
+        val normalized = latLonToNormalized(point.latitude, point.longitude)
+        NormalizedMemoPoint(
+            identifier = point.identifier,
+            latitude = point.latitude,
+            longitude = point.longitude,
+            xNorm = normalized.x,
+            yNorm = normalized.y,
+            date = point.date,
+        )
+    }
+}
+
 private data class NormalizedMercatorPoint(
     val x: Double,
     val y: Double,
@@ -65,32 +95,33 @@ fun defaultGlobalHeatmapViewport(
 }
 
 fun buildProjectedMemoPoints(
-    points: List<DisplayGeoMemoPoint>,
+    points: List<NormalizedMemoPoint>,
     viewport: GlobalHeatmapViewport,
 ): List<ProjectedMemoPoint> {
     if (points.isEmpty() || !viewport.hasSize()) {
         return emptyList()
     }
-    return points.mapNotNull { point ->
-        projectCoordinateToScreen(
-            viewport = viewport,
+    val center = latLonToNormalized(
+        latitude = viewport.centerLatitude,
+        longitude = viewport.centerLongitude,
+    )
+    val scalePx = viewportScalePx(viewport.zoom)
+    return points.map { point ->
+        val deltaX = shortestWrappedDelta(point.xNorm, center.x)
+        val deltaY = point.yNorm - center.y
+        ProjectedMemoPoint(
+            identifier = point.identifier,
             latitude = point.latitude,
             longitude = point.longitude,
-        )?.let { projected ->
-            ProjectedMemoPoint(
-                identifier = point.identifier,
-                latitude = point.latitude,
-                longitude = point.longitude,
-                x = projected.x,
-                y = projected.y,
-                date = point.date,
-            )
-        }
+            x = (viewport.widthPx / 2.0 + deltaX * scalePx).toFloat(),
+            y = (viewport.heightPx / 2.0 + deltaY * scalePx).toFloat(),
+            date = point.date,
+        )
     }
 }
 
 fun buildGeoHeatBuckets(
-    points: List<DisplayGeoMemoPoint>,
+    points: List<NormalizedMemoPoint>,
     viewport: GlobalHeatmapViewport,
 ): List<GeoHeatBucket> {
     return buildGeoHeatBucketsFromProjectedPoints(

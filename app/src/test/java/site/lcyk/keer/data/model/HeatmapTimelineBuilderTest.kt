@@ -9,52 +9,43 @@ import org.junit.Test
 
 class HeatmapTimelineBuilderTest {
     @Test
-    fun buildDailyUsageMatrixFromDates_spansFromEarliestDateToToday() {
-        val today = LocalDate.of(2026, 3, 23)
+    fun buildDailyUsageMatrixFromDates_countsActiveDatesOnly() {
         val result = buildDailyUsageMatrixFromDates(
             dates = listOf(
                 LocalDate.of(2026, 3, 20),
                 LocalDate.of(2026, 3, 22),
                 LocalDate.of(2026, 3, 22),
             ),
-            today = today,
-            emptyFallback = emptyList(),
         )
 
         assertEquals(
-            listOf(
-                LocalDate.of(2026, 3, 20),
-                LocalDate.of(2026, 3, 21),
-                LocalDate.of(2026, 3, 22),
-                LocalDate.of(2026, 3, 23),
+            mapOf(
+                LocalDate.of(2026, 3, 20) to 1,
+                LocalDate.of(2026, 3, 22) to 2,
             ),
-            result.map { it.date },
+            result,
         )
-        assertEquals(listOf(1, 0, 2, 0), result.map { it.count })
     }
 
     @Test
-    fun buildDailyUsageMatrixFromDates_usesFallbackWhenNoDates() {
-        val fallback = listOf(DailyUsageStat(date = LocalDate.of(2026, 1, 1), count = 0))
-        val result = buildDailyUsageMatrixFromDates(
-            dates = emptyList(),
-            today = LocalDate.of(2026, 3, 23),
-            emptyFallback = fallback,
-        )
+    fun buildDailyUsageMatrixFromDates_returnsEmpty_whenNoDates() {
+        val result = buildDailyUsageMatrixFromDates(dates = emptyList())
 
-        assertEquals(fallback, result)
+        assertEquals(emptyMap<LocalDate, Int>(), result)
     }
 
     @Test
     fun buildHeatmapTimeline_marksMonthLabelsAndCrossYearYearLabels() {
         val start = LocalDate.of(2024, 12, 1)
         val end = LocalDate.of(2025, 2, 5)
-        val matrix = (0..java.time.temporal.ChronoUnit.DAYS.between(start, end).toInt()).map { offset ->
-            DailyUsageStat(date = start.plusDays(offset.toLong()), count = 0)
-        }
+        val matrix = mapOf(
+            start to 1,
+            end to 1,
+        )
 
         val timeline = buildHeatmapTimeline(
             matrix = matrix,
+            latest = end,
             locale = Locale.US,
             firstDayOfWeek = DayOfWeek.MONDAY,
         )
@@ -70,12 +61,14 @@ class HeatmapTimelineBuilderTest {
     fun buildHeatmapTimeline_hidesJanuaryMonthLabelButKeepsYear() {
         val start = LocalDate.of(2024, 12, 15)
         val end = LocalDate.of(2025, 1, 15)
-        val matrix = (0..java.time.temporal.ChronoUnit.DAYS.between(start, end).toInt()).map { offset ->
-            DailyUsageStat(date = start.plusDays(offset.toLong()), count = 0)
-        }
+        val matrix = mapOf(
+            start to 1,
+            end to 1,
+        )
 
         val timeline = buildHeatmapTimeline(
             matrix = matrix,
+            latest = end,
             locale = Locale.US,
             firstDayOfWeek = DayOfWeek.MONDAY,
         )

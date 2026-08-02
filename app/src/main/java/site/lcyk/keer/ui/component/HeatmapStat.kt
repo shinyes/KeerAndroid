@@ -46,16 +46,18 @@ fun HeatmapStat(
     val isToday = day.date == today
     val isMonthStart = shouldHighlightHeatmapMonthStart(date = day.date)
     val isDarkTheme = isSystemInDarkTheme()
-    
-    // Determine the base color for the cell
+
+    // 亮/暗主题双套配色（GitHub 风格色阶）：暗色下空 cell 用深灰、活跃色阶整体更深，
+    // 与暗色背景协调，避免亮色 cell 在暗色下刺眼。
+    val emptyColor = if (isDarkTheme) Color(0xff30363d) else Color(0xffebedf0)
     val baseColor = when (day.count) {
-        0 -> Color(0xffeaeaea)
-        1 -> Color(0xff9be9a8)
-        2 -> Color(0xff40c463)
-        in 3..4 -> Color(0xff30a14e)
-        else -> Color(0xff216e39)
+        0 -> emptyColor
+        1 -> if (isDarkTheme) Color(0xff0e4429) else Color(0xff9be9a8)
+        2 -> if (isDarkTheme) Color(0xff006d32) else Color(0xff40c463)
+        in 3..4 -> if (isDarkTheme) Color(0xff26a641) else Color(0xff30a14e)
+        else -> if (isDarkTheme) Color(0xff39d353) else Color(0xff216e39)
     }
-    
+
     // Month-start markers should keep normal heat intensity fill.
     val cellColor = baseColor
     

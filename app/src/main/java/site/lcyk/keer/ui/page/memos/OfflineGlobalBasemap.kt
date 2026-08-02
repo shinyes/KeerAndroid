@@ -25,7 +25,7 @@ import site.lcyk.keer.util.projectCoordinateToScreenWrapped
 import site.lcyk.keer.util.wrapScreenXNear
 import site.lcyk.keer.viewmodel.GlobalHeatmapViewport
 
-private const val GLOBAL_BASEMAP_ASSET_PATH = "global_basemap_110m.json"
+private const val GLOBAL_BASEMAP_ASSET_PATH = "global_basemap_50m.json"
 
 data class OfflineGlobalBasemapPalette(
     val oceanTop: Color,
@@ -45,6 +45,7 @@ data class OfflineGlobalBasemapData(
     val landRings: List<List<GeoCoordinate>>,
     val borderLines: List<List<GeoCoordinate>>,
     val lakeRings: List<List<GeoCoordinate>>,
+    val admin1Lines: List<List<GeoCoordinate>>,
 )
 
 data class GeoCoordinate(
@@ -108,6 +109,12 @@ internal fun DrawScope.drawOfflineGlobalBasemap(
             ),
             strokeColor = palette.lakeBottom.copy(alpha = 0.55f),
             strokeWidth = 0.8f,
+        )
+        drawGeoLines(
+            viewport = viewport,
+            lines = basemap.admin1Lines,
+            color = palette.border.copy(alpha = 0.45f),
+            strokeWidth = 0.55f,
         )
         drawGeoLines(
             viewport = viewport,
@@ -288,12 +295,14 @@ private data class OfflineGlobalBasemapAsset(
     val landRings: List<List<List<Double>>>,
     val borderLines: List<List<List<Double>>>,
     val lakeRings: List<List<List<Double>>>,
+    val admin1Lines: List<List<List<Double>>> = emptyList(),
 ) {
     fun toRuntimeData(): OfflineGlobalBasemapData {
         return OfflineGlobalBasemapData(
             landRings = landRings.map(::decodeLine),
             borderLines = borderLines.map(::decodeLine),
             lakeRings = lakeRings.map(::decodeLine),
+            admin1Lines = admin1Lines.map(::decodeLine),
         )
     }
 
