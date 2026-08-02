@@ -7,7 +7,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -30,6 +34,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.ceil
 
+private val MEDIA_GRID_ROW_HEIGHT_DP = 100.dp
+
 @Composable
 fun MemoContent(
     memo: MemoRepresentable,
@@ -41,6 +47,7 @@ fun MemoContent(
     autoPreviewPrefetch: Boolean = true,
     mediaImageLoader: ImageLoader? = null,
     uiFrozen: Boolean = false,
+    lazyGrid: Boolean = false,
 ) {
     val renderVersionKey = remember(memo) {
         buildMemoRenderVersionKey(memo)
@@ -89,6 +96,7 @@ fun MemoContent(
             autoPreviewPrefetch = autoPreviewPrefetch,
             mediaImageLoader = mediaImageLoader,
             uiFrozen = uiFrozen,
+            lazyGrid = lazyGrid,
         )
 
         if (previewed && onViewMore != null) {
@@ -110,6 +118,7 @@ fun MemoResourceContent(
     autoPreviewPrefetch: Boolean = true,
     mediaImageLoader: ImageLoader? = null,
     uiFrozen: Boolean = false,
+    lazyGrid: Boolean = false,
 ) {
     val cols = 3
 
@@ -126,7 +135,34 @@ fun MemoResourceContent(
         media to attachments
     }
     if (mediaList.isNotEmpty()) {
-        val rows = ceil(mediaList.size.toFloat() / cols).toInt()
+        if (lazyGrid) {
+            // 详情页懒加载图片墙：LazyVerticalGrid 只组合可见 cell。
+            val gridRows = ceil(mediaList.size.toFloat() / cols.toFloat()).toInt()
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(cols),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(MEDIA_GRID_ROW_HEIGHT_DP * gridRows),
+            ) {
+                gridItems(mediaList.indices.toList()) { index ->
+                    Box(
+                        modifier = Modifier
+                            .aspectRatio(1f)
+                            .padding(2.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                    ) {
+                        MemoMedia(
+                            resource = mediaList[index],
+                            modifier = Modifier.fillMaxWidth(),
+                            autoPreviewPrefetch = autoPreviewPrefetch,
+                            mediaImageLoader = mediaImageLoader,
+                            observeLiveResource = !uiFrozen,
+                        )
+                    }
+                }
+            }
+        } else {
+            val rows = ceil(mediaList.size.toFloat() / cols).toInt()
         for (rowIndex in 0 until rows) {
             Row {
                 for (colIndex in 0 until cols) {
@@ -149,6 +185,7 @@ fun MemoResourceContent(
                     }
                 }
             }
+        }
         }
     }
     attachmentList.forEach { resource ->

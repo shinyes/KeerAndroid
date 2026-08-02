@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import androidx.paging.Pager
@@ -111,9 +112,13 @@ class SyncingRepository(
     override fun observeMemos(): Flow<List<MemoEntity>> {
         return flow {
             val projector = MemoListProjector()
-            memoDao.observeAllMemos(accountKey).collect { memoItems ->
-                emit(projector.project(memoItems))
-            }
+            // conflate：同步写库快速触发 Room 重发射时，只对最新一次做全量投影，
+            // 合并中间发射，避免同步期反复 O(n) 投影。
+            memoDao.observeAllMemos(accountKey)
+                .conflate()
+                .collect { memoItems ->
+                    emit(projector.project(memoItems))
+                }
         }.flowOn(Dispatchers.Default)
     }
 
@@ -150,6 +155,8 @@ class SyncingRepository(
 
     override fun observeTags(): Flow<List<String>> {
         return memoDao.observeTagsByRecentUsage(accountKey, recentTagUsageSince)
+            .conflate()
+            .flowOn(Dispatchers.IO)
     }
 
     override fun observeResource(identifier: String): Flow<ResourceEntity?> {
@@ -2415,7 +2422,7 @@ class SyncingRepository(
         private const val CURRENT_USER_REFRESH_INTERVAL_MILLIS = 5 * 60 * 1000L
         private const val PULL_SYNC_MEMO_PAGE_SIZE = 120
         private const val MAX_PULL_SYNC_PAGES_PER_SESSION = 20
-        private const val SYNC_APPLY_CHUNK_SIZE = 64
+        private const val SYNC_APPLY_CHUNK_SIZE = 128
         private const val THUMBNAIL_UPLOAD_MAX_RETRY_COUNT = 3
         private const val THUMBNAIL_UPLOAD_BASE_RETRY_DELAY_MILLIS = 800L
         private const val THUMBNAIL_UPLOAD_LOG_TAG = "ThumbnailUpload"

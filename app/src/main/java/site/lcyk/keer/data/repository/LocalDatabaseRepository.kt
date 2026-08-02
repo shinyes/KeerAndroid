@@ -10,6 +10,7 @@ import androidx.paging.map
 import com.skydoves.sandwich.ApiResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -43,9 +44,11 @@ class LocalDatabaseRepository(
     override fun observeMemos(): Flow<List<MemoEntity>> {
         return flow {
             val projector = MemoListProjector()
-            memoDao.observeAllMemos(accountKey).collect { memoItems ->
-                emit(projector.project(memoItems))
-            }
+            memoDao.observeAllMemos(accountKey)
+                .conflate()
+                .collect { memoItems ->
+                    emit(projector.project(memoItems))
+                }
         }.flowOn(Dispatchers.Default)
     }
 

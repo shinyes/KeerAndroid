@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -221,12 +222,12 @@ fun MemoDetailPage(
             return@Scaffold
         }
 
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
         ) {
+            item {
             Row(
                 modifier = Modifier
                     .padding(start = 15.dp, top = 10.dp, end = 15.dp)
@@ -279,10 +280,13 @@ fun MemoDetailPage(
                     )
                 }
             }
+            }
 
+            item {
             MemoContent(
                 memo = memo,
                 selectable = true,
+                lazyGrid = true,
                 checkboxChange = { checked, startOffset, endOffset ->
                     if (!readOnlyMemoDetail) {
                         scope.launch {
@@ -302,19 +306,22 @@ fun MemoDetailPage(
                     }
                 }
             )
+            }
 
             if (quoteDescriptor != null) {
-                MemoQuoteReferenceCard(
-                    quotedMemo = quotePreview,
-                    modifier = Modifier
-                        .padding(start = 15.dp, end = 15.dp, bottom = 10.dp),
-                    onClick = quotedMemo?.let { source ->
-                        {
-                            memosViewModel.cacheMemoForDetail(source)
-                            navController.navigateToMemoDetailPage(source.identifier)
+                item {
+                    MemoQuoteReferenceCard(
+                        quotedMemo = quotePreview,
+                        modifier = Modifier
+                            .padding(start = 15.dp, end = 15.dp, bottom = 10.dp),
+                        onClick = quotedMemo?.let { source ->
+                            {
+                                memosViewModel.cacheMemoForDetail(source)
+                                navController.navigateToMemoDetailPage(source.identifier)
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
         }
 
