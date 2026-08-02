@@ -26,11 +26,12 @@ class MainActivity : ComponentActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var releaseHighRefreshRunnable: Runnable? = null
     private var highestModeId: Int = 0
+    private var highestRefreshRate: Float = 0f
 
     /** 只要有 UI 重绘（滚动/动画/内容更新）就保持高刷；静止约 300ms 后恢复系统默认。 */
     private val onDrawListener = ViewTreeObserver.OnDrawListener {
         releaseHighRefreshRunnable?.let(mainHandler::removeCallbacks)
-        setPreferredDisplayMode(highestModeId)
+        applyHighRefreshRate(active = true)
         scheduleIdleRefreshRelease()
     }
 
@@ -46,11 +47,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 预取设备最高刷新率模式 id；操作时启用，空闲时恢复系统默认以省电。
+        // 预取设备最高刷新率；操作时启用，空闲时恢复系统默认以省电。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            highestModeId = display
+            val preferredMode = display
                 ?.supportedModes
                 ?.maxByOrNull { mode -> mode.refreshRate }
+            highestRefreshRate = preferredMode?.refreshRate ?: 0f
+            highestModeId = preferredMode
                 ?.takeIf { mode -> mode.refreshRate > 60.0f }
                 ?.modeId
                 ?: 0
@@ -64,30 +67,40 @@ class MainActivity : ComponentActivity() {
                 Navigation()
             }
         }
-        if (highestModeId != 0) {
+        if (highestRefreshRate > 60.0f) {
             window.decorView.viewTreeObserver.addOnDrawListener(onDrawListener)
         }
     }
 
     override fun onDestroy() {
-        if (highestModeId != 0) {
+        if (highestRefreshRate > 60.0f) {
             window.decorView.viewTreeObserver.removeOnDrawListener(onDrawListener)
         }
         super.onDestroy()
     }
 
-    private fun setPreferredDisplayMode(modeId: Int) {
+    /**
+     * 操作/UI 变化时请求最高刷新率，空闲恢复系统默认。
+     * 通过 preferredRefreshRate（float）与 preferredDisplayModeId 双通道表达偏好，
+     * 尽量让不同系统都能识别；部分系统（如小米智能刷新率）可能仍需系统层放行。
+     */
+    private fun applyHighRefreshRate(active: Boolean) {
         val params = window.attributes
-        if (params.preferredDisplayModeId != modeId) {
-            params.preferredDisplayModeId = modeId
-            window.attributes = params
+        val targetRate = if (active) highestRefreshRate else 0f
+        if (params.preferredRefreshRate != targetRate) {
+            params.preferredRefreshRate = targetRate
         }
+        val targetModeId = if (active) highestModeId else 0
+        if (params.preferredDisplayModeId != targetModeId) {
+            params.preferredDisplayModeId = targetModeId
+        }
+        window.attributes = params
     }
 
     private fun scheduleIdleRefreshRelease() {
         releaseHighRefreshRunnable?.let(mainHandler::removeCallbacks)
         releaseHighRefreshRunnable = Runnable {
-            setPreferredDisplayMode(0) // 0 = 系统选择，回到智能/自适应省电
+            applyHighRefreshRate(active = false) // 回到系统默认/智能省电
         }.also { runnable ->
             mainHandler.postDelayed(runnable, REFRESH_IDLE_DELAY_MILLIS)
         }
