@@ -10,10 +10,6 @@ def releaseSigningStoreFile = System.getenv("ANDROID_SIGNING_STORE_FILE")
 def releaseSigningStorePassword = System.getenv("ANDROID_SIGNING_STORE_PASSWORD")
 def releaseSigningKeyAlias = System.getenv("ANDROID_SIGNING_KEY_ALIAS")
 def releaseSigningKeyPassword = System.getenv("ANDROID_SIGNING_KEY_PASSWORD")
-def amapApiKey = (System.getenv("AMAP_API_KEY") ?: project.findProperty("AMAP_API_KEY") ?: "").toString()
-def escapedAmapApiKey = amapApiKey
-    .replace("\\", "\\\\")
-    .replace("\"", "\\\"")
 def hasReleaseSigning = [
     releaseSigningStoreFile,
     releaseSigningStorePassword,
@@ -35,9 +31,8 @@ android {
         applicationId = "site.lcyk.keer"
         minSdk = 26
         targetSdk = 36
-        versionCode = 152
-        versionName = "4.1.20"
-        buildConfigField "String", "AMAP_API_KEY", "\"${escapedAmapApiKey}\""
+        versionCode = 153
+        versionName = "4.1.21"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -156,7 +151,6 @@ dependencies {
     implementation "androidx.work:work-runtime-ktx:$work_version"
     implementation "androidx.hilt:hilt-work:1.2.0"
     ksp "androidx.hilt:hilt-compiler:1.2.0"
-    implementation "com.amap.api:3dmap:10.0.600"
 }
 
 ksp {

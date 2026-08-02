@@ -44,6 +44,4 @@ data class GlobalHeatmapUiState(
     val normalizedPoints: List<NormalizedMemoPoint> = emptyList(),
     val memoPointCount: Int = 0,
     val loading: Boolean = true,
-    val mapAvailable: Boolean = false,
-    val mapErrorMessage: String? = null,
 )

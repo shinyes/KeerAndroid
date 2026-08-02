@@ -54,12 +54,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.amap.api.maps.AMap
-import com.amap.api.maps.CameraUpdateFactory
-import com.amap.api.maps.MapView
-import com.amap.api.maps.model.CameraPosition
-import com.amap.api.maps.model.LatLng
-import com.amap.api.maps.model.LatLngBounds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -121,252 +115,14 @@ fun GlobalHeatmapPage(
                 .padding(innerPadding)
                 .background(MaterialTheme.colorScheme.surfaceContainerLowest),
         ) {
-            if (uiState.mapAvailable) {
-                AmapHeatmapSurface(
-                    uiState = uiState,
-                    viewModel = viewModel,
-                    resetNonce = resetNonce,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                OfflineHeatmapSurface(
-                    uiState = uiState,
-                    viewModel = viewModel,
-                    resetNonce = resetNonce,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun AmapHeatmapSurface(
-    uiState: GlobalHeatmapUiState,
-    viewModel: GlobalHeatmapViewModel,
-    resetNonce: Int,
-    modifier: Modifier = Modifier,
-) {
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val latestPoints by rememberUpdatedState(uiState.points)
-    val latestNormalizedPoints by rememberUpdatedState(uiState.normalizedPoints)
-    val latestViewport by rememberUpdatedState(uiState.viewport)
-    var mapView by remember { mutableStateOf<MapView?>(null) }
-    var amap by remember { mutableStateOf<AMap?>(null) }
-    var committedBuckets by remember { mutableStateOf<List<GeoHeatBucket>>(emptyList()) }
-    var renderedBuckets by remember { mutableStateOf<List<GeoHeatBucket>>(emptyList()) }
-    var isTouchInteracting by remember { mutableStateOf(false) }
-    var lastOverlayProjectionAtMillis by remember { mutableLongStateOf(0L) }
-    var lastKnownMapWidth by remember { mutableIntStateOf(0) }
-    var lastKnownMapHeight by remember { mutableIntStateOf(0) }
-    var isMapLoaded by remember { mutableStateOf(false) }
-
-    fun refreshInteractiveBuckets(
-        map: AMap,
-        force: Boolean = false,
-    ) {
-        val now = SystemClock.uptimeMillis()
-        if (!force && now - lastOverlayProjectionAtMillis < GLOBAL_HEATMAP_DRAG_PROJECT_THROTTLE_MILLIS) {
-            return
-        }
-        val currentMapView = mapView ?: return
-        if (currentMapView.width <= 0 || currentMapView.height <= 0) {
-            return
-        }
-        val camera = map.cameraPosition ?: return
-        val viewport = GlobalHeatmapViewport(
-            widthPx = currentMapView.width,
-            heightPx = currentMapView.height,
-            centerLatitude = camera.target.latitude,
-            centerLongitude = camera.target.longitude,
-            zoom = camera.zoom.toDouble(),
-        )
-        // 统一用缓存的归一化坐标 + 便宜线性投影，不再每帧调 AMap toScreenLocation。
-        val buckets = buildGeoHeatBucketsFromProjectedPoints(
-            points = buildProjectedMemoPoints(
-                points = latestNormalizedPoints,
-                viewport = viewport,
-            ),
-            widthPx = currentMapView.width,
-            heightPx = currentMapView.height,
-            zoom = viewport.zoom,
-        )
-        committedBuckets = buckets
-        renderedBuckets = buckets
-        lastOverlayProjectionAtMillis = now
-    }
-
-    DisposableEffect(lifecycleOwner, mapView) {
-        val observedMapView = mapView
-        if (observedMapView == null) {
-            onDispose { }
-        } else {
-            val observer = LifecycleEventObserver { _, event ->
-                when (event) {
-                    Lifecycle.Event.ON_RESUME -> observedMapView.onResume()
-                    Lifecycle.Event.ON_PAUSE -> observedMapView.onPause()
-                    Lifecycle.Event.ON_DESTROY -> observedMapView.onDestroy()
-                    else -> Unit
-                }
-            }
-            lifecycleOwner.lifecycle.addObserver(observer)
-            onDispose {
-                lifecycleOwner.lifecycle.removeObserver(observer)
-            }
-        }
-    }
-
-    LaunchedEffect(uiState.points, amap, isMapLoaded) {
-        val map = amap
-        if (map != null && isMapLoaded) {
-            refreshInteractiveBuckets(
-                map = map,
-                force = true,
+            // 仅使用离线自绘底图（移除 AMap 在线地图，无需高德 API Key）。
+            OfflineHeatmapSurface(
+                uiState = uiState,
+                viewModel = viewModel,
+                resetNonce = resetNonce,
+                modifier = Modifier.fillMaxSize(),
             )
         }
-    }
-
-    LaunchedEffect(resetNonce, amap, uiState.points) {
-        val map = amap ?: return@LaunchedEffect
-        if (resetNonce <= 0) {
-            return@LaunchedEffect
-        }
-        if (uiState.points.isNotEmpty()) {
-            moveCameraToHeatmapBounds(
-                map = map,
-                points = uiState.points,
-                animate = true,
-            )
-            return@LaunchedEffect
-        }
-        val resetViewport = defaultGlobalHeatmapViewport(
-            widthPx = uiState.viewport.widthPx,
-            heightPx = uiState.viewport.heightPx,
-        )
-        map.animateCamera(
-            CameraUpdateFactory.newLatLngZoom(
-                LatLng(
-                    resetViewport.centerLatitude,
-                    resetViewport.centerLongitude,
-                ),
-                resetViewport.zoom.toFloat(),
-            )
-        )
-    }
-
-    Box(modifier = modifier) {
-        AndroidView(
-            factory = { context ->
-                MapView(context).also { createdMapView ->
-                    createdMapView.onCreate(null)
-                    val map = createdMapView.map
-                    mapView = createdMapView
-                    amap = map
-                    map.mapType = AMap.MAP_TYPE_NORMAL
-                    map.uiSettings.isZoomControlsEnabled = false
-                    map.uiSettings.isCompassEnabled = false
-                    map.uiSettings.isScaleControlsEnabled = false
-                    map.uiSettings.isTiltGesturesEnabled = false
-                    map.uiSettings.isRotateGesturesEnabled = false
-                    map.setOnMapLoadedListener {
-                        isMapLoaded = true
-                        lastKnownMapWidth = createdMapView.width
-                        lastKnownMapHeight = createdMapView.height
-                        if (createdMapView.width > 0 && createdMapView.height > 0) {
-                            viewModel.updateViewportSize(
-                                widthPx = createdMapView.width,
-                                heightPx = createdMapView.height,
-                            )
-                            refreshInteractiveBuckets(
-                                map = map,
-                                force = true,
-                            )
-                        }
-                    }
-                    map.setOnMapTouchListener { motionEvent ->
-                        when (motionEvent.actionMasked) {
-                            MotionEvent.ACTION_DOWN,
-                            MotionEvent.ACTION_POINTER_DOWN,
-                            MotionEvent.ACTION_MOVE -> {
-                                isTouchInteracting = true
-                            }
-
-                            MotionEvent.ACTION_UP,
-                            MotionEvent.ACTION_CANCEL -> {
-                                isTouchInteracting = false
-                            }
-                        }
-                    }
-                    map.setOnCameraChangeListener(object : AMap.OnCameraChangeListener {
-                        override fun onCameraChange(position: CameraPosition) {
-                            refreshInteractiveBuckets(
-                                map = map,
-                            )
-                        }
-
-                        override fun onCameraChangeFinish(position: CameraPosition) {
-                            isTouchInteracting = false
-                            val updatedViewport = latestViewport.copy(
-                                widthPx = createdMapView.width,
-                                heightPx = createdMapView.height,
-                                centerLatitude = position.target.latitude,
-                                centerLongitude = position.target.longitude,
-                                zoom = position.zoom.toDouble(),
-                            )
-                            viewModel.updateViewport(updatedViewport)
-                            refreshInteractiveBuckets(
-                                map = map,
-                                force = true,
-                            )
-                        }
-                    })
-                    map.moveCamera(
-                        CameraUpdateFactory.newLatLngZoom(
-                            LatLng(
-                                uiState.viewport.centerLatitude,
-                                uiState.viewport.centerLongitude,
-                            ),
-                            uiState.viewport.zoom.toFloat(),
-                        )
-                    )
-                }
-            },
-            update = { updatedMapView ->
-                val map = updatedMapView.map
-                mapView = updatedMapView
-                amap = map
-                if (updatedMapView.width > 0 && updatedMapView.height > 0) {
-                    val sizeChanged = updatedMapView.width != lastKnownMapWidth || updatedMapView.height != lastKnownMapHeight
-                    lastKnownMapWidth = updatedMapView.width
-                    lastKnownMapHeight = updatedMapView.height
-                    viewModel.updateViewportSize(
-                        widthPx = updatedMapView.width,
-                        heightPx = updatedMapView.height,
-                    )
-                    if (sizeChanged || committedBuckets.isEmpty()) {
-                        refreshInteractiveBuckets(
-                            map = map,
-                            force = true,
-                        )
-                    }
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
-
-        GlobalHeatmapOverlay(
-            buckets = renderedBuckets,
-            modifier = Modifier.fillMaxSize(),
-        )
-
-        GlobalHeatmapInfoChips(
-            uiState = uiState,
-            basemapReady = true,
-            statusMessage = null,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(16.dp),
-        )
     }
 }
 
@@ -492,7 +248,7 @@ private fun OfflineHeatmapSurface(
         GlobalHeatmapInfoChips(
             uiState = uiState,
             basemapReady = basemapData != null,
-            statusMessage = uiState.mapErrorMessage,
+            statusMessage = null,
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(16.dp),
@@ -503,49 +259,6 @@ private fun OfflineHeatmapSurface(
 private const val GLOBAL_HEATMAP_RECOMPUTE_DELAY_MILLIS = 84L
 private const val GLOBAL_HEATMAP_VIEWPORT_COMMIT_DELAY_MILLIS = 96L
 private const val GLOBAL_HEATMAP_DRAG_PROJECT_THROTTLE_MILLIS = 12L
-
-private fun moveCameraToHeatmapBounds(
-    map: AMap,
-    points: List<site.lcyk.keer.util.DisplayGeoMemoPoint>,
-    animate: Boolean,
-) {
-    if (points.isEmpty()) {
-        return
-    }
-    val focusPoints = points
-        .groupBy { point ->
-            AmapHeatmapClusterKey(
-                latitudeBucket = (point.latitude * 100.0).roundToInt(),
-                longitudeBucket = (point.longitude * 100.0).roundToInt(),
-            )
-        }
-        .maxByOrNull { (_, groupedPoints) -> groupedPoints.size }
-        ?.value
-        ?.takeIf { clusteredPoints ->
-            clusteredPoints.size >= (points.size * 0.45f).roundToInt().coerceAtLeast(4)
-        }
-        ?: points
-    val distinctPoints = focusPoints
-        .map { LatLng(it.latitude, it.longitude) }
-        .distinctBy { latLng -> "${latLng.latitude},${latLng.longitude}" }
-    val update = if (distinctPoints.size == 1) {
-        CameraUpdateFactory.newLatLngZoom(distinctPoints.first(), 13f)
-    } else {
-        val boundsBuilder = LatLngBounds.builder()
-        distinctPoints.forEach(boundsBuilder::include)
-        CameraUpdateFactory.newLatLngBounds(boundsBuilder.build(), 180)
-    }
-    if (animate) {
-        map.animateCamera(update)
-    } else {
-        map.moveCamera(update)
-    }
-}
-
-private data class AmapHeatmapClusterKey(
-    val latitudeBucket: Int,
-    val longitudeBucket: Int,
-)
 
 @Composable
 private fun GlobalHeatmapOverlay(

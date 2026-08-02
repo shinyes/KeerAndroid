@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
-import site.lcyk.keer.data.map.AmapMapRuntime
 import site.lcyk.keer.data.model.GeoMemoPoint
 import site.lcyk.keer.data.service.MemoService
 import site.lcyk.keer.util.defaultGlobalHeatmapViewport
@@ -66,16 +65,13 @@ class GlobalHeatmapViewModel @Inject constructor(
         displayPoints,
         validGeoPoints,
         normalizedPoints,
-        AmapMapRuntime.state,
-    ) { viewport, points, rawPoints, normalized, mapRuntimeState ->
+    ) { viewport, points, rawPoints, normalized ->
         GlobalHeatmapUiState(
             viewport = viewport,
             points = points,
             normalizedPoints = normalized,
             memoPointCount = rawPoints.size,
             loading = false,
-            mapAvailable = mapRuntimeState.available,
-            mapErrorMessage = mapRuntimeState.errorMessage,
         )
     }.stateIn(
         viewModelScope,

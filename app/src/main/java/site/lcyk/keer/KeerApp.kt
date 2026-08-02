@@ -5,7 +5,6 @@ import android.os.Handler
 import android.os.Looper
 import androidx.work.Configuration
 import dagger.hilt.android.HiltAndroidApp
-import site.lcyk.keer.data.map.AmapMapRuntime
 import site.lcyk.keer.data.service.DebugLogManager
 import site.lcyk.keer.data.service.DebugLogTree
 import site.lcyk.keer.data.service.SyncCoordinator
@@ -41,11 +40,6 @@ class KeerApp: Application(), Configuration.Provider {
         if (Timber.forest().none { it is DebugLogTree }) {
             Timber.plant(DebugLogTree(debugLogManager))
         }
-
-        AmapMapRuntime.initialize(
-            applicationContext = this,
-            apiKey = BuildConfig.AMAP_API_KEY,
-        )
 
         // Defer starting the continuous stream-sync session until after the first frame so
         // cold-start UI doesn't compete with the sync loop for CPU/network/IO.
