@@ -1,5 +1,6 @@
 package site.lcyk.keer.data.local.dao
 
+import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
@@ -47,6 +48,32 @@ interface MemoDao {
         ORDER BY pinned DESC, date DESC
     """)
     fun observeAllMemos(accountKey: String): Flow<List<MemoWithResources>>
+
+    @Query("""
+        SELECT * FROM memos
+        WHERE accountKey = :accountKey AND archived = 0 AND isDeleted = 0
+        ORDER BY pinned DESC, date DESC
+    """)
+    fun pagingMemos(accountKey: String): PagingSource<Int, MemoWithResources>
+
+    @Query("""
+        SELECT * FROM memos
+        WHERE accountKey = :accountKey AND archived = 0 AND isDeleted = 0
+          AND content LIKE '%' || :query || '%'
+        ORDER BY pinned DESC, date DESC
+    """)
+    fun pagingMemosBySearch(accountKey: String, query: String): PagingSource<Int, MemoWithResources>
+
+    @Query("""
+        SELECT * FROM memos
+        WHERE accountKey = :accountKey AND archived = 0 AND isDeleted = 0
+          AND identifier IN (
+            SELECT memoId FROM memo_tags
+            WHERE accountKey = :accountKey AND (tagName = :tag OR tagName LIKE :tagPrefix)
+          )
+        ORDER BY pinned DESC, date DESC
+    """)
+    fun pagingMemosByTag(accountKey: String, tag: String, tagPrefix: String): PagingSource<Int, MemoWithResources>
 
     @Query(
         """

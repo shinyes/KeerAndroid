@@ -2,6 +2,11 @@ package site.lcyk.keer.data.repository
 
 import android.net.Uri
 import androidx.core.net.toUri
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.PagingSource
+import androidx.paging.map
 import com.skydoves.sandwich.ApiResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -12,6 +17,7 @@ import site.lcyk.keer.R
 import site.lcyk.keer.data.local.FileStorage
 import site.lcyk.keer.data.local.dao.MemoDao
 import site.lcyk.keer.data.local.entity.MemoEntity
+import site.lcyk.keer.data.local.entity.MemoWithResources
 import site.lcyk.keer.data.local.entity.ResourceEntity
 import site.lcyk.keer.data.local.entity.toGeoMemoPoint
 import site.lcyk.keer.data.model.Account
@@ -41,6 +47,36 @@ class LocalDatabaseRepository(
                 emit(projector.project(memoItems))
             }
         }.flowOn(Dispatchers.Default)
+    }
+
+    override fun pagingMemos(
+        searchQuery: String?,
+        tag: String?,
+    ): Flow<PagingData<MemoEntity>> {
+        val pagingSourceFactory: () -> PagingSource<Int, MemoWithResources> = {
+            val normalizedQuery = searchQuery?.trim()?.takeIf { it.isNotEmpty() }
+            val normalizedTag = tag?.trim()?.takeIf { it.isNotEmpty() }
+            when {
+                normalizedQuery != null -> memoDao.pagingMemosBySearch(accountKey, normalizedQuery)
+                normalizedTag != null -> memoDao.pagingMemosByTag(accountKey, normalizedTag, "$normalizedTag/%")
+                else -> memoDao.pagingMemos(accountKey)
+            }
+        }
+        val pager: Pager<Int, MemoWithResources> = Pager(
+            config = PagingConfig(
+                pageSize = PAGING_PAGE_SIZE,
+                prefetchDistance = PAGING_PREFETCH_DISTANCE,
+            ),
+            pagingSourceFactory = pagingSourceFactory,
+        )
+        return pager.flow.map { pagingData ->
+            pagingData.map { item -> projectMemoWithRelations(item) }
+        }
+    }
+
+    private companion object {
+        private const val PAGING_PAGE_SIZE = 40
+        private const val PAGING_PREFETCH_DISTANCE = 8
     }
 
     override fun observeResources(): Flow<List<ResourceEntity>> {

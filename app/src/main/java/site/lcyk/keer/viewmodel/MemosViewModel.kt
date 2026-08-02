@@ -9,6 +9,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
 import com.skydoves.sandwich.ApiResponse
 import com.skydoves.sandwich.suspendOnSuccess
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.distinctUntilChangedBy
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
@@ -361,6 +364,26 @@ class MemosViewModel @Inject constructor(
     }
 
     suspend fun refreshLocalSnapshot() = Unit
+
+    /**
+     * 分页的个人 feed（支持搜索/标签过滤）：只加载可见窗口，避免全量派生。
+     * 聚合路径（matrix/heatmap/tags/quotes/drawer）仍由全量 projectionMemos 提供。
+     */
+    fun feedPagingData(
+        searchQuery: String? = null,
+        tag: String? = null,
+    ): Flow<PagingData<MemoEntity>> {
+        return accountService.currentAccount
+            .flatMapLatest { account ->
+                val accountKey = account?.accountKey().orEmpty()
+                if (accountKey.isBlank()) {
+                    flowOf(PagingData.empty())
+                } else {
+                    accountService.getRepository().pagingMemos(searchQuery, tag)
+                }
+            }
+            .cachedIn(viewModelScope)
+    }
 
     suspend fun loadMemos(
         syncAfterLoad: Boolean = true,

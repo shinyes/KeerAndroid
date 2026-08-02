@@ -27,7 +27,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.PagingData
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemContentType
+import androidx.paging.compose.itemKey
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -56,6 +62,7 @@ import site.lcyk.keer.ui.page.common.RouteName
 import site.lcyk.keer.ui.page.common.navigateToGroupInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoInputPage
 import site.lcyk.keer.ui.page.common.navigateToMemoDetailPage
+import site.lcyk.keer.util.ResolvedMemoQuote
 import site.lcyk.keer.util.extractCollaboratorIds
 import site.lcyk.keer.viewmodel.LocalMemos
 import site.lcyk.keer.viewmodel.LocalUserState
@@ -79,6 +86,7 @@ fun MemosList(
     memos: List<site.lcyk.keer.data.local.entity.MemoEntity>? = null,
     tag: String? = null,
     searchString: String? = null,
+    pagingDataFlow: Flow<PagingData<site.lcyk.keer.data.local.entity.MemoEntity>>? = null,
     onRefresh: (suspend () -> Unit)? = null,
     onTagClick: ((String) -> Unit)? = null,
     onRequestEdit: ((site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)? = null,
@@ -111,68 +119,90 @@ fun MemosList(
     val sourceMemos = memos ?: visibleMemos
     val sourceMemoSnapshot = remember(sourceMemos) { sourceMemos.toList() }
     val resolvedQuoteMap = visibleResolvedQuotes
-    // 把过滤、UiModel 构建、预取列表、协作者 ID 合并为一次 Default 线程计算，
-    // 避免对全量列表反复遍历、并在主线程做 O(n) 派生。
-    val derivedState by produceState(
-        initialValue = MemoListDerivedState(
-            filteredMemos = sourceMemoSnapshot,
-            memoCardUiModels = emptyList(),
-            prefetchMemos = emptyList(),
-            collaboratorIdsToPrefetch = emptyList(),
-        ),
-        sourceMemoSnapshot,
-        tag,
-        searchString,
-        resolvedQuoteMap,
-    ) {
-        value = withContext(Dispatchers.Default) {
-            val normalizedTag = tag?.takeIf { it.isNotBlank() }
-            val normalizedQuery = searchString?.takeIf { it.isNotBlank() }
-            val pinned = mutableListOf<site.lcyk.keer.data.local.entity.MemoEntity>()
-            val normal = mutableListOf<site.lcyk.keer.data.local.entity.MemoEntity>()
-
-            for (memo in sourceMemoSnapshot) {
-                if (normalizedTag != null) {
-                    val matchedTag = memo.tags.any { memoTag ->
-                        memoTag == normalizedTag || memoTag.startsWith("$normalizedTag/")
-                    }
-                    if (!matchedTag) {
-                        continue
-                    }
-                }
-                if (normalizedQuery != null && !memo.content.contains(normalizedQuery, ignoreCase = true)) {
-                    continue
-                }
-                if (memo.pinned) {
-                    pinned += memo
-                } else {
-                    normal += memo
-                }
-            }
-
-            val filteredMemos = buildList(pinned.size + normal.size) {
-                addAll(pinned)
-                addAll(normal)
-            }
-            val memoCardUiModels = filteredMemos.map { memo ->
+    val pagingItems = pagingDataFlow?.collectAsLazyPagingItems()
+    val derivedState: MemoListDerivedState =
+        if (pagingItems != null) {
+            // 分页路径：过滤已在 DB 完成，这里只对已加载窗口做派生，成本 O(窗口)。
+            val snapshotMemos = pagingItems.itemSnapshotList.filterNotNull()
+            val snapshotCards = snapshotMemos.map { memo ->
                 MemoCardUiModel(
                     memo = memo,
                     resolvedQuote = resolvedQuoteMap[memo.identifier],
                 )
             }
-            val collaboratorIdsToPrefetch = filteredMemos
-                .asSequence()
-                .flatMap { memo -> extractCollaboratorIds(memo.tags).asSequence() }
-                .distinct()
-                .toList()
             MemoListDerivedState(
-                filteredMemos = filteredMemos,
-                memoCardUiModels = memoCardUiModels,
-                prefetchMemos = memoCardUiModels.map { it.memo },
-                collaboratorIdsToPrefetch = collaboratorIdsToPrefetch,
+                filteredMemos = snapshotMemos,
+                memoCardUiModels = snapshotCards,
+                prefetchMemos = snapshotMemos,
+                collaboratorIdsToPrefetch = snapshotMemos
+                    .flatMap { memo -> extractCollaboratorIds(memo.tags) }
+                    .distinct(),
             )
+        } else {
+            // 全量路径：把过滤、UiModel 构建、预取、协作者 ID 合并为一次 Default 计算，
+            // 避免对全量列表反复遍历、并在主线程做 O(n) 派生。
+            val state by produceState(
+                initialValue = MemoListDerivedState(
+                    filteredMemos = sourceMemoSnapshot,
+                    memoCardUiModels = emptyList(),
+                    prefetchMemos = emptyList(),
+                    collaboratorIdsToPrefetch = emptyList(),
+                ),
+                sourceMemoSnapshot,
+                tag,
+                searchString,
+                resolvedQuoteMap,
+            ) {
+                value = withContext(Dispatchers.Default) {
+                    val normalizedTag = tag?.takeIf { it.isNotBlank() }
+                    val normalizedQuery = searchString?.takeIf { it.isNotBlank() }
+                    val pinned = mutableListOf<site.lcyk.keer.data.local.entity.MemoEntity>()
+                    val normal = mutableListOf<site.lcyk.keer.data.local.entity.MemoEntity>()
+
+                    for (memo in sourceMemoSnapshot) {
+                        if (normalizedTag != null) {
+                            val matchedTag = memo.tags.any { memoTag ->
+                                memoTag == normalizedTag || memoTag.startsWith("$normalizedTag/")
+                            }
+                            if (!matchedTag) {
+                                continue
+                            }
+                        }
+                        if (normalizedQuery != null && !memo.content.contains(normalizedQuery, ignoreCase = true)) {
+                            continue
+                        }
+                        if (memo.pinned) {
+                            pinned += memo
+                        } else {
+                            normal += memo
+                        }
+                    }
+
+                    val filteredMemos = buildList(pinned.size + normal.size) {
+                        addAll(pinned)
+                        addAll(normal)
+                    }
+                    val memoCardUiModels = filteredMemos.map { memo ->
+                        MemoCardUiModel(
+                            memo = memo,
+                            resolvedQuote = resolvedQuoteMap[memo.identifier],
+                        )
+                    }
+                    val collaboratorIdsToPrefetch = filteredMemos
+                        .asSequence()
+                        .flatMap { memo -> extractCollaboratorIds(memo.tags).asSequence() }
+                        .distinct()
+                        .toList()
+                    MemoListDerivedState(
+                        filteredMemos = filteredMemos,
+                        memoCardUiModels = memoCardUiModels,
+                        prefetchMemos = memoCardUiModels.map { it.memo },
+                        collaboratorIdsToPrefetch = collaboratorIdsToPrefetch,
+                    )
+                }
+            }
+            state
         }
-    }
     val filteredMemos = derivedState.filteredMemos
     val memoCardUiModels = derivedState.memoCardUiModels
     val prefetchMemos = derivedState.prefetchMemos
@@ -229,6 +259,8 @@ fun MemosList(
     MemoFeedList(
         memoCards = memoCardUiModels,
         lazyListState = lazyListState,
+        pagingItems = pagingItems,
+        resolvedQuoteMap = resolvedQuoteMap,
         refreshState = refreshState,
         contentPadding = contentPadding,
         showSyncStatus = currentAccount !is Account.Local,
@@ -277,6 +309,8 @@ fun MemosList(
 private fun MemoFeedList(
     memoCards: List<MemoCardUiModel>,
     lazyListState: LazyListState,
+    pagingItems: LazyPagingItems<site.lcyk.keer.data.local.entity.MemoEntity>? = null,
+    resolvedQuoteMap: Map<String, ResolvedMemoQuote> = emptyMap(),
     refreshState: androidx.compose.material3.pulltorefresh.PullToRefreshState,
     contentPadding: PaddingValues,
     showSyncStatus: Boolean,
@@ -292,6 +326,26 @@ private fun MemoFeedList(
     editGestureResolver: ((site.lcyk.keer.data.local.entity.MemoEntity, MemoEditGesture) -> MemoEditGesture)?,
     actionButton: (@Composable (site.lcyk.keer.data.local.entity.MemoEntity) -> Unit)?,
 ) {
+    val renderCard: @Composable (site.lcyk.keer.data.local.entity.MemoEntity, ResolvedMemoQuote?) -> Unit =
+        { memo, resolvedQuote ->
+            MemosCard(
+                memo = memo,
+                onClick = onOpenMemoDetail,
+                editGesture = editGestureResolver?.invoke(memo, editGesture) ?: editGesture,
+                previewMode = true,
+                autoPreviewPrefetch = false,
+                showSyncStatus = showSyncStatus,
+                onTagClick = onTagClick,
+                actionButton = actionButton,
+                onRequestEdit = onRequestEdit,
+                collaboratorProfiles = collaboratorProfiles,
+                avatarImageLoader = avatarImageLoader,
+                mediaImageLoader = mediaImageLoader,
+                uiFrozen = uiFrozen,
+                prefetchCollaborators = false,
+                resolvedQuote = resolvedQuote,
+            )
+        }
     RefreshableListContainer(
         isRefreshing = false,
         pullRefreshActive = false,
@@ -307,29 +361,22 @@ private fun MemoFeedList(
             state = lazyListState,
             contentPadding = contentPadding
         ) {
-            items(
-                items = memoCards,
-                key = { it.memo.identifier },
-                contentType = { "memo" }
-            ) { card ->
-                val memo = card.memo
-                MemosCard(
-                    memo = memo,
-                    onClick = onOpenMemoDetail,
-                    editGesture = editGestureResolver?.invoke(memo, editGesture) ?: editGesture,
-                    previewMode = true,
-                    autoPreviewPrefetch = false,
-                    showSyncStatus = showSyncStatus,
-                    onTagClick = onTagClick,
-                    actionButton = actionButton,
-                    onRequestEdit = onRequestEdit,
-                    collaboratorProfiles = collaboratorProfiles,
-                    avatarImageLoader = avatarImageLoader,
-                    mediaImageLoader = mediaImageLoader,
-                    uiFrozen = uiFrozen,
-                    prefetchCollaborators = false,
-                    resolvedQuote = card.resolvedQuote,
-                )
+            if (pagingItems != null) {
+                items(
+                    count = pagingItems.itemCount,
+                    key = pagingItems.itemKey { it?.identifier ?: -1 },
+                    contentType = pagingItems.itemContentType { "memo" },
+                ) { index ->
+                    pagingItems[index]?.let { renderCard(it, resolvedQuoteMap[it.identifier]) }
+                }
+            } else {
+                items(
+                    items = memoCards,
+                    key = { it.memo.identifier },
+                    contentType = { "memo" }
+                ) { card ->
+                    renderCard(card.memo, card.resolvedQuote)
+                }
             }
         }
     }

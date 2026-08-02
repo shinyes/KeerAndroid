@@ -1,6 +1,7 @@
 package site.lcyk.keer.data.repository
 
 import android.net.Uri
+import androidx.paging.PagingData
 import com.skydoves.sandwich.ApiResponse
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,6 +59,15 @@ abstract class AbstractMemoRepository {
     abstract suspend fun getCurrentUser(): ApiResponse<User>
 
     open fun observeMemos(): Flow<List<MemoEntity>> = emptyFlow()
+
+    /**
+     * 分页加载个人 feed（支持搜索/标签过滤）。返回窗口化 PagingData，
+     * 避免全量派生；调用方用 [androidx.paging.cachedIn] 缓存。
+     */
+    open fun pagingMemos(
+        searchQuery: String? = null,
+        tag: String? = null,
+    ): Flow<PagingData<MemoEntity>> = emptyFlow()
 
     open fun observeMemoGeoPoints(): Flow<List<GeoMemoPoint>> = emptyFlow()
 

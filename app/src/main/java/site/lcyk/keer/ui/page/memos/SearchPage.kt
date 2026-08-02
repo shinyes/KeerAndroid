@@ -32,6 +32,7 @@ import site.lcyk.keer.ext.popBackStackIfLifecycleIsResumed
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.component.rememberMemoListState
 import site.lcyk.keer.ui.page.common.navigateToTagPage
+import site.lcyk.keer.viewmodel.LocalMemos
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,10 +80,12 @@ fun SearchPage(navController: NavHostController) {
         },
 
         content = { innerPadding ->
+            val memosViewModel = LocalMemos.current
             MemosList(
                 contentPadding = innerPadding,
                 lazyListState = listState,
-                searchString = debouncedQuery,
+                // 搜索过滤下沉到 DB 分页查询（LIKE），避免对全量列表做 contains 扫描。
+                pagingDataFlow = memosViewModel.feedPagingData(searchQuery = debouncedQuery),
                 onTagClick = { tag ->
                     navController.navigateToTagPage(tag)
                 }
