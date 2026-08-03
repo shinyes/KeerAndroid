@@ -68,6 +68,7 @@ import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.PageScaffold
@@ -305,12 +306,13 @@ private fun buildHeatDensityImage(
     val gw = max(1, widthPx / downsample)
     val gh = max(1, heightPx / downsample)
     val density = FloatArray(gw * gh)
-    val sigma = 2.4f
+    val sigma = 3.0f
     val radius = (sigma * 2.6f).toInt().coerceAtLeast(1)
     for (bucket in buckets) {
         val cx = (bucket.centerX / downsample).toInt()
         val cy = (bucket.centerY / downsample).toInt()
-        val weight = bucket.memoCount.toFloat()
+        // sqrt 压缩 memoCount 差异，避免少数高密度桶主导归一化。
+        val weight = sqrt(bucket.memoCount.toFloat())
         for (dy in -radius..radius) {
             for (dx in -radius..radius) {
                 val d2 = dx * dx + dy * dy
@@ -331,17 +333,20 @@ private fun buildHeatDensityImage(
     }
     val pixels = IntArray(gw * gh)
     for (i in density.indices) {
-        pixels[i] = heatColor((density[i] / maxDensity).coerceIn(0f, 1f))
+        // sqrt 提升中间密度：让更多区域进入绿→黄→红区间，避免全绿。
+        val raw = (density[i] / maxDensity).coerceIn(0f, 1f)
+        pixels[i] = heatColor(sqrt(raw))
     }
     bitmap.setPixels(pixels, 0, gw, 0, 0, gw, gh)
     return bitmap.asImageBitmap()
 }
 
 private fun heatColor(t: Float): Int {
-    // 绿(0) → 黄(0.5) → 红(1)
+    // 低密度透明（露出底图），中密度绿→黄，高密度红。
+    val alpha = (t * 255f).toInt().coerceIn(0, 255)
     val red = if (t < 0.5f) (t / 0.5f * 255f).toInt() else 255
     val green = if (t < 0.5f) 255 else (255f * (1f - (t - 0.5f) / 0.5f)).toInt()
-    return android.graphics.Color.rgb(red, green, 0)
+    return android.graphics.Color.argb(alpha, red, green, 0)
 }
 
 @Composable
