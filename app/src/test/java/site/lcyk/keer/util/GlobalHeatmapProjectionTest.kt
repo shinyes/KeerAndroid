@@ -2,11 +2,17 @@ package site.lcyk.keer.util
 
 import java.time.Instant
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import site.lcyk.keer.viewmodel.GeoHeatBucket
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class GlobalHeatmapProjectionTest {
 
     @Test
@@ -166,6 +172,59 @@ class GlobalHeatmapProjectionTest {
     }
 
     @Test
+    fun `buildHeatDensityField aligns texture to anchor viewport and covers it`() {
+        val viewport = defaultGlobalHeatmapViewport(
+            widthPx = 1080,
+            heightPx = 720,
+        ).copy(
+            centerLatitude = 39.9,
+            centerLongitude = 116.4,
+            zoom = 4.15,
+        )
+        val points = normalizeGeoPoints(
+            listOf(
+                displayPoint(identifier = "a", latitude = 39.9, longitude = 116.4),
+                displayPoint(identifier = "b", latitude = 39.95, longitude = 116.45),
+            ),
+        )
+
+        val field = buildHeatDensityField(
+            points = points,
+            viewport = viewport,
+            widthPx = 1080,
+            heightPx = 720,
+            marginFactor = 1.6f,
+            downsample = 4,
+        ) ?: error("Field should be built")
+
+        val bw = (1080f * 1.6f).roundToInt()
+        val bh = (720f * 1.6f).roundToInt()
+        // 纹理尺寸 = 放大后的屏幕 / downsample
+        assertEquals(bw / 4, field.image.width)
+        assertEquals(bh / 4, field.image.height)
+
+        // 锚点视口下，纹理左上角应落在放大屏幕的原点 (ox, oy)，即与锚点屏幕对齐
+        val ox = (bw - 1080) / 2f
+        val oy = (bh - 720) / 2f
+        val topLeft = projectNormalizedToScreen(
+            viewport = viewport,
+            normX = field.topLeftXNorm,
+            normY = field.topLeftYNorm,
+        ) ?: error("Projection failed")
+        assertEquals(ox, topLeft.x, 0.5f)
+        assertEquals(oy, topLeft.y, 0.5f)
+
+        // 锚点中心（屏幕中心）应落在纹理覆盖范围内
+        val center = projectCoordinateToScreen(
+            viewport = viewport,
+            latitude = 39.9,
+            longitude = 116.4,
+        ) ?: error("Projection failed")
+        assertTrue(center.x >= ox && center.x <= ox + bw)
+        assertTrue(center.y >= oy && center.y <= oy + bh)
+    }
+
+    @Test
     fun `wrapScreenXNear keeps antimeridian segments on the nearest world copy`() {
         val viewport = defaultGlobalHeatmapViewport(
             widthPx = 1080,
@@ -234,6 +293,19 @@ class GlobalHeatmapProjectionTest {
             referenceZoom = 5.0,
             earliestDate = Instant.parse("2026-04-06T00:00:00Z"),
             latestDate = Instant.parse("2026-04-06T00:00:00Z"),
+        )
+    }
+
+    private fun displayPoint(
+        identifier: String,
+        latitude: Double,
+        longitude: Double,
+    ): DisplayGeoMemoPoint {
+        return DisplayGeoMemoPoint(
+            identifier = identifier,
+            latitude = latitude,
+            longitude = longitude,
+            date = Instant.parse("2026-04-06T00:00:00Z"),
         )
     }
 }

@@ -1,8 +1,5 @@
 package site.lcyk.keer.ui.page.memos
 
-import android.graphics.Bitmap
-import android.os.SystemClock
-import android.view.MotionEvent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -12,10 +9,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MyLocation
@@ -30,60 +26,44 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
-import kotlin.math.exp
-import kotlin.math.ln
-import kotlin.math.max
-import kotlin.math.roundToInt
-import kotlin.math.sqrt
 import site.lcyk.keer.R
 import site.lcyk.keer.ext.string
 import site.lcyk.keer.ui.page.common.PageScaffold
-import site.lcyk.keer.util.DEFAULT_GLOBAL_HEATMAP_CENTER_LATITUDE
-import site.lcyk.keer.util.DEFAULT_GLOBAL_HEATMAP_CENTER_LONGITUDE
-import site.lcyk.keer.util.DEFAULT_GLOBAL_HEATMAP_ZOOM
-import site.lcyk.keer.util.ProjectedMemoPoint
-import site.lcyk.keer.util.buildGeoHeatBuckets
-import site.lcyk.keer.util.buildGeoHeatBucketsFromProjectedPoints
-import site.lcyk.keer.util.buildProjectedMemoPoints
-import site.lcyk.keer.util.defaultGlobalHeatmapViewport
+import site.lcyk.keer.util.HeatDensityField
+import site.lcyk.keer.util.buildHeatDensityField
 import site.lcyk.keer.util.panViewport
-import site.lcyk.keer.util.projectBucketsToScreen
+import site.lcyk.keer.util.projectCoordinateToScreen
+import site.lcyk.keer.util.projectNormalizedToScreen
 import site.lcyk.keer.util.scaleViewportAround
-import site.lcyk.keer.viewmodel.GeoHeatBucket
+import site.lcyk.keer.util.viewportWorldWidthPx
 import site.lcyk.keer.viewmodel.GlobalHeatmapUiState
 import site.lcyk.keer.viewmodel.GlobalHeatmapViewport
 import site.lcyk.keer.viewmodel.GlobalHeatmapViewModel
@@ -143,13 +123,11 @@ private fun OfflineHeatmapSurface(
     val basemapData = rememberOfflineGlobalBasemapData()
     val scope = rememberCoroutineScope()
     var interactiveViewport by remember { mutableStateOf(uiState.viewport) }
-    var committedBuckets by remember { mutableStateOf<List<GeoHeatBucket>>(emptyList()) }
+    var densityField by remember { mutableStateOf<HeatDensityField?>(null) }
+    var overlaySize by remember { mutableStateOf(IntSize.Zero) }
     var viewportCommitJob by remember { mutableStateOf<Job?>(null) }
     val colorScheme = MaterialTheme.colorScheme
 
-    // 分桶基于 interactiveViewport（与底图同一坐标系），screen 坐标可直接渲染，
-    // 避免拖动时分桶中心与投影中心不一致导致的错位/抖动。
-    val renderedBuckets = committedBuckets
     val basemapPalette = remember(colorScheme) {
         OfflineGlobalBasemapPalette(
             oceanTop = Color(0xFF0F223A),
@@ -178,15 +156,29 @@ private fun OfflineHeatmapSurface(
         interactiveViewport = uiState.viewport
     }
 
-    LaunchedEffect(uiState.normalizedPoints, interactiveViewport) {
-        committedBuckets = if (!interactiveViewport.hasSize()) {
-            emptyList()
-        } else {
-            withContext(Dispatchers.Default) {
-                buildGeoHeatBuckets(
+    // 密度场构建：KDE 位图按"锚点 viewport"栅格化（地理对齐），拖拽/缩放渲染时
+    // 只需对当前 viewport 做仿射变换，热力与底图严格同步；仅当缩放偏移或平移越界
+    // 才异步重建，避免拖拽时每帧重建导致的卡顿。
+    LaunchedEffect(uiState.normalizedPoints, overlaySize) {
+        while (isActive) {
+            val buildViewport = interactiveViewport
+            val canBuild = buildViewport.hasSize() &&
+                uiState.normalizedPoints.isNotEmpty() &&
+                overlaySize.width > 0 && overlaySize.height > 0
+            if (!canBuild) break
+            densityField = withContext(Dispatchers.Default) {
+                buildHeatDensityField(
                     points = uiState.normalizedPoints,
-                    viewport = interactiveViewport,
+                    viewport = buildViewport,
+                    widthPx = overlaySize.width,
+                    heightPx = overlaySize.height,
                 )
+            }
+            val built = densityField ?: break
+            // 等到 viewport 需要重建（缩放偏移 / 平移越界）再重建。
+            while (isActive) {
+                delay(GLOBAL_HEATMAP_RECOMPUTE_DELAY_MILLIS)
+                if (heatDensityFieldNeedsRebuild(interactiveViewport, built)) break
             }
         }
     }
@@ -194,6 +186,7 @@ private fun OfflineHeatmapSurface(
     Box(
         modifier = modifier
             .onSizeChanged { size ->
+                overlaySize = size
                 interactiveViewport = interactiveViewport.copy(
                     widthPx = size.width,
                     heightPx = size.height,
@@ -203,7 +196,7 @@ private fun OfflineHeatmapSurface(
                     heightPx = size.height,
                 )
             }
-            .pointerInput(renderedBuckets) {
+            .pointerInput(Unit) {
                 detectTapGestures(
                     onDoubleTap = { offset ->
                         val updated = scaleViewportAround(
@@ -241,11 +234,10 @@ private fun OfflineHeatmapSurface(
                 palette = basemapPalette,
                 data = basemapData,
             )
+            densityField?.let { field ->
+                drawHeatDensityField(field = field, viewport = interactiveViewport)
+            }
         }
-        GlobalHeatmapOverlay(
-            buckets = renderedBuckets,
-            modifier = Modifier.fillMaxSize(),
-        )
 
         GlobalHeatmapInfoChips(
             uiState = uiState,
@@ -260,93 +252,53 @@ private fun OfflineHeatmapSurface(
 
 private const val GLOBAL_HEATMAP_RECOMPUTE_DELAY_MILLIS = 84L
 private const val GLOBAL_HEATMAP_VIEWPORT_COMMIT_DELAY_MILLIS = 96L
-private const val GLOBAL_HEATMAP_DRAG_PROJECT_THROTTLE_MILLIS = 12L
+private const val GLOBAL_HEATMAP_ZOOM_REBUILD_SCALE = 1.28f
+private const val GLOBAL_HEATMAP_ZOOM_REBUILD_SCALE_INV = 0.78f
+private const val GLOBAL_HEATMAP_REBUILD_EDGE_PX = 48f
 
-@Composable
-private fun GlobalHeatmapOverlay(
-    buckets: List<GeoHeatBucket>,
-    modifier: Modifier = Modifier,
+/** 把地理对齐的密度场位图按当前 viewport 做仿射变换后绘制（scale + translate）。 */
+private fun DrawScope.drawHeatDensityField(
+    field: HeatDensityField,
+    viewport: GlobalHeatmapViewport,
 ) {
-    var overlaySize by remember { mutableStateOf(IntSize.Zero) }
-    // 核密度估计（KDE）密度场：每个桶的高斯贡献累加到低分辨率网格，
-    // 形成连续平滑的热力区（绿→黄→红按密度映射），比离散圆叠加更美观。
-    val densityImage = remember(buckets, overlaySize) {
-        if (overlaySize == IntSize.Zero) {
-            null
-        } else {
-            buildHeatDensityImage(
-                buckets = buckets,
-                widthPx = overlaySize.width,
-                heightPx = overlaySize.height,
-            )
-        }
+    val topLeft = projectNormalizedToScreen(
+        viewport = viewport,
+        normX = field.topLeftXNorm,
+        normY = field.topLeftYNorm,
+    ) ?: return
+    val zoomScale = (viewportWorldWidthPx(viewport).toDouble() / field.anchorScalePx).toFloat()
+    if (zoomScale <= 0f) return
+    withTransform({
+        translate(left = topLeft.x, top = topLeft.y)
+        scale(scaleX = zoomScale, scaleY = zoomScale, pivot = Offset.Zero)
+    }) {
+        drawImage(image = field.image)
     }
-    Canvas(
-        modifier = modifier.onSizeChanged { size -> overlaySize = size },
+}
+
+/** 缩放偏移超过阈值，或平移使屏幕边缘逼近纹理边界时，需要重建密度场。 */
+private fun heatDensityFieldNeedsRebuild(
+    viewport: GlobalHeatmapViewport,
+    field: HeatDensityField,
+): Boolean {
+    val zoomScale = viewportWorldWidthPx(viewport).toDouble() / field.anchorScalePx
+    if (
+        zoomScale > GLOBAL_HEATMAP_ZOOM_REBUILD_SCALE ||
+        zoomScale < GLOBAL_HEATMAP_ZOOM_REBUILD_SCALE_INV
     ) {
-        val image = densityImage
-        if (image != null) {
-            drawImage(
-                image = image,
-                dstSize = IntSize(size.width.toInt(), size.height.toInt()),
-            )
-        }
+        return true
     }
-}
-
-/**
- * 把桶列表渲染为低分辨率密度场位图（KDE 高斯累加），按密度映射"绿→黄→红"。
- */
-private fun buildHeatDensityImage(
-    buckets: List<GeoHeatBucket>,
-    widthPx: Int,
-    heightPx: Int,
-    downsample: Int = 4,
-): ImageBitmap {
-    val gw = max(1, widthPx / downsample)
-    val gh = max(1, heightPx / downsample)
-    val density = FloatArray(gw * gh)
-    val sigma = 3.0f
-    val radius = (sigma * 2.6f).toInt().coerceAtLeast(1)
-    for (bucket in buckets) {
-        val cx = (bucket.centerX / downsample).toInt()
-        val cy = (bucket.centerY / downsample).toInt()
-        // sqrt 压缩 memoCount 差异，避免少数高密度桶主导归一化。
-        val weight = sqrt(bucket.memoCount.toFloat())
-        for (dy in -radius..radius) {
-            for (dx in -radius..radius) {
-                val d2 = dx * dx + dy * dy
-                if (d2 > radius * radius) continue
-                val gauss = exp(-d2 / (2f * sigma * sigma)) * weight
-                val gx = cx + dx
-                val gy = cy + dy
-                if (gx in 0 until gw && gy in 0 until gh) {
-                    density[gy * gw + gx] += gauss
-                }
-            }
-        }
-    }
-    val maxDensity = density.maxOrNull() ?: 0f
-    val bitmap = Bitmap.createBitmap(gw, gh, Bitmap.Config.ARGB_8888)
-    if (maxDensity <= 0f) {
-        return bitmap.asImageBitmap()
-    }
-    val pixels = IntArray(gw * gh)
-    for (i in density.indices) {
-        // sqrt 提升中间密度：让更多区域进入绿→黄→红区间，避免全绿。
-        val raw = (density[i] / maxDensity).coerceIn(0f, 1f)
-        pixels[i] = heatColor(sqrt(raw))
-    }
-    bitmap.setPixels(pixels, 0, gw, 0, 0, gw, gh)
-    return bitmap.asImageBitmap()
-}
-
-private fun heatColor(t: Float): Int {
-    // 低密度透明（露出底图），中密度绿→黄，高密度红。
-    val alpha = (t * 255f).toInt().coerceIn(0, 255)
-    val red = if (t < 0.5f) (t / 0.5f * 255f).toInt() else 255
-    val green = if (t < 0.5f) 255 else (255f * (1f - (t - 0.5f) / 0.5f)).toInt()
-    return android.graphics.Color.argb(alpha, red, green, 0)
+    val anchorCenterScreen = projectCoordinateToScreen(
+        viewport = viewport,
+        latitude = field.anchorViewport.centerLatitude,
+        longitude = field.anchorViewport.centerLongitude,
+    ) ?: return false
+    val distX = anchorCenterScreen.x - viewport.widthPx / 2f
+    val distY = anchorCenterScreen.y - viewport.heightPx / 2f
+    val coveredHalfX = field.image.width / 2f * zoomScale.toFloat()
+    val coveredHalfY = field.image.height / 2f * zoomScale.toFloat()
+    return abs(distX) > coveredHalfX - viewport.widthPx / 2f - GLOBAL_HEATMAP_REBUILD_EDGE_PX ||
+        abs(distY) > coveredHalfY - viewport.heightPx / 2f - GLOBAL_HEATMAP_REBUILD_EDGE_PX
 }
 
 @Composable

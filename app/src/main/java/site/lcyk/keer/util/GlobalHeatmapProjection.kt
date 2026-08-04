@@ -1,13 +1,19 @@
 package site.lcyk.keer.util
 
+import android.graphics.Bitmap
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import java.time.Instant
 import kotlin.math.PI
 import kotlin.math.asin
 import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.ln
+import kotlin.math.max
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.sqrt
 import site.lcyk.keer.viewmodel.GeoHeatBucket
 import site.lcyk.keer.viewmodel.GlobalHeatmapViewport
 
@@ -287,6 +293,27 @@ fun projectCoordinateToScreen(
     )
 }
 
+fun projectNormalizedToScreen(
+    viewport: GlobalHeatmapViewport,
+    normX: Double,
+    normY: Double,
+): ProjectedScreenPoint? {
+    if (!viewport.hasSize()) {
+        return null
+    }
+    val center = latLonToNormalized(
+        latitude = viewport.centerLatitude,
+        longitude = viewport.centerLongitude,
+    )
+    val scalePx = viewportScalePx(viewport.zoom)
+    val deltaX = shortestWrappedDelta(normX, center.x)
+    val deltaY = normY - center.y
+    return ProjectedScreenPoint(
+        x = (viewport.widthPx / 2.0 + deltaX * scalePx).toFloat(),
+        y = (viewport.heightPx / 2.0 + deltaY * scalePx).toFloat(),
+    )
+}
+
 fun projectCoordinateToScreenWrapped(
     viewport: GlobalHeatmapViewport,
     latitude: Double,
@@ -481,4 +508,112 @@ private fun wrapUnit(value: Double): Double {
 private fun resolveBucketCellSizePx(zoom: Double): Float {
     val relativeZoom = 2.0.pow(zoom - DEFAULT_GLOBAL_HEATMAP_ZOOM)
     return (72.0 / relativeZoom).coerceIn(22.0, 84.0).toFloat()
+}
+
+/**
+ * 地理对齐的密度场纹理：在锚点 viewport 的屏幕空间（含边距）栅格化 KDE 位图。
+ * 因为归一化坐标→屏幕是纯线性映射（scale + translate），
+ * 拖拽/缩放时只需把这张位图对当前 viewport 做一次仿射变换即可渲染，
+ * 热力与底图严格同步、无需每帧重建，也不会有异步分桶导致的抖动。
+ */
+data class HeatDensityField(
+    val anchorViewport: GlobalHeatmapViewport,
+    val image: ImageBitmap,
+    /** 锚点缩放下每归一化单位的屏幕像素数（= 世界宽度的像素数）。 */
+    val anchorScalePx: Double,
+    /** 位图左上角对应的归一化坐标。 */
+    val topLeftXNorm: Double,
+    val topLeftYNorm: Double,
+)
+
+fun buildHeatDensityField(
+    points: List<NormalizedMemoPoint>,
+    viewport: GlobalHeatmapViewport,
+    widthPx: Int,
+    heightPx: Int,
+    marginFactor: Float = 1.6f,
+    downsample: Int = 4,
+): HeatDensityField? {
+    if (points.isEmpty() || widthPx <= 0 || heightPx <= 0 || !viewport.hasSize()) {
+        return null
+    }
+    val anchorScalePx = viewportScalePx(viewport.zoom)
+    val bw = max(1, (widthPx * marginFactor).roundToInt())
+    val bh = max(1, (heightPx * marginFactor).roundToInt())
+    val ox = (bw - widthPx) / 2f
+    val oy = (bh - heightPx) / 2f
+    val center = latLonToNormalized(viewport.centerLatitude, viewport.centerLongitude)
+    // 用放大的伪 viewport 分桶：锚点中心仍在 (bw/2, bh/2)，bucket 位于 [0,bw]×[0,bh]。
+    val buckets = buildGeoHeatBuckets(
+        points = points,
+        viewport = viewport.copy(widthPx = bw, heightPx = bh),
+    )
+    return HeatDensityField(
+        anchorViewport = viewport,
+        image = buildHeatDensityImage(
+            buckets = buckets,
+            widthPx = bw,
+            heightPx = bh,
+            downsample = downsample,
+        ),
+        anchorScalePx = anchorScalePx,
+        topLeftXNorm = center.x + (ox - widthPx / 2.0) / anchorScalePx,
+        topLeftYNorm = center.y + (oy - heightPx / 2.0) / anchorScalePx,
+    )
+}
+
+/**
+ * 把桶列表渲染为低分辨率密度场位图（KDE 高斯累加），按密度映射"绿→黄→红"。
+ * 桶的 centerX/centerY 位于 [0,widthPx]×[0,heightPx] 的栅格坐标空间。
+ */
+internal fun buildHeatDensityImage(
+    buckets: List<GeoHeatBucket>,
+    widthPx: Int,
+    heightPx: Int,
+    downsample: Int = 4,
+): ImageBitmap {
+    val gw = max(1, widthPx / downsample)
+    val gh = max(1, heightPx / downsample)
+    val density = FloatArray(gw * gh)
+    val sigma = 3.0f
+    val radius = (sigma * 2.6f).toInt().coerceAtLeast(1)
+    for (bucket in buckets) {
+        val cx = (bucket.centerX / downsample).toInt()
+        val cy = (bucket.centerY / downsample).toInt()
+        // sqrt 压缩 memoCount 差异，避免少数高密度桶主导归一化。
+        val weight = sqrt(bucket.memoCount.toFloat())
+        for (dy in -radius..radius) {
+            for (dx in -radius..radius) {
+                val d2 = dx * dx + dy * dy
+                if (d2 > radius * radius) continue
+                val gauss = exp(-d2 / (2f * sigma * sigma)) * weight
+                val gx = cx + dx
+                val gy = cy + dy
+                if (gx in 0 until gw && gy in 0 until gh) {
+                    density[gy * gw + gx] += gauss
+                }
+            }
+        }
+    }
+    val maxDensity = density.maxOrNull() ?: 0f
+    val bitmap = Bitmap.createBitmap(gw, gh, Bitmap.Config.ARGB_8888)
+    if (maxDensity <= 0f) {
+        return bitmap.asImageBitmap()
+    }
+    val pixels = IntArray(gw * gh)
+    for (i in density.indices) {
+        // sqrt 提升中间密度：让更多区域进入绿→黄→红区间，避免全绿。
+        val raw = (density[i] / maxDensity).coerceIn(0f, 1f)
+        pixels[i] = heatColor(sqrt(raw))
+    }
+    bitmap.setPixels(pixels, 0, gw, 0, 0, gw, gh)
+    return bitmap.asImageBitmap()
+}
+
+internal fun heatColor(t: Float): Int {
+    // 低密度透明（露出底图），中密度绿→黄，高密度红。
+    val alpha = (t * 255f).toInt().coerceIn(0, 255)
+    val red = if (t < 0.5f) (t / 0.5f * 255f).toInt() else 255
+    val green = if (t < 0.5f) 255 else (255f * (1f - (t - 0.5f) / 0.5f)).toInt()
+    return android.graphics.Color.argb(alpha, red, green, 0)
 }
