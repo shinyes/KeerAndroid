@@ -203,16 +203,17 @@ class GlobalHeatmapProjectionTest {
         assertEquals(bw / 4, field.image.width)
         assertEquals(bh / 4, field.image.height)
 
-        // 锚点视口下，纹理左上角应落在放大屏幕的原点 (ox, oy)，即与锚点屏幕对齐
-        val ox = (bw - 1080) / 2f
-        val oy = (bh - 720) / 2f
+        // 锚点视口下，纹理覆盖锚点屏幕 [leftX, leftX+bw]×[topY, topY+bh]，
+        // 左上角应落在屏幕左上（负坐标，即屏幕外左上方）。
+        val leftX = (1080 - bw) / 2f
+        val topY = (720 - bh) / 2f
         val topLeft = projectNormalizedToScreen(
             viewport = viewport,
             normX = field.topLeftXNorm,
             normY = field.topLeftYNorm,
         ) ?: error("Projection failed")
-        assertEquals(ox, topLeft.x, 0.5f)
-        assertEquals(oy, topLeft.y, 0.5f)
+        assertEquals(leftX, topLeft.x, 0.5f)
+        assertEquals(topY, topLeft.y, 0.5f)
 
         // 锚点中心（屏幕中心）应落在纹理覆盖范围内
         val center = projectCoordinateToScreen(
@@ -220,8 +221,8 @@ class GlobalHeatmapProjectionTest {
             latitude = 39.9,
             longitude = 116.4,
         ) ?: error("Projection failed")
-        assertTrue(center.x >= ox && center.x <= ox + bw)
-        assertTrue(center.y >= oy && center.y <= oy + bh)
+        assertTrue(center.x >= leftX && center.x <= leftX + bw)
+        assertTrue(center.y >= topY && center.y <= topY + bh)
     }
 
     @Test

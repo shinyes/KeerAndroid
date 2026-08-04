@@ -314,6 +314,21 @@ fun projectNormalizedToScreen(
     )
 }
 
+/** Web-Mercator 归一化坐标（世界 0..1）。 */
+data class NormalizedCoordinate(
+    val x: Double,
+    val y: Double,
+)
+
+/** 经纬度 → 归一化坐标（底图加载时一次性缓存用，避免每帧重算 sin/ln）。 */
+fun toNormalizedCoordinate(
+    latitude: Double,
+    longitude: Double,
+): NormalizedCoordinate {
+    val point = latLonToNormalized(latitude, longitude)
+    return NormalizedCoordinate(point.x, point.y)
+}
+
 fun projectCoordinateToScreenWrapped(
     viewport: GlobalHeatmapViewport,
     latitude: Double,
@@ -540,8 +555,6 @@ fun buildHeatDensityField(
     val anchorScalePx = viewportScalePx(viewport.zoom)
     val bw = max(1, (widthPx * marginFactor).roundToInt())
     val bh = max(1, (heightPx * marginFactor).roundToInt())
-    val ox = (bw - widthPx) / 2f
-    val oy = (bh - heightPx) / 2f
     val center = latLonToNormalized(viewport.centerLatitude, viewport.centerLongitude)
     // 用放大的伪 viewport 分桶：锚点中心仍在 (bw/2, bh/2)，bucket 位于 [0,bw]×[0,bh]。
     val buckets = buildGeoHeatBuckets(
@@ -557,8 +570,9 @@ fun buildHeatDensityField(
             downsample = downsample,
         ),
         anchorScalePx = anchorScalePx,
-        topLeftXNorm = center.x + (ox - widthPx / 2.0) / anchorScalePx,
-        topLeftYNorm = center.y + (oy - heightPx / 2.0) / anchorScalePx,
+        // 纹理左上角 = 锚点中心向西北移半幅（bw/2 锚点屏幕像素），即锚点屏幕坐标 -（bw/2 - widthPx/2）。
+        topLeftXNorm = center.x - (bw / 2.0) / anchorScalePx,
+        topLeftYNorm = center.y - (bh / 2.0) / anchorScalePx,
     )
 }
 
